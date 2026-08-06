@@ -33,7 +33,12 @@ export function newId(prefix: string): string {
 
 export function createTrack(pts: TrackPointsInput, meta: TrackMeta, originalCrs: Crs = 'wgs84'): Track {
   const n = pts.lon.length
-  if (pts.lat.length !== n || (pts.ele && pts.ele.length !== n) || (pts.time && pts.time.length !== n))
+  if (
+    pts.lat.length !== n ||
+    (pts.ele && pts.ele.length !== n) ||
+    (pts.time && pts.time.length !== n) ||
+    (pts.hr && pts.hr.length !== n)
+  )
     throw new Error(`point array length mismatch`)
   return {
     id: newId('trk'),

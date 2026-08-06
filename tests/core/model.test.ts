@@ -24,4 +24,9 @@ describe('createTrack', () => {
   it('throws on length mismatch', () => {
     expect(() => createTrack({ lon: [1, 2], lat: [3] }, { name: 'x', format: 'gpx', fileName: 'c' })).toThrow()
   })
+  it('throws on hr length mismatch', () => {
+    expect(() =>
+      createTrack({ lon: [1, 2, 3], lat: [1, 2, 3], hr: [100, 110] }, { name: 'x', format: 'gpx', fileName: 'd' }),
+    ).toThrow()
+  })
 })
