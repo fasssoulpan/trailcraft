@@ -1,6 +1,7 @@
 import { MapView } from './map/MapView'
 import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
+import { ProfileCanvas } from './profile/ProfileCanvas'
 import './App.css'
 
 function App() {
@@ -14,11 +15,9 @@ function App() {
         <div className="app-layout__map">
           <MapView />
         </div>
-        {/* Elevation profile placeholder: the next task adds a Canvas chart
-         * here, bidirectionally wired to appStore's hover state (reads it to
-         * draw its cursor, writes it when the user hovers the profile
-         * instead of the map). Left empty for now. */}
-        <div className="app-layout__profile-placeholder" />
+        <div className="app-layout__profile">
+          <ProfileCanvas />
+        </div>
       </div>
     </div>
   )
