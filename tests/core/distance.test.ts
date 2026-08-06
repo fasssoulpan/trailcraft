@@ -25,4 +25,13 @@ describe('locateByDist', () => {
     expect(locateByDist(cum, 0)).toBe(0)
     expect(locateByDist(cum, 999)).toBe(2)   // 末段起点
   })
+  it('exact interior boundary', () => {
+    expect(locateByDist(Float64Array.from([0, 100, 200, 300]), 100)).toBe(1)
+  })
+  it('length-1 array returns 0 regardless of dist', () => {
+    expect(locateByDist(Float64Array.from([0]), 5)).toBe(0)
+  })
+  it('length-0 array throws', () => {
+    expect(() => locateByDist(Float64Array.from([]), 5)).toThrow()
+  })
 })

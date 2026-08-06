@@ -18,6 +18,8 @@ export function computeCumDist(lon: Float64Array, lat: Float64Array): Float64Arr
 
 /** 返回 dist 所在段的起点索引(二分),dist 超界时夹到边界段 */
 export function locateByDist(cum: Float64Array, dist: number): number {
+  if (cum.length === 0) throw new Error('cumulative-distance array must have at least one point')
+  if (cum.length === 1) return 0
   let lo = 0, hi = cum.length - 1
   if (dist <= 0) return 0
   if (dist >= cum[hi]) return hi - 1
