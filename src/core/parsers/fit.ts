@@ -23,18 +23,19 @@ export function recordsToTrack(records: FitRecord[], fileName: string): Track {
   const time: number[] = []
   const hr: number[] = []
   let hasEle = false
+  let hasTime = false
   let hasHr = false
   for (const r of records) {
     if (typeof r.position_lat !== 'number' || typeof r.position_long !== 'number') continue
     lat.push(r.position_lat)
     lon.push(r.position_long)
     if (typeof r.altitude === 'number') { hasEle = true; ele.push(r.altitude) } else ele.push(NaN)
-    time.push(r.timestamp ? r.timestamp.getTime() : NaN)
+    if (r.timestamp) { hasTime = true; time.push(r.timestamp.getTime()) } else time.push(NaN)
     if (typeof r.heart_rate === 'number') { hasHr = true; hr.push(r.heart_rate) } else hr.push(0)
   }
   if (lon.length === 0) throw new Error(`FIT 无轨迹点: ${fileName}`)
   return createTrack(
-    { lon, lat, ele: hasEle ? ele : undefined, time, hr: hasHr ? hr : undefined },
+    { lon, lat, ele: hasEle ? ele : undefined, time: hasTime ? time : undefined, hr: hasHr ? hr : undefined },
     { name: fileName.replace(/\.fit$/i, ''), format: 'fit', fileName },
   )
 }

@@ -32,6 +32,15 @@ describe('recordsToTrack', () => {
     expect(t.points.hr).toBeUndefined()
   })
 
+  it('leaves time undefined when no record has a timestamp', () => {
+    const records = [
+      { position_lat: 39.99, position_long: 116.19, altitude: 116 },
+      { position_lat: 39.995, position_long: 116.20, altitude: 120 },
+    ]
+    const t = recordsToTrack(records, 'notime.fit')
+    expect(t.points.time).toBeUndefined()
+  })
+
   it('throws on empty records array', () => {
     expect(() => recordsToTrack([], 'empty.fit')).toThrow()
   })
