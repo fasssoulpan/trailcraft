@@ -92,6 +92,41 @@ describe('parseGpx', () => {
     const r2 = parseGpx(withoutHr, 'nohr.gpx')
     expect(r2.points.hr).toBeUndefined()
   })
+
+  it('parses scientific-notation elevation instead of losing it to NaN', () => {
+    const xml = `<?xml version="1.0"?>
+<gpx creator="Test" version="1.1">
+ <trk>
+  <name>sci ele</name>
+  <trkseg>
+   <trkpt lat="1.0" lon="2.0"><ele>1.5e3</ele></trkpt>
+   <trkpt lat="1.1" lon="2.1"><ele>-2.5E-1</ele></trkpt>
+  </trkseg>
+ </trk>
+</gpx>`
+    const r = parseGpx(xml, 'sciele.gpx')
+    expect(r.points.ele![0]).toBe(1500)
+    expect(r.points.ele![1]).toBeCloseTo(-0.25)
+  })
+
+  it('parses self-closing <trkpt/> tags with ele/time absent', () => {
+    const xml = `<?xml version="1.0"?>
+<gpx creator="Test" version="1.1">
+ <trk>
+  <name>self-closing</name>
+  <trkseg>
+   <trkpt lat="1.0" lon="2.0"/>
+   <trkpt lat="1.1" lon="2.1"/>
+  </trkseg>
+ </trk>
+</gpx>`
+    const r = parseGpx(xml, 'selfclosing.gpx')
+    expect(r.points.lon.length).toBe(2)
+    expect(Array.from(r.points.lon)).toEqual([2.0, 2.1])
+    expect(Array.from(r.points.lat)).toEqual([1.0, 1.1])
+    expect(r.points.ele).toBeUndefined()
+    expect(r.points.time).toBeUndefined()
+  })
 })
 
 const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'

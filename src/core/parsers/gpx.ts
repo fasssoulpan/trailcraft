@@ -1,10 +1,17 @@
 import { createTrack, type Track } from '../model/track'
 
-const ELE_RE = /<ele>(-?[\d.]+)<\/ele>/
+// Numeric literal shared by ele/lat/lon: optional sign, digits with optional
+// decimal point, and an optional scientific-notation exponent (e.g. "1.5e3",
+// "-2.5E-1"). Without the exponent part, a value like "1.5e3" fails to match
+// entirely (the literal "e3" breaks the immediately-following closing tag /
+// attribute-quote match), which silently drops the whole column instead of
+// just the one point.
+const NUM = String.raw`-?[\d.]+(?:[eE][-+]?\d+)?`
+const ELE_RE = new RegExp(`<ele>(${NUM})<\\/ele>`)
 const TIME_RE = /<time>([^<]+)<\/time>/
 const HR_RE = /<(?:\w+:)?hr>(\d+)<\/(?:\w+:)?hr>/
-const LAT_RE = /\blat="(-?[\d.]+)"/
-const LON_RE = /\blon="(-?[\d.]+)"/
+const LAT_RE = new RegExp(`\\blat="(${NUM})"`)
+const LON_RE = new RegExp(`\\blon="(${NUM})"`)
 
 // Single-pass regex over the whole document: matches either a self-closing
 // `<trkpt .../>` (group 1 = attrs, no body) or a paired `<trkpt ...>...</trkpt>`
