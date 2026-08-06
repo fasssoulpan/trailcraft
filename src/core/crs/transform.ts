@@ -51,12 +51,14 @@ export function gcj02ToWgs84(lon: number, lat: number): [number, number] {
 }
 
 export function gcj02ToBd09(lon: number, lat: number): [number, number] {
+  if (outOfChina(lon, lat)) return [lon, lat]
   const z = Math.sqrt(lon * lon + lat * lat) + 0.00002 * Math.sin(lat * xPI)
   const theta = Math.atan2(lat, lon) + 0.000003 * Math.cos(lon * xPI)
   return [z * Math.cos(theta) + 0.0065, z * Math.sin(theta) + 0.006]
 }
 
 export function bd09ToGcj02(lon: number, lat: number): [number, number] {
+  if (outOfChina(lon, lat)) return [lon, lat]
   const x = lon - 0.0065
   const y = lat - 0.006
   const z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * xPI)
