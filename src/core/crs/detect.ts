@@ -3,9 +3,18 @@ import type { Crs } from '../model/track'
 export interface DetectInput { creator?: string; fileName?: string }
 export interface DetectResult { crs: Crs; confidence: 'high' | 'unknown'; reason: string }
 
-const WGS84_PAT = /coros|garmin|suunto|strava|polar|wahoo|amazfit|huami|apple|gpx.?studio|caltopo|komoot/i
-const GCJ02_PAT = /两步路|foooooot|六只脚|lvye|行者|imxingzhe|xingzhe|奥维|ovital|高德|amap|keep/i
-const BD09_PAT = /百度|baidu/i
+// Latin alternatives are wrapped with letter-based boundaries `(?<![a-zA-Z])...(?![a-zA-Z])`
+// so a pattern like "apple" doesn't match as a bare substring inside e.g. "Snapple
+// Fitness" (which would otherwise silently produce a high-confidence, wrong CRS
+// guess). Plain `\b` isn't used because it treats digits/underscore as word
+// characters too, which would break real filenames like "foooooot_12345.kml".
+// CJK alternatives are intentionally left as bare substrings: `\b` does not behave
+// usefully against CJK scripts (there is no letter/non-letter distinction to anchor
+// on), and CJK app names are unlikely to collide as accidental substrings the way
+// short Latin words do.
+const WGS84_PAT = /(?<![a-zA-Z])(?:coros|garmin|suunto|strava|polar|wahoo|amazfit|huami|apple|gpx.?studio|caltopo|komoot)(?![a-zA-Z])/i
+const GCJ02_PAT = /两步路|六只脚|行者|奥维|高德|(?<![a-zA-Z])(?:foooooot|lvye|imxingzhe|xingzhe|ovital|amap|keep)(?![a-zA-Z])/i
+const BD09_PAT = /百度|(?<![a-zA-Z])baidu(?![a-zA-Z])/i
 
 export function detectCrs(input: DetectInput, sourceMemory: Record<string, Crs>): DetectResult {
   const sig = `${input.creator ?? ''} ${input.fileName ?? ''}`

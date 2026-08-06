@@ -6,6 +6,12 @@ export interface TrackPoints {
   lat: Float64Array
   ele?: Float32Array          // 米,缺失整列 undefined,单点缺失 NaN
   time?: Float64Array         // epoch ms,同上
+  /**
+   * 心率(bpm)。Uint16Array 无法表示 NaN,因此此字段使用 0 作为"本点无心率读数"
+   * 的哨兵值,而不是 ele/time 所用的逐点 NaN 缺失约定 —— 0 在这里永远表示"缺失",
+   * 不表示"心率读数为 0"。做图表/求平均等下游处理时需要显式过滤掉 0,不能当作
+   * 有效数据点。
+   */
   hr?: Uint16Array
   /** 累计里程(米),由 geo 模块计算后挂载 */
   cumDist?: Float64Array

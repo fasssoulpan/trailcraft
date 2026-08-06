@@ -26,4 +26,22 @@ describe('detectCrs', () => {
     const r = detectCrs({ creator: '百度地图 高德' }, {})
     expect(r.crs).toBe('bd09')
   })
+
+  it('"Snapple Fitness" does not falsely match the "apple" pattern as a substring', () => {
+    // Falls through to the default wgs84/unknown - the point is it must NOT be
+    // a high-confidence match caused by "apple" matching inside "Snapple".
+    const r = detectCrs({ creator: 'Snapple Fitness', fileName: 'a.gpx' }, {})
+    expect(r.confidence).toBe('unknown')
+    expect(r.reason).toBe('no signal; require user confirm')
+  })
+
+  it('existing positive cases still match after adding word boundaries', () => {
+    expect(detectCrs({ creator: 'COROS Wearables', fileName: 'a.gpx' }, {}).crs).toBe('wgs84')
+    expect(detectCrs({ creator: 'COROS Wearables', fileName: 'a.gpx' }, {}).confidence).toBe('high')
+    expect(detectCrs({ fileName: 'foooooot_12345.kml' }, {}).crs).toBe('gcj02')
+    expect(detectCrs({ fileName: 'baidu_track_2024.gpx' }, {}).crs).toBe('bd09')
+    expect(detectCrs({ fileName: 'baidu_track_2024.gpx' }, {}).confidence).toBe('high')
+    expect(detectCrs({ fileName: '我的两步路轨迹记录20240912.gpx' }, {}).crs).toBe('gcj02')
+    expect(detectCrs({ fileName: '我的两步路轨迹记录20240912.gpx' }, {}).confidence).toBe('high')
+  })
 })

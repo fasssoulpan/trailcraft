@@ -5,6 +5,13 @@ const a = 6378245.0
 const ee = 0.00669342162296594323
 const xPI = (Math.PI * 3000.0) / 180.0
 
+// NOTE: this is a bounding rectangle, not a border. It contains parts of
+// Mongolia, Vietnam, Laos, Myanmar, Nepal and Kazakhstan, so points just
+// across those countries' borders (but still inside the rectangle) are
+// treated as "in China" and get GCJ-02/BD-09 shifted anyway. Practical
+// consequence: a track that crosses one of those international borders will
+// show a visible kink where it crosses the rectangle edge, since points on
+// one side get shifted and points on the other don't.
 export function outOfChina(lon: number, lat: number): boolean {
   return !(lon > 73.66 && lon < 135.05 && lat > 3.86 && lat < 53.55)
 }
