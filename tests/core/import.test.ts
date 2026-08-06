@@ -51,4 +51,24 @@ describe('importFile', () => {
     expect(track.points.lon.length).toBe(3)
     expect(track.points.cumDist).toBeDefined()
   })
+
+  it('no-conversion path does not mutate the parser-returned points object', async () => {
+    const direct = parseGpx(mini, 'mini.gpx')
+    expect(direct.points.cumDist).toBeUndefined()
+    const { track } = await importFile('mini.gpx', mini, {})
+    expect(track.points.cumDist).toBeDefined()
+    // The object returned by parseGpx (a fresh parse) must remain untouched.
+    expect(direct.points.cumDist).toBeUndefined()
+  })
+
+  it('rejects an ArrayBuffer payload for a .gpx file with a clear message', async () => {
+    const buf = new ArrayBuffer(8)
+    await expect(importFile('mini.gpx', buf, {})).rejects.toThrow(/string/i)
+    await expect(importFile('mini.gpx', buf, {})).rejects.toThrow(/mini\.gpx/)
+  })
+
+  it('rejects a string payload for a .fit file with a clear message', async () => {
+    await expect(importFile('a.fit', 'not-a-buffer', {})).rejects.toThrow(/ArrayBuffer/i)
+    await expect(importFile('a.fit', 'not-a-buffer', {})).rejects.toThrow(/a\.fit/)
+  })
 })

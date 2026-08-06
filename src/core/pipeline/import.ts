@@ -8,16 +8,33 @@ import type { Crs, Track } from '../model/track'
 
 export interface ImportResult { track: Track; detect: DetectResult }
 
+function payloadTypeName(data: unknown): string {
+  if (typeof data === 'string') return 'string'
+  if (data instanceof ArrayBuffer) return 'ArrayBuffer'
+  return Object.prototype.toString.call(data)
+}
+
 export async function importFile(
   fileName: string, data: string | ArrayBuffer,
   sourceMemory: Record<string, Crs>, forcedCrs?: Crs,
 ): Promise<ImportResult> {
   const ext = fileName.toLowerCase().split('.').pop()
   let track: Track
-  if (ext === 'gpx') track = parseGpx(data as string, fileName)
-  else if (ext === 'kml') track = parseKml(data as string, fileName)
-  else if (ext === 'fit') track = await parseFit(data as ArrayBuffer, fileName)
-  else throw new Error(`不支持的格式: ${ext}`)
+  if (ext === 'gpx' || ext === 'kml') {
+    if (typeof data !== 'string')
+      throw new Error(
+        `${ext} 解析需要 string 类型的数据,实际收到 ${payloadTypeName(data)}: ${fileName}`,
+      )
+    track = ext === 'gpx' ? parseGpx(data, fileName) : parseKml(data, fileName)
+  } else if (ext === 'fit') {
+    if (!(data instanceof ArrayBuffer))
+      throw new Error(
+        `fit 解析需要 ArrayBuffer 类型的数据,实际收到 ${payloadTypeName(data)}: ${fileName}`,
+      )
+    track = await parseFit(data, fileName)
+  } else {
+    throw new Error(`不支持的格式: ${ext}`)
+  }
 
   const detect = forcedCrs
     ? { crs: forcedCrs, confidence: 'high' as const, reason: 'user forced' }
@@ -27,6 +44,6 @@ export async function importFile(
     const { lon, lat } = convertTrackArrays(track.points.lon, track.points.lat, detect.crs, 'wgs84')
     track = { ...track, originalCrs: detect.crs, points: { ...track.points, lon, lat } }
   }
-  track.points.cumDist = computeCumDist(track.points.lon, track.points.lat)
+  track = { ...track, points: { ...track.points, cumDist: computeCumDist(track.points.lon, track.points.lat) } }
   return { track, detect }
 }
