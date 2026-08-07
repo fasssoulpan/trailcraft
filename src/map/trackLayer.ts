@@ -59,6 +59,122 @@ function trackToFeature(t: Track): Feature<LineString> {
 // only fit bounds to genuinely new tracks, not on every re-render).
 const knownTrackIds = new WeakMap<MapLibreMap, Set<string>>()
 
+// The most recently added track that still needs its camera fit, keyed per
+// map instance. Set whenever a genuinely new track is synced in; cleared
+// once `tryPendingFit` successfully places the camera on it. This is
+// deliberately separate from `knownTrackIds` (which tracks layer
+// add/remove) -- a track can be fully drawn (source+layer present) while
+// its fit is still pending, because the container had zero usable area at
+// sync time (see `tryPendingFit`'s doc comment for why that happens and why
+// a plain "fit once, on add" can't be the whole story).
+const pendingFit = new WeakMap<MapLibreMap, string>()
+
+/** Minimum container dimension (css px) below which a camera fit isn't
+ * attempted at all -- anything smaller and the derived zoom/center math
+ * degenerates (division by ~0). */
+const MIN_USABLE_PX = 2
+
+const FIT_PADDING = 40
+
+function containerSize(map: MapLibreMap): { width: number; height: number } {
+  const el = map.getContainer()
+  return { width: el.clientWidth, height: el.clientHeight }
+}
+
+function canvasUsable(map: MapLibreMap): boolean {
+  const { width, height } = containerSize(map)
+  return width >= MIN_USABLE_PX && height >= MIN_USABLE_PX
+}
+
+function boundsFromCoords(coords: [number, number][]): LngLatBounds | undefined {
+  if (coords.length === 0) return undefined
+  return coords.reduce((b, c) => b.extend(c), new LngLatBounds(coords[0], coords[0]))
+}
+
+/**
+ * Zoom level (Web Mercator / MapLibre convention, 0 = whole world in one
+ * 256px tile) at which `bounds` just fits inside a `width` x `height`
+ * viewport, ignoring padding. Only used as a fallback when there isn't
+ * enough room to honour normal padding (see `fitCamera`) -- this is the
+ * same "fraction of the world the bounds span, in each axis" calculation
+ * MapLibre's own `cameraForBounds` does internally, reimplemented here
+ * because we need to call it in the exact case where MapLibre's own
+ * `fitBounds` has already been ruled out.
+ */
+function zoomForBounds(bounds: LngLatBounds, width: number, height: number): number {
+  const WORLD_PX = 256
+  const latRad = (lat: number) => (lat * Math.PI) / 180
+  const sn = Math.sin(latRad(bounds.getNorth()))
+  const ss = Math.sin(latRad(bounds.getSouth()))
+  const latFraction = (Math.log((1 + sn) / (1 - sn)) - Math.log((1 + ss) / (1 - ss))) / (2 * Math.PI)
+  const lngDiffRaw = bounds.getEast() - bounds.getWest()
+  const lngFraction = (lngDiffRaw < 0 ? lngDiffRaw + 360 : lngDiffRaw) / 360
+
+  const latZoom = Math.log2(height / WORLD_PX / (Math.abs(latFraction) || 1e-9))
+  const lngZoom = Math.log2(width / WORLD_PX / (Math.abs(lngFraction) || 1e-9))
+  return Math.max(0, Math.min(20, Math.min(latZoom, lngZoom)))
+}
+
+/**
+ * Fit the map's camera to `bounds`, robust to the container being too small
+ * for `fitBounds`' padding to make sense.
+ *
+ * MapLibre's `fitBounds` silently leaves the camera untouched (logs "Map
+ * cannot fit within canvas" and returns) when the requested padding would
+ * consume more space than the container actually has -- this is exactly
+ * what happens right after mount, before the flex/CSS layout has given the
+ * map container real dimensions, and it is indistinguishable from success
+ * unless the caller checks first. When that's the case here, fall back to a
+ * direct `jumpTo` with a center/zoom computed straight from the bounds
+ * (ignoring padding entirely) so the camera still ends up on the track
+ * instead of silently staying at the default view.
+ */
+function fitCamera(map: MapLibreMap, bounds: LngLatBounds): void {
+  const { width, height } = containerSize(map)
+  const availW = width - FIT_PADDING * 2
+  const availH = height - FIT_PADDING * 2
+  if (availW > 0 && availH > 0) {
+    map.fitBounds(bounds, { padding: FIT_PADDING, duration: 300 })
+    return
+  }
+  const center = bounds.getCenter()
+  const zoom = zoomForBounds(bounds, Math.max(width, 1), Math.max(height, 1))
+  map.jumpTo({ center, zoom })
+}
+
+/**
+ * Attempts to fit the camera onto whichever track is currently owed a fit
+ * (see `pendingFit`), but only once the map container has a usable size.
+ * No-ops if there's nothing pending, or the container is still too small
+ * (e.g. a 60x0px container mid-layout, or a resizable pane dragged below
+ * its minimum) -- the pending marker is left in place so a later call
+ * (typically from the `ResizeObserver`-driven `map.resize()` in MapView,
+ * or the next track sync) gets another chance.
+ *
+ * Exported so MapView can call this after every `map.resize()`: MapLibre
+ * does not re-fit on its own when the container is resized, and a track
+ * imported while the map was too small to fit (see above) would otherwise
+ * stay stranded at the default view forever, even after the container
+ * becomes usable.
+ */
+export function tryPendingFit(map: MapLibreMap, tracks: Track[]): void {
+  const trackId = pendingFit.get(map)
+  if (!trackId) return
+  if (!canvasUsable(map)) return
+  const track = tracks.find((t) => t.id === trackId)
+  if (!track) {
+    pendingFit.delete(map) // removed before it ever got fit
+    return
+  }
+  const bounds = boundsFromCoords(renderCopy(track).coords)
+  if (!bounds) {
+    pendingFit.delete(map)
+    return
+  }
+  fitCamera(map, bounds)
+  pendingFit.delete(map)
+}
+
 /**
  * One GeoJSON source + line layer per track (id `trk-${track.id}`).
  * - Existing sources are updated in place via `setData` (cheap, no
@@ -67,7 +183,9 @@ const knownTrackIds = new WeakMap<MapLibreMap, Set<string>>()
  * - Sources/layers for tracks no longer in `tracks` are removed so the map
  *   doesn't accumulate stale layers as tracks get deleted.
  * - The most recently added track (i.e. present now but not in the
- *   previously-known set) gets `fitBounds`.
+ *   previously-known set) is queued for a camera fit via `pendingFit` /
+ *   `tryPendingFit` -- see those for why this is deferred rather than
+ *   fitting inline.
  *
  * Caller must guard against calling this before the style has parsed (the
  * `'style.load'` event - NOT `map.isStyleLoaded()` or the `'load'` event,
@@ -112,16 +230,8 @@ export function syncTrackLayers(map: MapLibreMap, tracks: Track[]): void {
   })
   knownTrackIds.set(map, seen)
 
-  if (newestTrack) {
-    const coords = renderCopy(newestTrack).coords
-    if (coords.length > 0) {
-      const bounds = coords.reduce(
-        (b, c) => b.extend(c),
-        new LngLatBounds(coords[0], coords[0]),
-      )
-      map.fitBounds(bounds, { padding: 40, duration: 300 })
-    }
-  }
+  if (newestTrack) pendingFit.set(map, newestTrack.id)
+  tryPendingFit(map, tracks)
 }
 
 const EARTH_CIRCUMFERENCE_M = 40075016.686

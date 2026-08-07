@@ -15,6 +15,7 @@ import {
   syncCpMarkers,
   syncHoverMarker,
   syncTrackLayers,
+  tryPendingFit,
   HOVER_GRAB_PX,
 } from './trackLayer'
 
@@ -151,6 +152,27 @@ export function MapView() {
     }
     map.on('style.load', handleStyleLoad)
 
+    // MapLibre never notices its own container being resized -- it keeps
+    // rendering at whatever backing-canvas size it had at creation/last
+    // `resize()` call, so a container that grows or shrinks (the sidebar
+    // and profile splitters added alongside this, or just the segment-table
+    // panel expanding) leaves the map either letterboxed or clipped until
+    // something explicitly tells it to remeasure. `map.resize()` is that
+    // "something"; it's cheap to call on every observed size change.
+    //
+    // This is also what makes a track that arrived while the container was
+    // too small to fit (e.g. the 60x0px window mid-layout that motivated
+    // `tryPendingFit` in trackLayer.ts) eventually get its camera fit: once
+    // the container becomes usable, resize() fires, and this handler gives
+    // the pending fit its next chance to run.
+    const ro = new ResizeObserver(() => {
+      const m = mapRef.current
+      if (!m) return
+      m.resize()
+      tryPendingFit(m, tracksRef.current)
+    })
+    ro.observe(container)
+
     // Tile/source errors (e.g. the OSM basemap CDN being unreachable) must
     // not be silent: the app's own layers render independently of the
     // basemap (see the `loadedRef` gate below), so without this the user
@@ -234,6 +256,7 @@ export function MapView() {
 
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId)
+      ro.disconnect()
       map.off('style.load', handleStyleLoad)
       map.off('error', handleError)
       map.off('mousemove', handleMouseMove)
