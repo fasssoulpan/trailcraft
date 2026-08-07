@@ -442,3 +442,41 @@
   color: #dc2626;
   font-weight: 600;
 }
+
+.project-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.project-toolbar__name {
+  font-weight: 500;
+}
+
+.project-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.project-toolbar__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.project-toolbar__hint {
+  color: var(--text);
+  font-size: 12px;
+  margin: 0;
+}

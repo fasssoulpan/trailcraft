@@ -71,6 +71,19 @@ interface AppState {
   setStatsOptions(patch: Partial<StatsOptions>): void
   setPaceParams(patch: Partial<PaceParams>): void
   setRaceStartTime(iso: string): void
+  /**
+   * 整体替换为一个刚加载/导入的工程:tracks/cps/paceParams/statsOptions 全部
+   * 替换,并清空撤销历史——旧工程的撤销栈对新工程的内容没有意义,留着反而
+   * 可能让用户 undo 回到"上一个工程"的状态,数据来源完全不同,不该混在
+   * 同一条历史里。
+   */
+  loadProjectData(data: {
+    tracks: Track[]
+    cps: CheckPoint[]
+    paceParams: PaceParams
+    statsOptions: StatsOptions
+    raceStartTime?: string
+  }): void
   undo(): void
   redo(): void
 }
@@ -246,6 +259,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 配速参数/起跑时间同理:纯展示态调参,不入撤销栈。
   setPaceParams: (patch) => set((s) => ({ paceParams: { ...s.paceParams, ...patch } })),
   setRaceStartTime: (iso) => set({ raceStartTime: iso }),
+
+  loadProjectData: (data) =>
+    set({
+      tracks: data.tracks,
+      cps: data.cps,
+      paceParams: data.paceParams,
+      statsOptions: data.statsOptions,
+      raceStartTime: data.raceStartTime ?? get().raceStartTime,
+      activeTrackId: data.tracks[0]?.id,
+      hover: undefined,
+      history: new History<EditableState>(),
+      canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined,
+    }),
 
   undo: () => {
     const s = get()
