@@ -4,6 +4,7 @@ import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
 import { ToolboxPanel } from './ui/ToolboxPanel'
 import { CpPanel } from './ui/CpPanel'
+import { PacePanel } from './ui/PacePanel'
 import { SegmentTable } from './ui/SegmentTable'
 import { ProfileCanvas } from './profile/ProfileCanvas'
 import './App.css'
@@ -21,6 +22,7 @@ function App() {
         <TrackList />
         <ToolboxPanel />
         <CpPanel />
+        <PacePanel />
       </aside>
       <div className="app-layout__main">
         <div className="app-layout__map">

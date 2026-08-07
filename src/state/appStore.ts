@@ -3,6 +3,8 @@ import { newId, type Crs, type Track } from '../core/model/track'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
 import type { StatsOptions } from '../core/stats/segments'
+import type { PaceParams } from '../core/pace/models'
+import { defaultLocalTimeToday } from '../core/util/localTime'
 import { History } from './history'
 
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
@@ -21,6 +23,15 @@ export interface EditableState {
 
 const DEFAULT_STATS_OPTIONS: StatsOptions = { threshold: 5, smoothWindow: 5 }
 
+/** 配速面板的默认参数:实用档、6 分/公里平路配速、VAM 600 m/h、下坡每米 0.25 秒、每小时 3% 疲劳减速。 */
+const DEFAULT_PACE_PARAMS: PaceParams = {
+  model: 'practical',
+  flatPaceSecPerKm: 360,
+  vamMPerH: 600,
+  descentFactor: 0.25,
+  fatiguePctPerHour: 3,
+}
+
 interface AppState {
   tracks: Track[]
   activeTrackId?: string
@@ -28,6 +39,13 @@ interface AppState {
   sourceMemory: Record<string, Crs>
   cps: CheckPoint[]
   statsOptions: StatsOptions
+  /**
+   * 配速面板参数与起跑时间是纯 UI 设置(用户随时可调、调完直接生效,没有
+   * "撤销这次调参"的心智模型),因此和 statsOptions 一样刻意放在撤销历史
+   * 之外——EditableState 只覆盖 tracks/cps。
+   */
+  paceParams: PaceParams
+  raceStartTime: string
   canUndo: boolean
   canRedo: boolean
   undoLabel?: string
@@ -51,6 +69,8 @@ interface AppState {
   removeCp(id: string): void
   reorderCp(id: string, direction: -1 | 1): void
   setStatsOptions(patch: Partial<StatsOptions>): void
+  setPaceParams(patch: Partial<PaceParams>): void
+  setRaceStartTime(iso: string): void
   undo(): void
   redo(): void
 }
@@ -139,6 +159,7 @@ function resolveActiveTrackAfterOp(tracks: Track[], oldActiveIdx: number): Track
 
 export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
+  paceParams: DEFAULT_PACE_PARAMS, raceStartTime: defaultLocalTimeToday(6, 0),
   canUndo: false, canRedo: false, history: new History<EditableState>(),
   addTrack: (t) => set((s) => ({ tracks: [...s.tracks, t], activeTrackId: t.id })),
   removeTrack: (id) => {
@@ -221,6 +242,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // 阈值/平滑窗口是纯展示态的调参,不需要走撤销栈(调参本身可随时再调回去)。
   setStatsOptions: (patch) => set((s) => ({ statsOptions: { ...s.statsOptions, ...patch } })),
+
+  // 配速参数/起跑时间同理:纯展示态调参,不入撤销栈。
+  setPaceParams: (patch) => set((s) => ({ paceParams: { ...s.paceParams, ...patch } })),
+  setRaceStartTime: (iso) => set({ raceStartTime: iso }),
 
   undo: () => {
     const s = get()
