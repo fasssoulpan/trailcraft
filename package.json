@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@turf/turf": "^7.4.0",
+    "cesium": "^1.144.0",
     "fit-file-parser": "^4.1.0",
     "idb": "^8.0.3",
     "maplibre-gl": "^6.1.0",
@@ -32,6 +33,7 @@
     "prettier": "^3.9.6",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
+    "vite-plugin-static-copy": "^4.1.1",
     "vitest": "^4.1.10"
   }
 }
