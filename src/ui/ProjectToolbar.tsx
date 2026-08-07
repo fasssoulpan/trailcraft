@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { serializeProject, deserializeProject, type ProjectFile } from '../core/model/project'
 import { saveProject, loadProject, listProjects } from '../state/persist'
 import { trackToGpx } from '../core/export/gpxExport'
 import type { Crs } from '../core/model/track'
+import { deriveDefaultProjectName } from './projectName'
 
 /**
  * Blob + object URL 是本项目"无后端"约束下下载文件的唯一方式(见 core/export
@@ -29,12 +30,29 @@ export function ProjectToolbar() {
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const loadProjectData = useAppStore((s) => s.loadProjectData)
 
-  const [projectName, setProjectName] = useState('未命名工程')
+  const [projectName, setProjectName] = useState(() => deriveDefaultProjectName(undefined))
+  // Whether the user has ever manually touched the name field (typed into
+  // it, or opened/imported a project that comes with its own saved name).
+  // Once true, importing/switching tracks must stop silently overriding
+  // whatever name is currently showing -- otherwise the very "derive from
+  // the active track" fix meant to reduce name collisions would itself
+  // clobber a name the user deliberately chose.
+  const [nameTouched, setNameTouched] = useState(false)
   const [message, setMessage] = useState<string | undefined>()
   const [projectList, setProjectList] = useState<string[] | undefined>()
   const [gpxCrs, setGpxCrs] = useState<Crs>('wgs84')
 
   const importFileRef = useRef<HTMLInputElement>(null)
+
+  const activeTrack = tracks.find((t) => t.id === activeTrackId)
+
+  // Keep the default name following the active track's name (see
+  // src/ui/projectName.ts for why) as long as the user hasn't overridden it.
+  useEffect(() => {
+    if (nameTouched) return
+    setProjectName(deriveDefaultProjectName(activeTrack?.meta.name))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTrack?.meta.name, nameTouched])
 
   function currentProjectFile(): ProjectFile {
     return serializeProject(projectName, tracks, cps, paceParams, statsOptions, raceStartTime)
@@ -42,6 +60,18 @@ export function ProjectToolbar() {
 
   async function handleSave() {
     try {
+      // db.put('projects', project, project.properties.name) in persist.ts
+      // keys projects by name -- saving under a name that already exists
+      // silently replaces its entire content with no way to recover the
+      // original. Ask before that happens; only proceed on confirmation.
+      const existingNames = await listProjects()
+      if (existingNames.includes(projectName)) {
+        const confirmed = window.confirm(`工程 "${projectName}" 已存在，保存将覆盖原有内容，确定要覆盖吗？`)
+        if (!confirmed) {
+          setMessage('已取消保存')
+          return
+        }
+      }
       await saveProject(currentProjectFile())
       setMessage(`已保存工程 "${projectName}"`)
     } catch (err) {
@@ -67,6 +97,7 @@ export function ProjectToolbar() {
       }
       loadProjectData(deserializeProject(p))
       setProjectName(name)
+      setNameTouched(true) // an explicitly-opened project's name must stick
       setProjectList(undefined)
       setMessage(`已打开工程 "${name}"`)
     } catch (err) {
@@ -83,6 +114,7 @@ export function ProjectToolbar() {
       const parsed = JSON.parse(await file.text()) as ProjectFile
       loadProjectData(deserializeProject(parsed))
       setProjectName(parsed.properties.name)
+      setNameTouched(true) // an explicitly-imported project's name must stick
       setMessage(`已导入工程 "${parsed.properties.name}"`)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err))
@@ -108,7 +140,10 @@ export function ProjectToolbar() {
         type="text"
         className="project-toolbar__name"
         value={projectName}
-        onChange={(e) => setProjectName(e.target.value)}
+        onChange={(e) => {
+          setNameTouched(true)
+          setProjectName(e.target.value)
+        }}
         placeholder="工程名称"
       />
       <div className="project-toolbar__row">
