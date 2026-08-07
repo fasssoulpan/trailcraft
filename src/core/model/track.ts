@@ -17,7 +17,21 @@ export interface TrackPoints {
   cumDist?: Float64Array
 }
 
-export interface TrackMeta { name: string; format: TrackFormat; fileName: string; creator?: string }
+export interface TrackMeta {
+  name: string
+  format: TrackFormat
+  fileName: string
+  creator?: string
+  /**
+   * 展示态属性(线条颜色/粗细),不是导入产生的数据本身——放在 meta 上是
+   * 为了让 `core/toolbox/ops.ts` 的每个操作(它们统一用 `{ ...src.meta, name: ... }`
+   * 派生新 Track 的 meta)自动带上,不用逐个操作单独处理。缺失时由
+   * `core/model/trackStyle.ts` 的 `backfillTrackStyles` 兜底分配默认值——
+   * 因此这里保持可选,不强制所有 Track 构造点都显式传。
+   */
+  color?: string
+  lineWidth?: number
+}
 
 export interface Track {
   id: string

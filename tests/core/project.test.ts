@@ -114,6 +114,31 @@ describe('serializeProject / deserializeProject', () => {
     expect(back.raceStartTime).toBeUndefined()
   })
 
+  it('round-trip preserves per-track colour and lineWidth (TrackMeta.color/lineWidth)', () => {
+    // color/lineWidth live on TrackMeta and TrackFeatureProperties.meta is
+    // the whole TrackMeta object (see project.ts's trackToFeature /
+    // featureToTrack), so this is really a regression guard against someone
+    // narrowing that to an explicit field list and dropping the two
+    // presentation fields by accident.
+    const t = createTrack(
+      { lon: [116.1, 116.2], lat: [39.9, 39.91] },
+      { name: '彩色轨迹', format: 'gpx', fileName: 'c.gpx', color: '#9333ea', lineWidth: 5 },
+      'wgs84',
+    )
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    expect(tracks[0].meta.color).toBe('#9333ea')
+    expect(tracks[0].meta.lineWidth).toBe(5)
+  })
+
+  it('a track saved before color/lineWidth existed round-trips with both still undefined (not resurrected as defaults)', () => {
+    const t = trackWithoutEle() // no color/lineWidth set, like an old project file's track
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    expect(tracks[0].meta.color).toBeUndefined()
+    expect(tracks[0].meta.lineWidth).toBeUndefined()
+  })
+
   it('multiple tracks and multiple cps round-trip independently, each cp keeping its own trackId', () => {
     const t1 = trackWithEle()
     const t2 = trackWithoutEle()

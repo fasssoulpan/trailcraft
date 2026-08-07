@@ -4,6 +4,7 @@ import type { Track } from '../core/model/track'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import type { HoverState } from '../state/appStore'
 import { decimateIndices } from '../core/toolbox/decimate'
+import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 
 /** MapLibre only ever draws this many vertices per track; real tracks (up to
  * ~330k points) are decimated down to this for rendering. Hover/lookup still
@@ -41,9 +42,6 @@ export function renderCopy(t: Track): RenderCopy {
 function layerIdFor(trackId: string): string {
   return `trk-${trackId}`
 }
-
-// Cycled per-track so multiple overlapping tracks stay visually distinguishable.
-const TRACK_COLORS = ['#e63946', '#1d4ed8', '#2a9d8f', '#f4a261', '#9333ea', '#0891b2']
 
 function trackToFeature(t: Track): Feature<LineString> {
   return {
@@ -178,7 +176,9 @@ export function tryPendingFit(map: MapLibreMap, tracks: Track[]): void {
 /**
  * One GeoJSON source + line layer per track (id `trk-${track.id}`).
  * - Existing sources are updated in place via `setData` (cheap, no
- *   layer flicker).
+ *   layer flicker); colour/width/opacity are refreshed via
+ *   `setPaintProperty` every call so per-track style edits and active-track
+ *   changes apply immediately.
  * - Missing sources/layers are added.
  * - Sources/layers for tracks no longer in `tracks` are removed so the map
  *   doesn't accumulate stale layers as tracks get deleted.
@@ -186,6 +186,9 @@ export function tryPendingFit(map: MapLibreMap, tracks: Track[]): void {
  *   previously-known set) is queued for a camera fit via `pendingFit` /
  *   `tryPendingFit` -- see those for why this is deferred rather than
  *   fitting inline.
+ * - `activeTrackId`, when given, is rendered heavier and at full opacity;
+ *   every other track is dimmed, so which track the toolbox/profile are
+ *   currently acting on stays visually obvious once more than one is loaded.
  *
  * Caller must guard against calling this before the style has parsed (the
  * `'style.load'` event - NOT `map.isStyleLoaded()` or the `'load'` event,
@@ -193,7 +196,7 @@ export function tryPendingFit(map: MapLibreMap, tracks: Track[]): void {
  * OSM raster basemap included) — adding a source before the style is parsed
  * throws in MapLibre.
  */
-export function syncTrackLayers(map: MapLibreMap, tracks: Track[]): void {
+export function syncTrackLayers(map: MapLibreMap, tracks: Track[], activeTrackId?: string): void {
   const seen = knownTrackIds.get(map) ?? new Set<string>()
   const currentIds = new Set(tracks.map((t) => t.id))
 
@@ -209,9 +212,20 @@ export function syncTrackLayers(map: MapLibreMap, tracks: Track[]): void {
   tracks.forEach((t, i) => {
     const layerId = layerIdFor(t.id)
     const feature = trackToFeature(t)
+    const color = t.meta.color ?? TRACK_PALETTE[i % TRACK_PALETTE.length]
+    const baseWidth = t.meta.lineWidth ?? DEFAULT_LINE_WIDTH
+    const isActive = t.id === activeTrackId
+    // Only dim non-active tracks once something IS active -- with no
+    // selection at all, every track should read at full strength.
+    const opacity = activeTrackId === undefined || isActive ? 1 : 0.45
+    const lineWidth = isActive ? baseWidth + 1.5 : baseWidth
+
     const existing = map.getSource(layerId) as GeoJSONSource | undefined
     if (existing) {
       existing.setData(feature)
+      map.setPaintProperty(layerId, 'line-color', color)
+      map.setPaintProperty(layerId, 'line-width', lineWidth)
+      map.setPaintProperty(layerId, 'line-opacity', opacity)
     } else {
       map.addSource(layerId, { type: 'geojson', data: feature })
       map.addLayer({
@@ -220,8 +234,9 @@ export function syncTrackLayers(map: MapLibreMap, tracks: Track[]): void {
         source: layerId,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': TRACK_COLORS[i % TRACK_COLORS.length],
-          'line-width': 3,
+          'line-color': color,
+          'line-width': lineWidth,
+          'line-opacity': opacity,
         },
       })
       seen.add(t.id)

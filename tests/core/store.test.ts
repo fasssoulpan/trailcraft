@@ -4,10 +4,17 @@ import { createTrack } from '../../src/core/model/track'
 import { History } from '../../src/state/history'
 import { reverseTrack, removeAnomalies, simplifyTrack } from '../../src/core/toolbox/ops'
 
+// color/lineWidth are set explicitly (arbitrary values) so these tracks
+// pass through addTrack's backfillTrackStyles() unchanged -- see
+// core/model/trackStyle.ts: a track that already carries both fields is
+// returned as the exact same object, which is what lets the many
+// `toEqual([t1, ...])` assertions below keep comparing against the literal
+// each test constructed, instead of having to re-fetch the post-addTrack
+// (palette-assigned) version from the store every time.
 function makeTrack(fileName: string) {
   return createTrack(
     { lon: [116.1, 116.2], lat: [39.9, 39.95] },
-    { name: fileName, format: 'gpx', fileName },
+    { name: fileName, format: 'gpx', fileName, color: '#123456', lineWidth: 2 },
   )
 }
 
@@ -30,7 +37,7 @@ function outAndBackTrack() {
     lon[11 + i] = 116.009 - i * 0.001
     lat[11 + i] = 39.9
   }
-  return createTrack({ lon, lat }, { name: 'oab', format: 'gpx', fileName: 'oab.gpx' })
+  return createTrack({ lon, lat }, { name: 'oab', format: 'gpx', fileName: 'oab.gpx', color: '#123456', lineWidth: 2 })
 }
 
 /**

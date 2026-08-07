@@ -9,6 +9,15 @@ function mk(lon: number[], lat: number[], ele?: number[], time?: number[]) {
   return t
 }
 
+/** Same as `mk`, but with an explicit color/lineWidth on meta -- used by the
+ * "derived tracks inherit styling" tests below, where the point is
+ * specifically to check what happens to those two fields across an op. */
+function mkStyled(lon: number[], lat: number[], color: string, lineWidth: number) {
+  const t = createTrack({ lon, lat }, { name: 't', format: 'gpx', fileName: 't.gpx', color, lineWidth })
+  t.points.cumDist = computeCumDist(t.points.lon, t.points.lat)
+  return t
+}
+
 describe('splitAt', () => {
   it('splits a 4-point track at index 2 into lengths 3 and 2, boundary point shared', () => {
     const t = mk([0, 1, 2, 3], [0, 0, 0, 0])
@@ -211,5 +220,56 @@ describe('immutability sweep and fresh ids', () => {
     expect(Array.from(t2.points.lon)).toEqual(before2)
     expect(joined.id).not.toBe(t1.id)
     expect(joined.id).not.toBe(t2.id)
+  })
+})
+
+// Track.meta.color/lineWidth are presentation attributes (see
+// core/model/trackStyle.ts), stored on Track.meta specifically so that
+// every op below -- which derives its new Track's meta via
+// `{ ...src.meta, name: ... }` (splitAt/reverseTrack/removeAnomalies/
+// simplifyTrack via `derive()`, joinTracks separately but the same
+// pattern) -- carries them forward automatically, without each op needing
+// its own explicit color/lineWidth-copying logic. A regression here (e.g.
+// someone rewriting an op to build meta from scratch instead of spreading
+// src.meta) would silently revert every derived track back to whatever
+// palette default trackLayer.ts falls back to, which is exactly the "check
+// derived tracks don't lose their styling" risk this covers.
+describe('toolbox ops preserve per-track colour/lineWidth (Track.meta) across derivation', () => {
+  it('splitAt: both halves inherit the source track\'s colour and width', () => {
+    const t = mkStyled([0, 1, 2, 3], [0, 0, 0, 0], '#ff00ff', 6)
+    const [a, b] = splitAt(t, 2)
+    expect(a.meta.color).toBe('#ff00ff')
+    expect(a.meta.lineWidth).toBe(6)
+    expect(b.meta.color).toBe('#ff00ff')
+    expect(b.meta.lineWidth).toBe(6)
+  })
+
+  it('reverseTrack: the reversed track inherits colour and width', () => {
+    const t = mkStyled([0, 1, 2], [0, 10, 20], '#00ffff', 4)
+    const r = reverseTrack(t)
+    expect(r.meta.color).toBe('#00ffff')
+    expect(r.meta.lineWidth).toBe(4)
+  })
+
+  it('removeAnomalies: the cleaned track inherits colour and width', () => {
+    const t = mkStyled([0, 0.0001, 0.0002, 0.0003], [0, 0, 0, 0], '#112233', 3.5)
+    const cleaned = removeAnomalies(t)
+    expect(cleaned.meta.color).toBe('#112233')
+    expect(cleaned.meta.lineWidth).toBe(3.5)
+  })
+
+  it('simplifyTrack: the simplified track inherits colour and width', () => {
+    const t = mkStyled([0, 0.0001, 0.0002, 0.0003], [0, 0, 0, 0], '#445566', 7)
+    const simplified = simplifyTrack(t, 1)
+    expect(simplified.meta.color).toBe('#445566')
+    expect(simplified.meta.lineWidth).toBe(7)
+  })
+
+  it('joinTracks: the joined track inherits the FIRST source track\'s colour and width', () => {
+    const t1 = mkStyled([0, 1], [0, 0], '#abcdef', 8)
+    const t2 = mkStyled([2, 3], [0, 0], '#fedcba', 1)
+    const joined = joinTracks([t1, t2])
+    expect(joined.meta.color).toBe('#abcdef')
+    expect(joined.meta.lineWidth).toBe(8)
   })
 })

@@ -146,7 +146,7 @@ export function MapView() {
     //    TileManager.loaded).
     const handleStyleLoad = () => {
       loadedRef.current = true
-      syncTrackLayers(map, tracksRef.current)
+      syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id)
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
       syncCpMarkers(map, activeTrackRef.current, cpsRef.current)
     }
@@ -284,8 +284,8 @@ export function MapView() {
     const map = mapRef.current
     if (!map) return
     if (!loadedRef.current) return // the 'style.load' handler above will pick up tracksRef.current once it fires
-    syncTrackLayers(map, tracks)
-  }, [tracks])
+    syncTrackLayers(map, tracks, activeTrackId)
+  }, [tracks, activeTrackId])
 
   // Re-sync the hover marker whenever hover state changes. Same gate as the
   // track-sync effect above, and for the same reason.

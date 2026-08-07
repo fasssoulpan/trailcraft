@@ -5,6 +5,7 @@ import { anchorMonotonic } from '../core/stats/anchor'
 import type { StatsOptions } from '../core/stats/segments'
 import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
+import { backfillTrackStyles } from '../core/model/trackStyle'
 import { History } from './history'
 
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
@@ -60,6 +61,7 @@ interface AppState {
   history: History<EditableState>
   addTrack(t: Track): void
   removeTrack(id: string): void
+  updateTrackStyle(id: string, patch: { color?: string; lineWidth?: number }): void
   setActive(id: string): void
   setHover(h?: HoverState): void
   rememberSource(creator: string, crs: Crs): void
@@ -187,7 +189,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
   paceParams: DEFAULT_PACE_PARAMS, raceStartTime: defaultLocalTimeToday(6, 0),
   canUndo: false, canRedo: false, history: new History<EditableState>(),
-  addTrack: (t) => set((s) => ({ tracks: [...s.tracks, t], activeTrackId: t.id })),
+  // 新导入轨迹如果自带 color/lineWidth(理论上不会——importInWorker 产出
+  // 的 Track 从不设置这两个字段)就原样保留,否则由 backfillTrackStyles
+  // 按当前已有轨迹的颜色序列分配下一个调色板颜色,保证新旧轨迹相邻不撞色。
+  // 传入 [...s.tracks, t] 而不是只传 [t] 是为了让 backfillTrackStyles 能看到
+  // "已经在用的颜色"序列;已有轨迹的 meta 早就设过 color/lineWidth,函数
+  // 内部的 `if (unchanged) return t` 保证它们原样返回同一个对象引用,不会
+  // 无意义地触发它们的重渲染。
+  addTrack: (t) => {
+    const s = get()
+    const tracks = backfillTrackStyles([...s.tracks, t])
+    const added = tracks[tracks.length - 1]
+    set({ tracks, activeTrackId: added.id })
+  },
+  // 颜色/粗细是纯展示态属性(和 paceParams/statsOptions 同类),调整它们不
+  // 需要撤销栈——用户随时可以再调回去,不需要"撤销这次改色"的心智模型。
+  updateTrackStyle: (id, patch) =>
+    set((s) => ({
+      tracks: s.tracks.map((t) => (t.id === id ? { ...t, meta: { ...t.meta, ...patch } } : t)),
+    })),
   removeTrack: (id) => {
     const s = get()
     s.history.push('删除轨迹', { tracks: s.tracks, cps: s.cps })
@@ -313,9 +333,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPaceParams: (patch) => set((s) => ({ paceParams: { ...s.paceParams, ...patch } })),
   setRaceStartTime: (iso) => set({ raceStartTime: iso }),
 
+  // backfillTrackStyles covers project files saved before per-track
+  // color/lineWidth existed (schema_version is still '1.0' -- see
+  // core/model/project.ts -- so an old file's tracks simply lack those two
+  // meta fields rather than failing to parse); freshly-saved projects
+  // already carry them and pass through unchanged.
   loadProjectData: (data) =>
     set({
-      tracks: data.tracks,
+      tracks: backfillTrackStyles(data.tracks),
       cps: data.cps,
       paceParams: data.paceParams,
       statsOptions: data.statsOptions,

@@ -164,6 +164,36 @@
   background: var(--code-bg);
 }
 
+.track-list__style-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  cursor: default;
+}
+
+.track-list__style-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.track-list__color-input {
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.track-list__width-input {
+  width: 48px;
+}
+
 .track-list__remove {
   align-self: flex-start;
   margin-top: 4px;
