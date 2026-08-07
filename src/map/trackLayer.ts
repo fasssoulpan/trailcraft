@@ -268,11 +268,13 @@ function styleCpMarkerElement(el: HTMLElement, cp: CheckPoint, ordinal: number):
  * ordinal (1-based list position, matching CpPanel/SegmentTable's numbering).
  * Removes markers for CPs no longer present in `cps`.
  *
- * CheckPoint (core/model/checkpoint.ts) does not carry a trackId, so a CP's
- * on-map position is resolved against `activeTrack` via `anchorIndex`; if
- * there is no active track (or the index is out of range, e.g. right after
- * switching tracks), the CP's original `clickLngLat` is used as a fallback
- * so the marker doesn't just disappear.
+ * `cps` is expected to already be scoped to `activeTrack` by the caller
+ * (MapView filters `s.cps` down to `trackId === activeTrack.id` before
+ * calling this) -- this function itself doesn't check CheckPoint.trackId, it
+ * just resolves each CP's on-map position against `activeTrack` via
+ * `anchorIndex`. If there is no active track (or the index is out of range,
+ * e.g. right after switching tracks), the CP's original `clickLngLat` is
+ * used as a fallback so the marker doesn't just disappear.
  */
 export function syncCpMarkers(map: MapLibreMap, activeTrack: Track | undefined, cps: CheckPoint[]): void {
   let markers = cpMarkers.get(map)

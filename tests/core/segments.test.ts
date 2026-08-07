@@ -23,7 +23,11 @@ function noEleTrack(n = 50): Track {
 }
 
 function cp(name: string, anchorIndex: number): CheckPoint {
-  return { id: name, name, kind: 'cp', anchorIndex }
+  // computeSegments takes whatever cps it's handed and doesn't itself filter
+  // by trackId (that's the caller's job, per SegmentTable.tsx) -- so a fixed
+  // placeholder trackId is fine here, it's never inspected by the function
+  // under test.
+  return { id: name, trackId: 'trk_test', name, kind: 'cp', anchorIndex }
 }
 
 describe('computeSegments', () => {

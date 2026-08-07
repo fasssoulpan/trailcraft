@@ -71,10 +71,17 @@ export function MapView() {
   const hover = useAppStore((s) => s.hover)
   const setHover = useAppStore((s) => s.setHover)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
-  const cps = useAppStore((s) => s.cps)
+  const allCps = useAppStore((s) => s.cps)
   const addCp = useAppStore((s) => s.addCp)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
+  // CheckPoint.trackId is the source of truth for which track a CP belongs
+  // to; s.cps spans every track, so markers/ordinals must be scoped to the
+  // active track's own subset -- otherwise switching tracks would draw CP
+  // markers resolved against the wrong track's geometry (syncCpMarkers falls
+  // back to clickLngLat for out-of-range indices, which silently hides this
+  // exact bug instead of crashing).
+  const cps = activeTrackId ? allCps.filter((c) => c.trackId === activeTrackId) : []
 
   // Inline "add CP" form, opened by clicking near the active track.
   const [cpForm, setCpForm] = useState<CpFormState | undefined>()

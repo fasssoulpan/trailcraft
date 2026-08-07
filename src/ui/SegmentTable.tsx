@@ -24,7 +24,7 @@ const STATUS_LABEL: Record<WarnLevel, string> = { green: '安全', yellow: '紧�
 export function SegmentTable() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
-  const cps = useAppStore((s) => s.cps)
+  const allCps = useAppStore((s) => s.cps)
   const statsOptions = useAppStore((s) => s.statsOptions)
   const setStatsOptions = useAppStore((s) => s.setStatsOptions)
   const paceParams = useAppStore((s) => s.paceParams)
@@ -43,6 +43,9 @@ export function SegmentTable() {
     return <p className="segment-table segment-table--empty">该轨迹缺少里程数据</p>
   }
 
+  // Same trackId-scoping rule as CpPanel: s.cps spans every track, so this
+  // must only compute/display segments against the active track's own CPs.
+  const cps = allCps.filter((c) => c.trackId === activeTrack.id)
   const segments = computeSegments(activeTrack, cps, statsOptions)
   const total = segments.reduce(
     (acc, s) => ({ dist: acc.dist + s.dist, gain: acc.gain + s.gain, loss: acc.loss + s.loss }),

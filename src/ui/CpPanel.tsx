@@ -11,12 +11,18 @@ const ANCHOR_NUDGE_STEP = 5
 export function CpPanel() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
-  const cps = useAppStore((s) => s.cps)
+  const allCps = useAppStore((s) => s.cps)
   const updateCp = useAppStore((s) => s.updateCp)
   const removeCp = useAppStore((s) => s.removeCp)
   const reorderCp = useAppStore((s) => s.reorderCp)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
+  // CheckPoint.trackId (core/model/checkpoint.ts) is the source of truth for
+  // which track a CP belongs to -- s.cps holds every track's CPs at once, so
+  // this panel must only show/edit the active track's subset, or switching
+  // tracks would display (and let the user edit) CPs anchored against a
+  // completely different track's geometry.
+  const cps = activeTrackId ? allCps.filter((c) => c.trackId === activeTrackId) : []
 
   function nudge(cp: (typeof cps)[number], delta: number) {
     if (!activeTrack) return

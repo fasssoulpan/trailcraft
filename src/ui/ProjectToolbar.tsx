@@ -95,7 +95,10 @@ export function ProjectToolbar() {
       setMessage('请先在轨迹列表中选择一条轨迹再导出 GPX')
       return
     }
-    const gpx = trackToGpx(track, cps, gpxCrs)
+    // Scope to this track's own CPs (trackId) -- cps holds every track's
+    // checkpoints, and a single-track GPX export must not leak waypoints
+    // that are anchored against a different track's geometry.
+    const gpx = trackToGpx(track, cps.filter((c) => c.trackId === track.id), gpxCrs)
     downloadBlob(`${track.meta.name}.gpx`, gpx, 'application/gpx+xml')
   }
 

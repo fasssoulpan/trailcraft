@@ -39,6 +39,7 @@ function trackWithoutEle() {
 function makeCp(): CheckPoint {
   return {
     id: 'cp_1',
+    trackId: 'trk_1',
     name: 'CP1 & <补给站>',
     kind: 'aid',
     anchorIndex: 1,
@@ -113,16 +114,19 @@ describe('serializeProject / deserializeProject', () => {
     expect(back.raceStartTime).toBeUndefined()
   })
 
-  it('multiple tracks and multiple cps round-trip independently', () => {
+  it('multiple tracks and multiple cps round-trip independently, each cp keeping its own trackId', () => {
     const t1 = trackWithEle()
     const t2 = trackWithoutEle()
-    const cp1 = makeCp()
-    const cp2: CheckPoint = { id: 'cp_2', name: 'CP2', kind: 'gear', anchorIndex: 0 }
+    const cp1: CheckPoint = { ...makeCp(), trackId: t1.id }
+    const cp2: CheckPoint = { id: 'cp_2', trackId: t2.id, name: 'CP2', kind: 'gear', anchorIndex: 0 }
     const p = serializeProject('工程', [t1, t2], [cp1, cp2], paceParams, statsOptions)
     const back = deserializeProject(p)
     expect(back.tracks.map((t) => t.id).sort()).toEqual([t1.id, t2.id].sort())
     expect(back.cps.map((c) => c.id).sort()).toEqual(['cp_1', 'cp_2'])
+    const backCp1 = back.cps.find((c) => c.id === 'cp_1')!
     const backCp2 = back.cps.find((c) => c.id === 'cp_2')!
+    expect(backCp1.trackId).toBe(t1.id)
+    expect(backCp2.trackId).toBe(t2.id)
     expect(backCp2.clickLngLat).toBeUndefined()
     expect(backCp2.cutoffTime).toBeUndefined()
   })

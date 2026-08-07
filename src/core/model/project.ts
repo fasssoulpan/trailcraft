@@ -43,6 +43,7 @@ interface TrackFeatureProperties {
 interface CpFeatureProperties {
   kind: 'cp'
   id: string
+  trackId: string
   name: string
   cpKind: CpKind
   anchorIndex: number
@@ -81,6 +82,7 @@ function cpToFeature(cp: CheckPoint): object {
   const properties: CpFeatureProperties = {
     kind: 'cp',
     id: cp.id,
+    trackId: cp.trackId,
     name: cp.name,
     cpKind: cp.kind,
     anchorIndex: cp.anchorIndex,
@@ -144,6 +146,7 @@ function featureToCp(f: RawFeature): CheckPoint {
   const p = f.properties as unknown as CpFeatureProperties
   return {
     id: p.id,
+    trackId: p.trackId,
     name: p.name,
     kind: p.cpKind,
     anchorIndex: p.anchorIndex,

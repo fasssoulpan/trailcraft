@@ -47,7 +47,7 @@ describe('trackToGpx', () => {
   it('CP waypoints appear in the output', () => {
     const t = beijingTrack()
     const cps: CheckPoint[] = [
-      { id: 'cp1', name: '补给站1', kind: 'aid', anchorIndex: 1, clickLngLat: [116.1983, 39.9931] },
+      { id: 'cp1', trackId: 'trk_test', name: '补给站1', kind: 'aid', anchorIndex: 1, clickLngLat: [116.1983, 39.9931] },
     ]
     const gpx = trackToGpx(t, cps, 'wgs84')
     expect(gpx).toContain('<wpt')
@@ -57,7 +57,7 @@ describe('trackToGpx', () => {
   it('a name containing & and < is escaped and survives an unescape round-trip', () => {
     const t = beijingTrack()
     const cps: CheckPoint[] = [
-      { id: 'cp1', name: 'A & B <danger>', kind: 'danger', anchorIndex: 0, clickLngLat: [116.1983, 39.9931] },
+      { id: 'cp1', trackId: 'trk_test', name: 'A & B <danger>', kind: 'danger', anchorIndex: 0, clickLngLat: [116.1983, 39.9931] },
     ]
     const gpx = trackToGpx(t, cps, 'wgs84')
     // must not contain raw unescaped special chars inside the name

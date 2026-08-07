@@ -372,14 +372,18 @@ describe('appStore', () => {
       expect(useAppStore.getState().cps).toHaveLength(2)
     })
 
-    it('a track-only applyOp still snapshots cps, so undoing it leaves cps untouched', () => {
+    it('an applyOp that replaces the active track (even with identical geometry) carries the cp trackId to the replacement, and undo restores the original binding', () => {
       const t = outAndBackTrack()
       useAppStore.getState().addTrack(t)
       useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
       const cpsBefore = useAppStore.getState().cps
 
       useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((tr) => ({ ...tr, id: `${tr.id}_rev` })))
-      expect(useAppStore.getState().cps).toEqual(cpsBefore)
+      const newTrackId = useAppStore.getState().tracks[0].id
+      expect(newTrackId).toBe(`${t.id}_rev`)
+      // Same geometry, same clickLngLat -> anchorIndex is unchanged by the
+      // reanchor; only trackId follows the track's new id.
+      expect(useAppStore.getState().cps).toEqual(cpsBefore.map((c) => ({ ...c, trackId: newTrackId })))
 
       useAppStore.getState().undo()
       expect(useAppStore.getState().cps).toEqual(cpsBefore)
@@ -513,6 +517,91 @@ describe('appStore', () => {
       expect(useAppStore.getState().tracks).toEqual(tracksBefore)
       expect(useAppStore.getState().cps).toEqual(cpsBefore)
       expect(useAppStore.getState().cps[0].anchorIndex).toBe(18) // old anchor restored, not left re-anchored
+    })
+  })
+
+  describe('multi-track checkpoint binding (trackId)', () => {
+    it('cps stay bound to the track they were placed on: track A cps are distinguishable from track B cps by trackId, and switching active track does not corrupt A\'s anchors', () => {
+      const a = outAndBackTrack()
+      useAppStore.getState().addTrack(a)
+      useAppStore.getState().addCp('cp', 'A-CP1', [116.003, 39.9])
+      const aCpBefore = useAppStore.getState().cps[0]
+
+      const b = makeTrack('b.gpx')
+      useAppStore.getState().addTrack(b) // b becomes active
+      useAppStore.getState().addCp('cp', 'B-CP1', [116.15, 39.92])
+
+      const allCps = useAppStore.getState().cps
+      expect(allCps).toHaveLength(2)
+      expect(allCps.filter((c) => c.trackId === a.id)).toEqual([aCpBefore])
+      expect(allCps.filter((c) => c.trackId === b.id)).toHaveLength(1)
+
+      // Switching the active track back to A is a bare field assignment now
+      // that CPs carry their own trackId -- it must not re-anchor or
+      // otherwise mutate A's cp.
+      useAppStore.getState().setActive(a.id)
+      expect(useAppStore.getState().cps.find((c) => c.trackId === a.id)).toEqual(aCpBefore)
+      useAppStore.getState().setActive(b.id)
+      expect(useAppStore.getState().cps.find((c) => c.trackId === a.id)).toEqual(aCpBefore)
+    })
+
+    it('a toolbox op on track A carries A\'s cps to the replacement track and leaves track B\'s cps completely untouched', () => {
+      const a = outAndBackTrack()
+      useAppStore.getState().addTrack(a)
+      useAppStore.getState().addCp('cp', 'A-CP1', [116.003, 39.9])
+
+      const b = makeTrack('b.gpx')
+      useAppStore.getState().addTrack(b)
+      useAppStore.getState().addCp('cp', 'B-CP1', [116.15, 39.92])
+      const bCpBefore = useAppStore.getState().cps.find((c) => c.trackId === b.id)!
+
+      useAppStore.getState().setActive(a.id)
+      useAppStore.getState().applyOp('反向', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === a.id)
+        const r = reverseTrack(tracks[idx])
+        const next = [...tracks]
+        next.splice(idx, 1, r)
+        return next
+      })
+
+      const newA = useAppStore.getState().tracks.find((t) => t.id !== b.id)!
+      expect(newA.id).not.toBe(a.id) // toolbox ops always mint a new track id
+
+      const allCps = useAppStore.getState().cps
+      expect(allCps).toHaveLength(2)
+      const aCp = allCps.find((c) => c.name === 'A-CP1')!
+      expect(aCp.trackId).toBe(newA.id) // carried forward to the replacement, not orphaned
+      const bCp = allCps.find((c) => c.name === 'B-CP1')!
+      expect(bCp).toEqual(bCpBefore) // a different track's cp: completely untouched
+    })
+
+    it('deleting a track removes its checkpoints and leaves the other track\'s checkpoints untouched', () => {
+      const a = outAndBackTrack()
+      useAppStore.getState().addTrack(a)
+      useAppStore.getState().addCp('cp', 'A-CP1', [116.003, 39.9])
+      const b = makeTrack('b.gpx')
+      useAppStore.getState().addTrack(b)
+      useAppStore.getState().addCp('cp', 'B-CP1', [116.15, 39.92])
+      const bCpBefore = useAppStore.getState().cps.find((c) => c.trackId === b.id)!
+      expect(useAppStore.getState().cps).toHaveLength(2)
+
+      useAppStore.getState().removeTrack(a.id)
+      const remaining = useAppStore.getState().cps
+      expect(remaining).toEqual([bCpBefore])
+    })
+
+    it('undo restores a deleted track\'s checkpoints together with the track itself', () => {
+      const a = outAndBackTrack()
+      useAppStore.getState().addTrack(a)
+      useAppStore.getState().addCp('cp', 'A-CP1', [116.003, 39.9])
+      const cpsBefore = useAppStore.getState().cps
+
+      useAppStore.getState().removeTrack(a.id)
+      expect(useAppStore.getState().cps).toHaveLength(0)
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().cps).toEqual(cpsBefore)
+      expect(useAppStore.getState().tracks).toEqual([a])
     })
   })
 })

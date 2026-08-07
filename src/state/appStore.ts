@@ -93,10 +93,9 @@ interface AppState {
  * tracks 列表中,清掉它们——这与 removeTrack 里已经修好的"悬空引用"是同一
  * 类 bug,只是触发路径从"删除单条轨迹"变成了"整体状态被替换"。
  *
- * cps 不在这里处理:CheckPoint(core/model/checkpoint.ts)本身不存 trackId,
- * 不持有指向具体轨迹的引用,因此没有"悬空引用"可言——它只是一份和
- * anchorIndex 绑定的坐标列表,tracks 变化时保持原样,由上层(CpPanel /
- * SegmentTable)按需重新解释。
+ * cps 不在这里处理:CheckPoint(core/model/checkpoint.ts)现在带 trackId,
+ * undo/redo 整体替换 tracks/cps 快照时两者本就是同一次 push 进历史栈的,
+ * cps 的 trackId 绑定天然和恢复出的 tracks 一致,没有额外的悬空引用要清。
  */
 function reconcileDangling(
   tracks: Track[],
@@ -131,19 +130,33 @@ function historyFlags(history: History<EditableState>) {
  * 插入/删除/重排任何一个 CP 都可能合法地改变后面 CP 该锚定到哪一次经过,
  * 这是折返赛道"锚定无错趟"验收要求的核心。
  *
- * 对缺失 clickLngLat 的 CP(理论上不会出现,addCp 总是带着点击坐标创建),
- * 兜底用它当前 anchorIndex 对应的轨迹坐标当作"点击位置",保证类型安全且
- * 不抛异常。
+ * 只重新锚定 trackId === track.id 的那个子集,其余(属于别的轨迹的)CP 原样
+ * 透传、连位置都不挪——这个函数现在可能收到混合多条轨迹的 cps 列表(调用方
+ * 大多懒得先自己过滤),必须自己保证不去动不相关的 CP,否则会把它们的
+ * anchorIndex 错误地按传入的 track 重新计算。子集内部的相对顺序完全保留,
+ * 单调约束因此只在"同一条轨迹自己的 CP 之间"生效,不受其它轨迹的 CP 是否
+ * 交错在列表中间影响。
+ *
+ * 对子集中缺失 clickLngLat 的 CP(理论上不会出现,addCp 总是带着点击坐标
+ * 创建),兜底用它当前 anchorIndex 对应的轨迹坐标当作"点击位置",保证类型
+ * 安全且不抛异常。
  */
 function reanchorAll(track: Track, cps: CheckPoint[]): CheckPoint[] {
+  const relevant = cps.filter((c) => c.trackId === track.id)
+  if (relevant.length === 0) return cps
+
   const { lon, lat } = track.points
-  const clicks: [number, number][] = cps.map((c) => {
+  const clicks: [number, number][] = relevant.map((c) => {
     if (c.clickLngLat) return c.clickLngLat
     const i = Math.min(Math.max(c.anchorIndex, 0), lon.length - 1)
     return [lon[i] ?? 0, lat[i] ?? 0]
   })
   const indices = anchorMonotonic(lon, lat, clicks)
-  return cps.map((c, i) => ({ ...c, anchorIndex: indices[i] }))
+  const reanchoredIndex = new Map(relevant.map((c, i) => [c.id, indices[i]]))
+  return cps.map((c) => {
+    const idx = reanchoredIndex.get(c.id)
+    return idx === undefined ? c : { ...c, anchorIndex: idx }
+  })
 }
 
 /**
@@ -179,8 +192,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     s.history.push('删除轨迹', { tracks: s.tracks, cps: s.cps })
     const tracks = s.tracks.filter((x) => x.id !== id)
+    // CPs are bound to a track via trackId (core/model/checkpoint.ts); once
+    // that track is gone there is nothing left for their anchorIndex to mean
+    // anything relative to, so they must go with it rather than being left
+    // behind as orphans that silently stop being displayed anywhere.
+    const cps = s.cps.filter((c) => c.trackId !== id)
     set({
       tracks,
+      cps,
       activeTrackId: s.activeTrackId === id ? undefined : s.activeTrackId,
       hover: s.hover?.trackId === id ? undefined : s.hover,
       ...historyFlags(s.history),
@@ -201,11 +220,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     s.history.push(label, { tracks: s.tracks, cps: s.cps })
     const oldActiveIdx = s.tracks.findIndex((t) => t.id === s.activeTrackId)
+    const oldActiveTrackId = oldActiveIdx !== -1 ? s.tracks[oldActiveIdx].id : undefined
     const tracks = fn(s.tracks)
     const reconciled = reconcileDangling(tracks, s.activeTrackId, s.hover)
     const resolvedActive = resolveActiveTrackAfterOp(tracks, oldActiveIdx)
     const activeTrackId = reconciled.activeTrackId ?? resolvedActive?.id
-    const cps = resolvedActive ? reanchorAll(resolvedActive, s.cps) : s.cps
+
+    // Toolbox ops replace the active Track with a brand-new one (new id --
+    // see resolveActiveTrackAfterOp's comment for exactly which replacement
+    // this resolves to per-op). Any CP still bound (via trackId) to the OLD
+    // active track's id has to be re-pointed at the new one *before*
+    // reanchorAll runs, or it fails reanchorAll's `trackId === track.id`
+    // filter and is left permanently orphaned the moment this op commits --
+    // there's no later point at which the binding could be fixed up. CPs
+    // belonging to any other track are untouched, same as always.
+    let cps = s.cps
+    if (resolvedActive && oldActiveTrackId !== undefined && resolvedActive.id !== oldActiveTrackId) {
+      cps = cps.map((c) => (c.trackId === oldActiveTrackId ? { ...c, trackId: resolvedActive.id } : c))
+    }
+    cps = resolvedActive ? reanchorAll(resolvedActive, cps) : cps
+
     set({ tracks, cps, activeTrackId, hover: reconciled.hover, ...historyFlags(s.history) })
   },
 
@@ -214,7 +248,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const track = s.tracks.find((t) => t.id === s.activeTrackId)
     if (!track) return // 没有激活轨迹时无处可锚定,静默放弃
     s.history.push('新增 CP', { tracks: s.tracks, cps: s.cps })
-    const newCp: CheckPoint = { id: newId('cp'), name, kind, anchorIndex: 0, clickLngLat: lngLat }
+    const newCp: CheckPoint = { id: newId('cp'), trackId: track.id, name, kind, anchorIndex: 0, clickLngLat: lngLat }
     const cps = reanchorAll(track, [...s.cps, newCp])
     set({ cps, ...historyFlags(s.history) })
   },
@@ -231,9 +265,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   removeCp: (id) => {
     const s = get()
+    const removed = s.cps.find((c) => c.id === id)
+    if (!removed) return
     s.history.push('删除 CP', { tracks: s.tracks, cps: s.cps })
     const remaining = s.cps.filter((c) => c.id !== id)
-    const track = s.tracks.find((t) => t.id === s.activeTrackId)
+    // Re-anchor against the removed CP's own track (not necessarily the
+    // currently-active one -- callers filter to the active track today, but
+    // this must stay correct even if that ever changes), so the remaining
+    // siblings on that track re-claim whichever indices the deleted one was
+    // occupying in the monotonic ordering.
+    const track = s.tracks.find((t) => t.id === removed.trackId)
     const cps = track ? reanchorAll(track, remaining) : remaining
     set({ cps, ...historyFlags(s.history) })
   },
@@ -242,13 +283,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     const idx = s.cps.findIndex((c) => c.id === id)
     if (idx === -1) return
-    const targetIdx = idx + direction
-    if (targetIdx < 0 || targetIdx >= s.cps.length) return
+    const trackId = s.cps[idx].trackId
+    // Reordering must stay scoped to CPs that belong to the same track:
+    // s.cps can hold CPs from multiple tracks interleaved in arbitrary
+    // order (trackId is what actually groups them, not adjacency in this
+    // flat list), so "move by one position in s.cps" would let a CP jump
+    // past -- and get reordered relative to -- a different track's CP that
+    // has nothing to do with it. Swap with the nearest same-track sibling
+    // instead, wherever it actually sits in the flat array.
+    const siblingIdxs: number[] = []
+    s.cps.forEach((c, i) => { if (c.trackId === trackId) siblingIdxs.push(i) })
+    const localIdx = siblingIdxs.indexOf(idx)
+    const targetLocal = localIdx + direction
+    if (targetLocal < 0 || targetLocal >= siblingIdxs.length) return
+    const otherIdx = siblingIdxs[targetLocal]
+
     s.history.push('调整 CP 顺序', { tracks: s.tracks, cps: s.cps })
     const reordered = [...s.cps]
-    const [item] = reordered.splice(idx, 1)
-    reordered.splice(targetIdx, 0, item)
-    const track = s.tracks.find((t) => t.id === s.activeTrackId)
+    ;[reordered[idx], reordered[otherIdx]] = [reordered[otherIdx], reordered[idx]]
+    const track = s.tracks.find((t) => t.id === trackId)
     const cps = track ? reanchorAll(track, reordered) : reordered
     set({ cps, ...historyFlags(s.history) })
   },
