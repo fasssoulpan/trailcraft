@@ -1,23 +1,33 @@
 import { create } from 'zustand'
-import type { Crs, Track } from '../core/model/track'
+import { newId, type Crs, type Track } from '../core/model/track'
+import type { CheckPoint, CpKind } from '../core/model/checkpoint'
+import { anchorMonotonic } from '../core/stats/anchor'
+import type { StatsOptions } from '../core/stats/segments'
 import { History } from './history'
 
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
 
 /**
  * 可撤销的可编辑状态切片。刻意做成对象而不是裸的 Track[] ——
- * 后续任务会把 checkpoints 之类的状态也纳入撤销范围,届时只需在这个对象上
- * 加字段,不会是一次破坏性变更。
+ * checkpoints 加进来之后(本任务),两者共用同一份撤销/重做历史:任何一次
+ * CP 编辑(新增/删除/重排)都和轨迹工具箱操作一样,先把变更前的 {tracks, cps}
+ * 整体推入 History,再整体写回,undo/redo 因此总是同时回滚两者,不会出现
+ * "轨迹撤销了但 CP 没跟着撤销"的不一致状态。
  */
 export interface EditableState {
   tracks: Track[]
+  cps: CheckPoint[]
 }
+
+const DEFAULT_STATS_OPTIONS: StatsOptions = { threshold: 5, smoothWindow: 5 }
 
 interface AppState {
   tracks: Track[]
   activeTrackId?: string
   hover?: HoverState
   sourceMemory: Record<string, Crs>
+  cps: CheckPoint[]
+  statsOptions: StatsOptions
   canUndo: boolean
   canRedo: boolean
   undoLabel?: string
@@ -36,6 +46,11 @@ interface AppState {
   setHover(h?: HoverState): void
   rememberSource(creator: string, crs: Crs): void
   applyOp(label: string, fn: (tracks: Track[]) => Track[]): void
+  addCp(kind: CpKind, name: string, lngLat: [number, number]): void
+  updateCp(id: string, patch: Partial<CheckPoint>): void
+  removeCp(id: string): void
+  reorderCp(id: string, direction: -1 | 1): void
+  setStatsOptions(patch: Partial<StatsOptions>): void
   undo(): void
   redo(): void
 }
@@ -44,6 +59,11 @@ interface AppState {
  * undo/redo 之后,若 activeTrackId/hover 指向的轨迹已经不存在于恢复出的
  * tracks 列表中,清掉它们——这与 removeTrack 里已经修好的"悬空引用"是同一
  * 类 bug,只是触发路径从"删除单条轨迹"变成了"整体状态被替换"。
+ *
+ * cps 不在这里处理:CheckPoint(core/model/checkpoint.ts)本身不存 trackId,
+ * 不持有指向具体轨迹的引用,因此没有"悬空引用"可言——它只是一份和
+ * anchorIndex 绑定的坐标列表,tracks 变化时保持原样,由上层(CpPanel /
+ * SegmentTable)按需重新解释。
  */
 function reconcileDangling(
   tracks: Track[],
@@ -72,12 +92,34 @@ function historyFlags(history: History<EditableState>) {
   }
 }
 
+/**
+ * 按 cps 当前列表顺序,把每个 CP 的 clickLngLat 重新喂给 anchorMonotonic,
+ * 整体重新锚定(而不是只锚定新增/未受影响的那一个)——单调约束本身依赖顺序,
+ * 插入/删除/重排任何一个 CP 都可能合法地改变后面 CP 该锚定到哪一次经过,
+ * 这是折返赛道"锚定无错趟"验收要求的核心。
+ *
+ * 对缺失 clickLngLat 的 CP(理论上不会出现,addCp 总是带着点击坐标创建),
+ * 兜底用它当前 anchorIndex 对应的轨迹坐标当作"点击位置",保证类型安全且
+ * 不抛异常。
+ */
+function reanchorAll(track: Track, cps: CheckPoint[]): CheckPoint[] {
+  const { lon, lat } = track.points
+  const clicks: [number, number][] = cps.map((c) => {
+    if (c.clickLngLat) return c.clickLngLat
+    const i = Math.min(Math.max(c.anchorIndex, 0), lon.length - 1)
+    return [lon[i] ?? 0, lat[i] ?? 0]
+  })
+  const indices = anchorMonotonic(lon, lat, clicks)
+  return cps.map((c, i) => ({ ...c, anchorIndex: indices[i] }))
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
-  tracks: [], sourceMemory: {}, canUndo: false, canRedo: false, history: new History<EditableState>(),
+  tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
+  canUndo: false, canRedo: false, history: new History<EditableState>(),
   addTrack: (t) => set((s) => ({ tracks: [...s.tracks, t], activeTrackId: t.id })),
   removeTrack: (id) => {
     const s = get()
-    s.history.push('删除轨迹', { tracks: s.tracks })
+    s.history.push('删除轨迹', { tracks: s.tracks, cps: s.cps })
     const tracks = s.tracks.filter((x) => x.id !== id)
     set({
       tracks,
@@ -92,25 +134,72 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   applyOp: (label, fn) => {
     const s = get()
-    s.history.push(label, { tracks: s.tracks })
+    s.history.push(label, { tracks: s.tracks, cps: s.cps })
     const tracks = fn(s.tracks)
     const reconciled = reconcileDangling(tracks, s.activeTrackId, s.hover)
     set({ tracks, ...reconciled, ...historyFlags(s.history) })
   },
 
+  addCp: (kind, name, lngLat) => {
+    const s = get()
+    const track = s.tracks.find((t) => t.id === s.activeTrackId)
+    if (!track) return // 没有激活轨迹时无处可锚定,静默放弃
+    s.history.push('新增 CP', { tracks: s.tracks, cps: s.cps })
+    const newCp: CheckPoint = { id: newId('cp'), name, kind, anchorIndex: 0, clickLngLat: lngLat }
+    const cps = reanchorAll(track, [...s.cps, newCp])
+    set({ cps, ...historyFlags(s.history) })
+  },
+
+  // 手动微调(比如 ±步进锚点)是用户在主动覆盖算法的锚定结果,不应该被
+  // 自动重新锚定悄悄冲掉——因此 updateCp 无论 patch 里是否包含 anchorIndex,
+  // 都只做逐字段合并,从不触发 reanchorAll。
+  updateCp: (id, patch) => {
+    const s = get()
+    s.history.push('编辑 CP', { tracks: s.tracks, cps: s.cps })
+    const cps = s.cps.map((c) => (c.id === id ? { ...c, ...patch } : c))
+    set({ cps, ...historyFlags(s.history) })
+  },
+
+  removeCp: (id) => {
+    const s = get()
+    s.history.push('删除 CP', { tracks: s.tracks, cps: s.cps })
+    const remaining = s.cps.filter((c) => c.id !== id)
+    const track = s.tracks.find((t) => t.id === s.activeTrackId)
+    const cps = track ? reanchorAll(track, remaining) : remaining
+    set({ cps, ...historyFlags(s.history) })
+  },
+
+  reorderCp: (id, direction) => {
+    const s = get()
+    const idx = s.cps.findIndex((c) => c.id === id)
+    if (idx === -1) return
+    const targetIdx = idx + direction
+    if (targetIdx < 0 || targetIdx >= s.cps.length) return
+    s.history.push('调整 CP 顺序', { tracks: s.tracks, cps: s.cps })
+    const reordered = [...s.cps]
+    const [item] = reordered.splice(idx, 1)
+    reordered.splice(targetIdx, 0, item)
+    const track = s.tracks.find((t) => t.id === s.activeTrackId)
+    const cps = track ? reanchorAll(track, reordered) : reordered
+    set({ cps, ...historyFlags(s.history) })
+  },
+
+  // 阈值/平滑窗口是纯展示态的调参,不需要走撤销栈(调参本身可随时再调回去)。
+  setStatsOptions: (patch) => set((s) => ({ statsOptions: { ...s.statsOptions, ...patch } })),
+
   undo: () => {
     const s = get()
-    const snap = s.history.undo({ tracks: s.tracks })
+    const snap = s.history.undo({ tracks: s.tracks, cps: s.cps })
     if (!snap) return
     const reconciled = reconcileDangling(snap.state.tracks, s.activeTrackId, s.hover)
-    set({ tracks: snap.state.tracks, ...reconciled, ...historyFlags(s.history) })
+    set({ tracks: snap.state.tracks, cps: snap.state.cps, ...reconciled, ...historyFlags(s.history) })
   },
 
   redo: () => {
     const s = get()
-    const snap = s.history.redo({ tracks: s.tracks })
+    const snap = s.history.redo({ tracks: s.tracks, cps: s.cps })
     if (!snap) return
     const reconciled = reconcileDangling(snap.state.tracks, s.activeTrackId, s.hover)
-    set({ tracks: snap.state.tracks, ...reconciled, ...historyFlags(s.history) })
+    set({ tracks: snap.state.tracks, cps: snap.state.cps, ...reconciled, ...historyFlags(s.history) })
   },
 }))

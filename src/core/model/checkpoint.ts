@@ -1,5 +1,14 @@
 export type CpKind = 'cp' | 'aid' | 'gear' | 'danger' | 'quit'
 
+/** 五种 CP 类型的中文展示名,CpPanel / MapView 的创建表单共用同一份映射。 */
+export const CP_KIND_LABELS: Record<CpKind, string> = {
+  cp: 'CP 打卡点',
+  aid: '补给站',
+  gear: '强装检查',
+  danger: '危险路段',
+  quit: '退赛点',
+}
+
 export interface CheckPoint {
   id: string
   name: string

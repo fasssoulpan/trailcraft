@@ -8,7 +8,21 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useAppStore, type HoverState } from '../state/appStore'
-import { findNearestOnTrack, pixelsToMeters, syncHoverMarker, syncTrackLayers, HOVER_GRAB_PX } from './trackLayer'
+import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
+import {
+  findNearestOnTrack,
+  pixelsToMeters,
+  syncCpMarkers,
+  syncHoverMarker,
+  syncTrackLayers,
+  HOVER_GRAB_PX,
+} from './trackLayer'
+
+/** Screen-space anchor + world coordinate for the pending "add CP" inline form. */
+interface CpFormState {
+  lngLat: [number, number]
+  point: { x: number; y: number }
+}
 
 /**
  * Raster OSM basemap style. Exported as a constant so the tile URL is easy
@@ -56,6 +70,16 @@ export function MapView() {
   const tracks = useAppStore((s) => s.tracks)
   const hover = useAppStore((s) => s.hover)
   const setHover = useAppStore((s) => s.setHover)
+  const activeTrackId = useAppStore((s) => s.activeTrackId)
+  const cps = useAppStore((s) => s.cps)
+  const addCp = useAppStore((s) => s.addCp)
+
+  const activeTrack = tracks.find((t) => t.id === activeTrackId)
+
+  // Inline "add CP" form, opened by clicking near the active track.
+  const [cpForm, setCpForm] = useState<CpFormState | undefined>()
+  const [cpKind, setCpKind] = useState<CpKind>('cp')
+  const [cpName, setCpName] = useState('')
 
   // Refs mirroring the latest props/state so long-lived callbacks (the
   // MapLibre 'style.load' handler registered once in the mount effect, the
@@ -67,6 +91,20 @@ export function MapView() {
   hoverRef.current = hover
   const setHoverRef = useRef(setHover)
   setHoverRef.current = setHover
+  const activeTrackRef = useRef(activeTrack)
+  activeTrackRef.current = activeTrack
+  const cpsRef = useRef(cps)
+  cpsRef.current = cps
+  const setCpFormRef = useRef(setCpForm)
+  setCpFormRef.current = setCpForm
+
+  // Default the inline form's name to the next ordinal each time it's
+  // (re)opened - but only then, not on every cps change, so it doesn't
+  // clobber whatever the user is mid-typing while the form stays open.
+  useEffect(() => {
+    if (cpForm) setCpName(`CP${cps.length + 1}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cpForm])
 
   // Create the map once; destroy on unmount.
   useEffect(() => {
@@ -102,6 +140,7 @@ export function MapView() {
       loadedRef.current = true
       syncTrackLayers(map, tracksRef.current)
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
+      syncCpMarkers(map, activeTrackRef.current, cpsRef.current)
     }
     map.on('style.load', handleStyleLoad)
 
@@ -159,12 +198,40 @@ export function MapView() {
     map.on('mousemove', handleMouseMove)
     map.on('mouseout', handleMouseOut)
 
+    // Clicking near the active track opens the inline "add CP" form;
+    // clicking anywhere else (no active track, or too far from it) does
+    // nothing. Reuses the exact same pixel-based proximity logic as hover
+    // (findNearestOnTrack + pixelsToMeters) so the "near enough to click"
+    // radius feels consistent with the "near enough to hover" one - but
+    // scoped to just the active track's render copy, since a click near some
+    // *other* track shouldn't open a CP form for the active one.
+    const handleClick = (e: MapMouseEvent) => {
+      const active = activeTrackRef.current
+      if (!active) {
+        setCpFormRef.current(undefined)
+        return
+      }
+      const zoom = map.getZoom()
+      const maxDistanceM = pixelsToMeters(zoom, e.lngLat.lat, HOVER_GRAB_PX)
+      const nearest = findNearestOnTrack([active], e.lngLat.lng, e.lngLat.lat, maxDistanceM)
+      if (!nearest) {
+        setCpFormRef.current(undefined)
+        return
+      }
+      setCpFormRef.current({
+        lngLat: [e.lngLat.lng, e.lngLat.lat],
+        point: { x: e.point.x, y: e.point.y },
+      })
+    }
+    map.on('click', handleClick)
+
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId)
       map.off('style.load', handleStyleLoad)
       map.off('error', handleError)
       map.off('mousemove', handleMouseMove)
       map.off('mouseout', handleMouseOut)
+      map.off('click', handleClick)
       map.remove()
       mapRef.current = null
       loadedRef.current = false
@@ -198,6 +265,24 @@ export function MapView() {
     if (!loadedRef.current) return
     syncHoverMarker(map, tracks, hover)
   }, [tracks, hover])
+
+  // Re-sync CP markers whenever the CP list, the active track, or the
+  // track's own data changes (e.g. a toolbox op replacing the active track
+  // with a re-simplified copy shifts every anchorIndex's coordinates). Same
+  // gate as the effects above.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!loadedRef.current) return
+    syncCpMarkers(map, activeTrack, cps)
+  }, [activeTrack, cps])
+
+  function confirmCp() {
+    if (!cpForm) return
+    addCp(cpKind, cpName.trim() || `CP${cps.length + 1}`, cpForm.lngLat)
+    setCpForm(undefined)
+    setCpKind('cp')
+  }
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -241,6 +326,35 @@ export function MapView() {
           >
             ×
           </button>
+        </div>
+      )}
+      {cpForm && (
+        <div
+          className="map-cp-form"
+          style={{ position: 'absolute', left: cpForm.point.x + 12, top: cpForm.point.y - 12, zIndex: 2 }}
+        >
+          <label className="map-cp-form__field">
+            类型
+            <select value={cpKind} onChange={(e) => setCpKind(e.target.value as CpKind)}>
+              {(Object.keys(CP_KIND_LABELS) as CpKind[]).map((k) => (
+                <option key={k} value={k}>
+                  {CP_KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="map-cp-form__field">
+            名称
+            <input type="text" value={cpName} onChange={(e) => setCpName(e.target.value)} />
+          </label>
+          <div className="map-cp-form__actions">
+            <button type="button" onClick={confirmCp}>
+              添加
+            </button>
+            <button type="button" onClick={() => setCpForm(undefined)}>
+              取消
+            </button>
+          </div>
         </div>
       )}
     </div>

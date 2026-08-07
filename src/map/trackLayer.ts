@@ -1,6 +1,7 @@
 import { GeoJSONSource, LngLatBounds, Marker, type Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature, LineString } from 'geojson'
 import type { Track } from '../core/model/track'
+import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import type { HoverState } from '../state/appStore'
 import { decimateIndices } from '../core/toolbox/decimate'
 
@@ -227,4 +228,90 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
   } else {
     marker.setLngLat([lon, lat])
   }
+}
+
+// Distinct per-kind marker colour so CPs stay visually distinguishable at a
+// glance (danger/quit points in particular should read as "different" from
+// a plain CP even before you read the label).
+const CP_KIND_COLORS: Record<CpKind, string> = {
+  cp: '#1d4ed8',
+  aid: '#16a34a',
+  gear: '#ca8a04',
+  danger: '#dc2626',
+  quit: '#6b7280',
+}
+
+// One Marker per CP id, per map instance, so we can move/recolor markers in
+// place instead of tearing down and recreating the whole set on every sync
+// (which would flicker and defeat any CSS transitions).
+const cpMarkers = new WeakMap<MapLibreMap, Map<string, Marker>>()
+
+function styleCpMarkerElement(el: HTMLElement, cp: CheckPoint, ordinal: number): void {
+  el.textContent = String(ordinal)
+  el.style.width = '22px'
+  el.style.height = '22px'
+  el.style.borderRadius = '50%'
+  el.style.display = 'flex'
+  el.style.alignItems = 'center'
+  el.style.justifyContent = 'center'
+  el.style.fontSize = '11px'
+  el.style.fontWeight = '600'
+  el.style.color = '#fff'
+  el.style.background = CP_KIND_COLORS[cp.kind]
+  el.style.border = '2px solid #fff'
+  el.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.4)'
+  el.style.cursor = 'default'
+}
+
+/**
+ * Places/moves one marker per CP, coloured by kind and labelled with its
+ * ordinal (1-based list position, matching CpPanel/SegmentTable's numbering).
+ * Removes markers for CPs no longer present in `cps`.
+ *
+ * CheckPoint (core/model/checkpoint.ts) does not carry a trackId, so a CP's
+ * on-map position is resolved against `activeTrack` via `anchorIndex`; if
+ * there is no active track (or the index is out of range, e.g. right after
+ * switching tracks), the CP's original `clickLngLat` is used as a fallback
+ * so the marker doesn't just disappear.
+ */
+export function syncCpMarkers(map: MapLibreMap, activeTrack: Track | undefined, cps: CheckPoint[]): void {
+  let markers = cpMarkers.get(map)
+  if (!markers) {
+    markers = new Map()
+    cpMarkers.set(map, markers)
+  }
+
+  const currentIds = new Set(cps.map((c) => c.id))
+  for (const [id, marker] of markers) {
+    if (currentIds.has(id)) continue
+    marker.remove()
+    markers.delete(id)
+  }
+
+  cps.forEach((cp, i) => {
+    let lon: number | undefined
+    let lat: number | undefined
+    if (activeTrack && cp.anchorIndex >= 0 && cp.anchorIndex < activeTrack.points.lon.length) {
+      lon = activeTrack.points.lon[cp.anchorIndex]
+      lat = activeTrack.points.lat[cp.anchorIndex]
+    } else if (cp.clickLngLat) {
+      ;[lon, lat] = cp.clickLngLat
+    }
+    if (lon === undefined || lat === undefined) return
+
+    const ordinal = i + 1
+    let marker = markers!.get(cp.id)
+    if (!marker) {
+      const el = document.createElement('div')
+      styleCpMarkerElement(el, cp, ordinal)
+      // Same ordering rule as syncHoverMarker above: setLngLat() before
+      // addTo(), never the reverse - addTo() throws in maplibre-gl v6 if the
+      // marker has no lngLat set yet.
+      marker = new Marker({ element: el }).setLngLat([lon, lat]).addTo(map)
+      markers!.set(cp.id, marker)
+    } else {
+      marker.setLngLat([lon, lat])
+      styleCpMarkerElement(marker.getElement(), cp, ordinal)
+    }
+  })
 }

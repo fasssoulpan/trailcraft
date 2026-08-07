@@ -10,10 +10,33 @@ function makeTrack(fileName: string) {
   )
 }
 
+/**
+ * 往返(out-and-back)轨迹,同一份合成数据用在 tests/core/anchor.test.ts:
+ * 出程 index 0..10 (lon 116.000..116.010),回程 index 11..20 原路折返
+ * (lon 116.009..116.000)。lon=116.003 在出程 index 3 与回程 index 17 各
+ * 出现一次,用来验证 store 层的 CP 增删改是否正确地把"锚定无错趟"接到了
+ * anchorMonotonic 上,而不只是简单地各自独立找最近点。
+ */
+function outAndBackTrack() {
+  const n = 21
+  const lon = new Float64Array(n)
+  const lat = new Float64Array(n)
+  for (let i = 0; i <= 10; i++) {
+    lon[i] = 116 + i * 0.001
+    lat[i] = 39.9
+  }
+  for (let i = 0; i <= 9; i++) {
+    lon[11 + i] = 116.009 - i * 0.001
+    lat[11 + i] = 39.9
+  }
+  return createTrack({ lon, lat }, { name: 'oab', format: 'gpx', fileName: 'oab.gpx' })
+}
+
 describe('appStore', () => {
   beforeEach(() => {
     useAppStore.setState({
       tracks: [], sourceMemory: {}, activeTrackId: undefined, hover: undefined,
+      cps: [], statsOptions: { threshold: 5, smoothWindow: 5 },
       canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined, history: new History(),
     })
   })
@@ -196,6 +219,140 @@ describe('appStore', () => {
       useAppStore.getState().undo()
       expect(useAppStore.getState().undoLabel).toBeUndefined()
       expect(useAppStore.getState().redoLabel).toBe('reverse')
+    })
+  })
+
+  describe('checkpoints', () => {
+    it('addCp re-anchors all CPs in list order (out-and-back headline case)', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      useAppStore.getState().addCp('cp', 'CP2', [116.003, 39.9])
+      const cps = useAppStore.getState().cps
+      expect(cps).toHaveLength(2)
+      expect(cps[0].anchorIndex).toBe(3)
+      expect(cps[1].anchorIndex).toBeGreaterThan(10)
+    })
+
+    it('addCp forces a later CP forward even when its true nearest point lies before an earlier anchor', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.008, 39.9]) // anchors at 8
+      useAppStore.getState().addCp('cp', 'CP2', [116.001, 39.9]) // globally-nearest is index 1, before CP1
+      const cps = useAppStore.getState().cps
+      expect(cps[0].anchorIndex).toBe(8)
+      expect(cps[1].anchorIndex).toBe(19)
+    })
+
+    it('removeCp re-anchors the remaining CPs from scratch', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.008, 39.9])
+      useAppStore.getState().addCp('cp', 'CP2', [116.001, 39.9])
+      let cps = useAppStore.getState().cps
+      expect(cps[1].anchorIndex).toBe(19) // forced forward while CP1 exists
+
+      useAppStore.getState().removeCp(cps[0].id)
+      cps = useAppStore.getState().cps
+      expect(cps).toHaveLength(1)
+      expect(cps[0].name).toBe('CP2')
+      expect(cps[0].anchorIndex).toBe(1) // no longer constrained by CP1, back to its true nearest point
+    })
+
+    it('reorderCp changes anchoring order and re-anchors', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'A', [116.003, 39.9])
+      useAppStore.getState().addCp('cp', 'B', [116.003, 39.9])
+      let cps = useAppStore.getState().cps
+      expect(cps[0].name).toBe('A')
+      expect(cps[0].anchorIndex).toBe(3)
+      expect(cps[1].name).toBe('B')
+      expect(cps[1].anchorIndex).toBeGreaterThan(10)
+
+      useAppStore.getState().reorderCp(cps[1].id, -1) // move B ahead of A
+      cps = useAppStore.getState().cps
+      expect(cps[0].name).toBe('B')
+      expect(cps[0].anchorIndex).toBe(3) // B now anchors first, claims index 3
+      expect(cps[1].name).toBe('A')
+      expect(cps[1].anchorIndex).toBeGreaterThan(10) // A pushed to the return leg
+    })
+
+    it('reorderCp out of bounds is a no-op', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'A', [116.003, 39.9])
+      const [cp] = useAppStore.getState().cps
+      useAppStore.getState().reorderCp(cp.id, -1) // already first
+      expect(useAppStore.getState().cps).toEqual([cp])
+      useAppStore.getState().reorderCp(cp.id, 1) // already last
+      expect(useAppStore.getState().cps).toEqual([cp])
+    })
+
+    it('updateCp with a direct anchorIndex patch is preserved, not overwritten by re-anchoring', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      const cpId = useAppStore.getState().cps[0].id
+      useAppStore.getState().updateCp(cpId, { anchorIndex: 15 })
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(15)
+    })
+
+    it('updateCp merges non-anchor fields (kind, cutoffTime) without touching anchorIndex', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      const cpId = useAppStore.getState().cps[0].id
+      const before = useAppStore.getState().cps[0].anchorIndex
+      useAppStore.getState().updateCp(cpId, { kind: 'aid', cutoffTime: '2026-08-07T14:00:00+08:00' })
+      const cp = useAppStore.getState().cps[0]
+      expect(cp.kind).toBe('aid')
+      expect(cp.cutoffTime).toBe('2026-08-07T14:00:00+08:00')
+      expect(cp.anchorIndex).toBe(before)
+    })
+
+    it('undo restores both tracks and cps together', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      expect(useAppStore.getState().cps).toHaveLength(1)
+
+      useAppStore.getState().addCp('cp', 'CP2', [116.008, 39.9])
+      expect(useAppStore.getState().cps).toHaveLength(2)
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().cps).toHaveLength(1)
+      expect(useAppStore.getState().tracks).toEqual([t])
+      expect(useAppStore.getState().canRedo).toBe(true)
+
+      useAppStore.getState().redo()
+      expect(useAppStore.getState().cps).toHaveLength(2)
+    })
+
+    it('a track-only applyOp still snapshots cps, so undoing it leaves cps untouched', () => {
+      const t = outAndBackTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      const cpsBefore = useAppStore.getState().cps
+
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((tr) => ({ ...tr, id: `${tr.id}_rev` })))
+      expect(useAppStore.getState().cps).toEqual(cpsBefore)
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().cps).toEqual(cpsBefore)
+      expect(useAppStore.getState().tracks).toEqual([t])
+    })
+
+    it('setStatsOptions merges into the existing options', () => {
+      useAppStore.getState().setStatsOptions({ threshold: 7 })
+      expect(useAppStore.getState().statsOptions).toEqual({ threshold: 7, smoothWindow: 5 })
+      useAppStore.getState().setStatsOptions({ smoothWindow: 9 })
+      expect(useAppStore.getState().statsOptions).toEqual({ threshold: 7, smoothWindow: 9 })
+    })
+
+    it('addCp without an active track is a no-op', () => {
+      useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
+      expect(useAppStore.getState().cps).toHaveLength(0)
     })
   })
 })
