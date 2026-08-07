@@ -113,6 +113,30 @@ function reanchorAll(track: Track, cps: CheckPoint[]): CheckPoint[] {
   return cps.map((c, i) => ({ ...c, anchorIndex: indices[i] }))
 }
 
+/**
+ * applyOp 之后,找出"接替原激活轨迹"的那条新轨迹,用来重新锚定 CP。
+ *
+ * 工具箱操作(split/join/reverse/clean/simplify,定义于 core/toolbox/ops.ts)
+ * 全部通过 derive()/createTrack() 产出全新 id 的 Track——操作前后 id 必然
+ * 不同,没法按 id 找"对应的新轨迹"。这里改用"操作前激活轨迹在旧 tracks
+ * 数组里的下标"来定位,这与 ToolboxPanel 里各操作自己遵循的 splice 约定
+ * 完全一致:
+ *   - reverse / 清洗异常点 / 抽稀:1 对 1 替换,新轨迹落在原下标位置——
+ *     这里的定位总是准确的。
+ *   - splitAt:1 对 2,`next.splice(idx, 1, a, b)` 让前半段 a 占据原下标——
+ *     P0 的显式选择是"CP 全部重新锚定到 a(前半段)上",b(后半段)上的 CP
+ *     需要用户之后手动检查/调整,不在本次范围内。
+ *   - joinTracks:n 对 1,只有当原激活轨迹恰好是"列表中第一条被选中的
+ *     轨迹"时,这个下标才会精确对上拼接结果——这是已知的 P0 局限,不是
+ *     本函数试图掩盖的 bug;拼接后建议用户手动核对 CP。
+ * 找不到原激活轨迹(操作前本来就没有激活轨迹)或者操作后 tracks 变成空
+ * 数组时,返回 undefined,调用方应保持 cps 原样、不做任何锚定尝试。
+ */
+function resolveActiveTrackAfterOp(tracks: Track[], oldActiveIdx: number): Track | undefined {
+  if (oldActiveIdx === -1 || tracks.length === 0) return undefined
+  return tracks[Math.min(oldActiveIdx, tracks.length - 1)]
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
   canUndo: false, canRedo: false, history: new History<EditableState>(),
@@ -132,12 +156,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   setHover: (h) => set({ hover: h }),
   rememberSource: (creator, crs) => set((s) => ({ sourceMemory: { ...s.sourceMemory, [creator]: crs } })),
 
+  // 工具箱操作(split/join/reverse/清洗/抽稀)每次都替换出全新 id、常常是
+  // 全新点数的 Track——CP 的 anchorIndex 是对某条具体轨迹 points 数组的
+  // 下标缓存,不重新锚定就会立刻出现"越界"(抽稀后点数骤减)或"数值没变但
+  // 几何位置错位"(reverse 后同一下标指向另一端)两类 bug。这里把重新锚定
+  // 收在 applyOp 这一个入口里(而不是逐个操作调用处补丁),保证以后任何新
+  // 加的工具箱操作都不可能漏掉这一步——具体定位"重新锚定到哪条新轨迹"的
+  // 规则见 resolveActiveTrackAfterOp 的注释。
   applyOp: (label, fn) => {
     const s = get()
     s.history.push(label, { tracks: s.tracks, cps: s.cps })
+    const oldActiveIdx = s.tracks.findIndex((t) => t.id === s.activeTrackId)
     const tracks = fn(s.tracks)
     const reconciled = reconcileDangling(tracks, s.activeTrackId, s.hover)
-    set({ tracks, ...reconciled, ...historyFlags(s.history) })
+    const resolvedActive = resolveActiveTrackAfterOp(tracks, oldActiveIdx)
+    const activeTrackId = reconciled.activeTrackId ?? resolvedActive?.id
+    const cps = resolvedActive ? reanchorAll(resolvedActive, s.cps) : s.cps
+    set({ tracks, cps, activeTrackId, hover: reconciled.hover, ...historyFlags(s.history) })
   },
 
   addCp: (kind, name, lngLat) => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore } from '../../src/state/appStore'
 import { createTrack } from '../../src/core/model/track'
 import { History } from '../../src/state/history'
+import { reverseTrack, removeAnomalies, simplifyTrack } from '../../src/core/toolbox/ops'
 
 function makeTrack(fileName: string) {
   return createTrack(
@@ -30,6 +31,48 @@ function outAndBackTrack() {
     lat[11 + i] = 39.9
   }
   return createTrack({ lon, lat }, { name: 'oab', format: 'gpx', fileName: 'oab.gpx' })
+}
+
+/**
+ * 单方向直线轨迹(不折返),21 个点,lon 从 116.000 递增到 116.020,lat 恒为
+ * 39.9。用于 reverseTrack / removeAnomalies / simplifyTrack 的 CP 重新锚定
+ * 测试——刻意避开 outAndBackTrack 那种同一经度出现两次的折返形状,这样
+ * "最近点" 在几何上永远唯一,断言不会被单调约束的副作用干扰。
+ */
+function straightTrack() {
+  const n = 21
+  const lon = new Float64Array(n)
+  const lat = new Float64Array(n)
+  for (let i = 0; i < n; i++) {
+    lon[i] = 116 + i * 0.001
+    lat[i] = 39.9
+  }
+  return createTrack({ lon, lat }, { name: 'straight', format: 'gpx', fileName: 'straight.gpx' })
+}
+
+/**
+ * 6 点共线直线轨迹,专门配合 simplifyTrack(tolerance=1) 用——完全共线时
+ * Douglas-Peucker 在任何 tolerance>0 下都会把所有中间点全部丢弃,只留
+ * 首尾两点,点数从 6 骤降到 2,足以暴露"抽稀后 CP anchorIndex 越界"的
+ * 场景。
+ */
+function collinearTrack() {
+  const lon = [0, 0.0001, 0.0002, 0.0003, 0.0004, 0.0005]
+  const lat = [0, 0, 0, 0, 0, 0]
+  return createTrack({ lon, lat }, { name: 'line', format: 'gpx', fileName: 'line.gpx' })
+}
+
+/**
+ * 复刻 tests/core/toolbox.test.ts 里 removeAnomalies 的异常点用例:5 点中的
+ * index 2 是一次~500m 的瞬移,被剔除后剩下 keep=[0,1,3,4],新轨迹只有 4 点。
+ */
+function anomalyTrack() {
+  const dLat = 2 / 111320 // ~2m per step
+  const jumpLat = 500 / 111320 // ~500m jump
+  const lat = [0, dLat, 2 * dLat + jumpLat, 3 * dLat, 4 * dLat]
+  const lon = [0, 0, 0, 0, 0]
+  const time = [0, 1000, 2000, 3000, 4000]
+  return createTrack({ lon, lat, time }, { name: 'anomaly', format: 'gpx', fileName: 'anomaly.gpx' })
 }
 
 describe('appStore', () => {
@@ -353,6 +396,123 @@ describe('appStore', () => {
     it('addCp without an active track is a no-op', () => {
       useAppStore.getState().addCp('cp', 'CP1', [116.003, 39.9])
       expect(useAppStore.getState().cps).toHaveLength(0)
+    })
+  })
+
+  describe('applyOp re-anchors cps against the resulting active track', () => {
+    it('simplifyTrack: cp anchorIndex stays within the drastically-reduced bounds, near its original click', () => {
+      const t = collinearTrack()
+      useAppStore.getState().addTrack(t)
+      // clicks exactly on the interior point at index 3
+      useAppStore.getState().addCp('cp', 'MID', [0.0003, 0])
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(3)
+
+      useAppStore.getState().applyOp('抽稀', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === t.id)
+        const simplified = simplifyTrack(tracks[idx], 1)
+        const next = [...tracks]
+        next.splice(idx, 1, simplified)
+        return next
+      })
+
+      const newTrack = useAppStore.getState().tracks[0]
+      expect(newTrack.points.lon.length).toBe(2) // collapsed to endpoints only
+      const cp = useAppStore.getState().cps[0]
+      expect(cp.anchorIndex).toBeGreaterThanOrEqual(0)
+      expect(cp.anchorIndex).toBeLessThan(newTrack.points.lon.length)
+      // click was at lon 0.0003, closer to the surviving endpoint at 0.0005 than to 0
+      expect(cp.anchorIndex).toBe(1)
+    })
+
+    it('reverseTrack: a cp near the old end re-anchors to a small (new-start) index, not the stale large one', () => {
+      const t = straightTrack() // 21 points, lon 116.000..116.020
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'NEAR-OLD-END', [116.018, 39.9]) // old index 18
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(18)
+
+      useAppStore.getState().applyOp('反向', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === t.id)
+        const r = reverseTrack(tracks[idx])
+        const next = [...tracks]
+        next.splice(idx, 1, r)
+        return next
+      })
+
+      const cp = useAppStore.getState().cps[0]
+      // old index 18 of 21 points lands at new index 20-18=2 after reversal
+      expect(cp.anchorIndex).toBe(2)
+      expect(cp.anchorIndex).toBeLessThan(5) // small: near the new start
+      expect(cp.anchorIndex).not.toBe(18) // not the stale, unreanchored value
+    })
+
+    it('removeAnomalies: indices remain valid after points shift', () => {
+      const t = anomalyTrack()
+      useAppStore.getState().addTrack(t)
+      // click exactly on the last point (old index 4), which survives the cleanup
+      useAppStore.getState().addCp('cp', 'LAST', [0, 4 * (2 / 111320)])
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(4)
+
+      useAppStore.getState().applyOp('清洗异常点', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === t.id)
+        const cleaned = removeAnomalies(tracks[idx])
+        const next = [...tracks]
+        next.splice(idx, 1, cleaned)
+        return next
+      })
+
+      const newTrack = useAppStore.getState().tracks[0]
+      expect(newTrack.points.lon.length).toBe(4) // one anomaly dropped
+      const cp = useAppStore.getState().cps[0]
+      expect(cp.anchorIndex).toBeGreaterThanOrEqual(0)
+      expect(cp.anchorIndex).toBeLessThan(newTrack.points.lon.length)
+      expect(cp.anchorIndex).toBe(3) // old index 4 shifts to new index 3 (kept = [0,1,3,4])
+    })
+
+    it('a cp missing clickLngLat cannot be geometrically re-anchored, so its anchorIndex is clamped into the new bounds instead', () => {
+      const t = straightTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'NOLOC', [116.018, 39.9]) // anchorIndex 18
+      const cpId = useAppStore.getState().cps[0].id
+      useAppStore.getState().updateCp(cpId, { clickLngLat: undefined })
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(18)
+      expect(useAppStore.getState().cps[0].clickLngLat).toBeUndefined()
+
+      useAppStore.getState().applyOp('抽稀', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === t.id)
+        const simplified = simplifyTrack(tracks[idx], 1) // collinear-ish -> collapses hard
+        const next = [...tracks]
+        next.splice(idx, 1, simplified)
+        return next
+      })
+
+      const newTrack = useAppStore.getState().tracks[0]
+      const cp = useAppStore.getState().cps[0]
+      // no crash, no undefined/out-of-range value -- clamped into [0, newLength-1]
+      expect(cp.anchorIndex).toBeGreaterThanOrEqual(0)
+      expect(cp.anchorIndex).toBeLessThan(newTrack.points.lon.length)
+    })
+
+    it('undo restores both the old track and the old cp anchors together', () => {
+      const t = straightTrack()
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'NEAR-OLD-END', [116.018, 39.9])
+      const tracksBefore = useAppStore.getState().tracks
+      const cpsBefore = useAppStore.getState().cps
+      expect(cpsBefore[0].anchorIndex).toBe(18)
+
+      useAppStore.getState().applyOp('反向', (tracks) => {
+        const idx = tracks.findIndex((tr) => tr.id === t.id)
+        const r = reverseTrack(tracks[idx])
+        const next = [...tracks]
+        next.splice(idx, 1, r)
+        return next
+      })
+      expect(useAppStore.getState().cps[0].anchorIndex).not.toBe(18) // re-anchored post-op
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().tracks).toEqual(tracksBefore)
+      expect(useAppStore.getState().cps).toEqual(cpsBefore)
+      expect(useAppStore.getState().cps[0].anchorIndex).toBe(18) // old anchor restored, not left re-anchored
     })
   })
 })
