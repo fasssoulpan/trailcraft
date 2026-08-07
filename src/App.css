@@ -6,8 +6,7 @@
 }
 
 .app-layout__sidebar {
-  flex: 0 0 320px;
-  width: 320px;
+  flex: 0 0 auto;
   box-sizing: border-box;
   padding: 16px;
   display: flex;
@@ -32,10 +31,38 @@
 }
 
 .app-layout__profile {
-  flex: 0 0 240px;
-  height: 240px;
+  flex: 0 0 auto;
   border-top: 1px solid var(--border);
   position: relative;
+}
+
+/* Draggable dividers between sidebar|map and map|profile (App.tsx +
+ * ui/Splitter.tsx). A few px wide/tall rather than 1px -- a hairline hit
+ * target is unusable with a mouse -- with a subtle hover/active highlight
+ * as the drag affordance. */
+.app-splitter {
+  flex: 0 0 auto;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.app-splitter:hover,
+.app-splitter--dragging {
+  background: var(--accent-bg);
+}
+
+.app-splitter--vertical {
+  width: 6px;
+  cursor: col-resize;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.app-splitter--horizontal {
+  height: 6px;
+  cursor: row-resize;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-layout__segments {

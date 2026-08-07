@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MapView } from './map/MapView'
 import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
@@ -8,9 +8,25 @@ import { PacePanel } from './ui/PacePanel'
 import { SegmentTable } from './ui/SegmentTable'
 import { ProjectToolbar } from './ui/ProjectToolbar'
 import { ProfileCanvas } from './profile/ProfileCanvas'
+import { Splitter } from './ui/Splitter'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
+import { clamp, loadLayoutSizes, saveLayoutSizes, type LayoutSizes } from './state/layout'
 import './App.css'
+
+// Minimums/maximums for the two user-resizable panes. The map itself has no
+// explicit min/max here -- it's whatever's left over from flex:1 auto once
+// the sidebar and profile take their share -- but MAP_MIN_WIDTH/HEIGHT are
+// exactly the numbers the splitters subtract when computing THEIR maximums,
+// which is what actually keeps the map from being squeezed to nothing (the
+// zero-height-canvas bug fixed alongside this: see src/map/trackLayer.ts).
+const SIDEBAR_MIN = 220
+const SIDEBAR_MAX = 560
+const PROFILE_MIN = 120
+const PROFILE_MAX = 480
+const MAP_MIN_WIDTH = 280
+const MAP_MIN_HEIGHT = 160
+const SPLITTER_SIZE = 6
 
 function App() {
   // Collapsed by default: the map should get the majority of the vertical
@@ -22,6 +38,46 @@ function App() {
   // IndexedDB,把加载完成前那次 useEffect(依赖 sourceMemory)误当作"用户
   // 清空了记忆"而写坏已保存的数据。
   const hydrated = useRef(false)
+
+  const [sizes, setSizes] = useState<LayoutSizes>(() => loadLayoutSizes())
+  // Mirrors `sizes` for the splitters' onCommit handlers, which only know
+  // the dimension they themselves just changed and need the *other*
+  // dimension's current value to persist the full { sidebarWidth,
+  // profileHeight } pair without going stale across renders.
+  const sizesRef = useRef(sizes)
+  sizesRef.current = sizes
+
+  const appLayoutRef = useRef<HTMLDivElement | null>(null)
+  const mainRef = useRef<HTMLDivElement | null>(null)
+  const segmentsRef = useRef<HTMLDivElement | null>(null)
+
+  const sidebarMax = () => {
+    const el = appLayoutRef.current
+    if (!el) return SIDEBAR_MAX
+    return Math.min(SIDEBAR_MAX, el.clientWidth - MAP_MIN_WIDTH - SPLITTER_SIZE)
+  }
+  const profileMax = () => {
+    const el = mainRef.current
+    if (!el) return PROFILE_MAX
+    const segmentsH = segmentsRef.current?.clientHeight ?? 0
+    return Math.min(PROFILE_MAX, el.clientHeight - MAP_MIN_HEIGHT - SPLITTER_SIZE - segmentsH)
+  }
+
+  // A size restored from a previous, larger window (or just never validated
+  // yet) could violate this window's constraints -- re-clamp once real
+  // layout is available. Runs once on mount; deliberately not on every
+  // window resize (that's a separate concern from "the user dragged a
+  // splitter" and the flex layout + MapView's own ResizeObserver already
+  // keep the map itself correct as the window resizes).
+  useLayoutEffect(() => {
+    setSizes((prev) => {
+      const sidebarWidth = clamp(prev.sidebarWidth, SIDEBAR_MIN, sidebarMax())
+      const profileHeight = clamp(prev.profileHeight, PROFILE_MIN, profileMax())
+      if (sidebarWidth === prev.sidebarWidth && profileHeight === prev.profileHeight) return prev
+      return { sidebarWidth, profileHeight }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -45,8 +101,11 @@ function App() {
   }, [sourceMemory])
 
   return (
-    <div className="app-layout">
-      <aside className="app-layout__sidebar">
+    <div className="app-layout" ref={appLayoutRef}>
+      <aside
+        className="app-layout__sidebar"
+        style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
+      >
         <ProjectToolbar />
         <ImportPanel />
         <TrackList />
@@ -54,11 +113,20 @@ function App() {
         <CpPanel />
         <PacePanel />
       </aside>
-      <div className="app-layout__main">
+      <Splitter
+        orientation="vertical"
+        value={sizes.sidebarWidth}
+        min={SIDEBAR_MIN}
+        getMax={sidebarMax}
+        onChange={(sidebarWidth) => setSizes((s) => ({ ...s, sidebarWidth }))}
+        onCommit={(sidebarWidth) => saveLayoutSizes({ ...sizesRef.current, sidebarWidth })}
+        label="调整侧边栏宽度"
+      />
+      <div className="app-layout__main" ref={mainRef}>
         <div className="app-layout__map">
           <MapView />
         </div>
-        <div className="app-layout__segments">
+        <div className="app-layout__segments" ref={segmentsRef}>
           <button
             type="button"
             className="app-layout__segments-toggle"
@@ -72,7 +140,17 @@ function App() {
             </div>
           )}
         </div>
-        <div className="app-layout__profile">
+        <Splitter
+          orientation="horizontal"
+          value={sizes.profileHeight}
+          min={PROFILE_MIN}
+          getMax={profileMax}
+          invert
+          onChange={(profileHeight) => setSizes((s) => ({ ...s, profileHeight }))}
+          onCommit={(profileHeight) => saveLayoutSizes({ ...sizesRef.current, profileHeight })}
+          label="调整高程剖面图高度"
+        />
+        <div className="app-layout__profile" style={{ height: sizes.profileHeight, flexBasis: sizes.profileHeight }}>
           <ProfileCanvas />
         </div>
       </div>
