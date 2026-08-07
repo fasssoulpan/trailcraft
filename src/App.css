@@ -194,9 +194,17 @@
   width: 48px;
 }
 
+.track-list__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  cursor: default;
+}
+
+.track-list__locate,
 .track-list__remove {
   align-self: flex-start;
-  margin-top: 4px;
 }
 
 .toolbox-panel {

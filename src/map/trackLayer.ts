@@ -98,8 +98,21 @@ function boundsFromCoords(coords: [number, number][]): LngLatBounds | undefined 
  * MapLibre's own `cameraForBounds` does internally, reimplemented here
  * because we need to call it in the exact case where MapLibre's own
  * `fitBounds` has already been ruled out.
+ *
+ * Exported (only) for `tests/map/zoomForBounds.test.ts` -- this is pure
+ * maths with no MapLibre map instance involved, and it's precisely the
+ * fallback that rescues the "track imported into a too-small container"
+ * failure case, so it's worth testing directly rather than only indirectly
+ * through `fitCamera`/`syncTrackLayers`.
+ *
+ * Degenerate inputs are always clamped to a finite [0, 20] zoom rather than
+ * producing NaN/Infinity: a zero-extent bounds (a single-point track) makes
+ * `latFraction`/`lngFraction` compute to exactly 0, and `|| 1e-9` below
+ * substitutes a tiny non-zero divisor so the result is a very large (but
+ * finite) zoom that then clamps to the max, 20 -- see the test file for the
+ * exact assertion.
  */
-function zoomForBounds(bounds: LngLatBounds, width: number, height: number): number {
+export function zoomForBounds(bounds: LngLatBounds, width: number, height: number): number {
   const WORLD_PX = 256
   const latRad = (lat: number) => (lat * Math.PI) / 180
   const sn = Math.sin(latRad(bounds.getNorth()))
@@ -171,6 +184,27 @@ export function tryPendingFit(map: MapLibreMap, tracks: Track[]): void {
   }
   fitCamera(map, bounds)
   pendingFit.delete(map)
+}
+
+/**
+ * Moves the camera onto `trackId`, if it's still present in `tracks`.
+ * No-op if the track has been removed (e.g. a stale locate request racing a
+ * delete).
+ *
+ * Backs the per-row "定位" (locate) control in TrackList: auto-fit
+ * (`pendingFit`/`tryPendingFit` above) only ever fires once, for the most
+ * recently *added* track, so it's not a way back to a track the user has
+ * since panned away from. This is that direct remedy. Deliberately routed
+ * through `fitCamera` rather than calling `map.fitBounds` here directly, so
+ * the small-container fallback that motivated this whole file applies to
+ * manual locates too, not just the initial import fit.
+ */
+export function locateTrack(map: MapLibreMap, tracks: Track[], trackId: string): void {
+  const track = tracks.find((t) => t.id === trackId)
+  if (!track) return
+  const bounds = boundsFromCoords(renderCopy(track).coords)
+  if (!bounds) return
+  fitCamera(map, bounds)
 }
 
 /**

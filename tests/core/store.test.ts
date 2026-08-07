@@ -86,7 +86,7 @@ describe('appStore', () => {
   beforeEach(() => {
     useAppStore.setState({
       tracks: [], sourceMemory: {}, activeTrackId: undefined, hover: undefined,
-      cps: [], statsOptions: { threshold: 5, smoothWindow: 5 },
+      cps: [], statsOptions: { threshold: 5, smoothWindow: 5 }, locateRequest: undefined,
       canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined, history: new History(),
     })
   })
@@ -159,6 +159,41 @@ describe('appStore', () => {
     expect(useAppStore.getState().hover).toEqual({ trackId: 'trk_x', index: 5 })
     useAppStore.getState().setHover(undefined)
     expect(useAppStore.getState().hover).toBeUndefined()
+  })
+
+  describe('locate requests', () => {
+    it('requestLocate records the track id', () => {
+      useAppStore.getState().requestLocate('trk_x')
+      expect(useAppStore.getState().locateRequest?.trackId).toBe('trk_x')
+    })
+
+    // MapView watches `locateRequest` to drive the map camera (see
+    // src/map/MapView.tsx); if it only compared trackId, a second click on
+    // the same row would look like "no change" and the camera would never
+    // move the second time. `seq` is what makes each click distinct and
+    // observable even when trackId repeats.
+    it('repeated requestLocate calls on the same track each bump seq, so each is separately observable', () => {
+      useAppStore.getState().requestLocate('trk_x')
+      const first = useAppStore.getState().locateRequest
+      expect(first).toEqual({ trackId: 'trk_x', seq: 1 })
+
+      useAppStore.getState().requestLocate('trk_x')
+      const second = useAppStore.getState().locateRequest
+      expect(second).toEqual({ trackId: 'trk_x', seq: 2 })
+      expect(second).not.toBe(first) // a new object, so subscribers relying on reference equality also see the change
+    })
+
+    it('requestLocate on a different track updates trackId and still bumps seq', () => {
+      useAppStore.getState().requestLocate('trk_a')
+      useAppStore.getState().requestLocate('trk_b')
+      expect(useAppStore.getState().locateRequest).toEqual({ trackId: 'trk_b', seq: 2 })
+    })
+
+    it('clearLocateRequest clears the pending request', () => {
+      useAppStore.getState().requestLocate('trk_x')
+      useAppStore.getState().clearLocateRequest()
+      expect(useAppStore.getState().locateRequest).toBeUndefined()
+    })
   })
 
   it('rememberSource adds and overwrites an existing creator entry', () => {

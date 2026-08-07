@@ -11,6 +11,7 @@ import { useAppStore, type HoverState } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import {
   findNearestOnTrack,
+  locateTrack,
   pixelsToMeters,
   syncCpMarkers,
   syncHoverMarker,
@@ -74,6 +75,8 @@ export function MapView() {
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const allCps = useAppStore((s) => s.cps)
   const addCp = useAppStore((s) => s.addCp)
+  const locateRequest = useAppStore((s) => s.locateRequest)
+  const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
   // CheckPoint.trackId is the source of truth for which track a CP belongs
@@ -306,6 +309,25 @@ export function MapView() {
     if (!loadedRef.current) return
     syncCpMarkers(map, activeTrack, cps)
   }, [activeTrack, cps])
+
+  // Acts on the "定位" (locate) request from a TrackList row (see
+  // appStore's `locateRequest`/`requestLocate`). Keyed on the request's
+  // `seq`, not just its `trackId` -- a plain `[locateRequest?.trackId]` dep
+  // would treat two consecutive locate clicks on the *same* track as "no
+  // change" and skip the second camera move entirely, since the id alone
+  // doesn't change between them. Always clears the request afterwards
+  // (even if there was nothing usable to act on, e.g. the track was
+  // deleted in the meantime) so a stale request can't be replayed by some
+  // unrelated re-render.
+  useEffect(() => {
+    if (!locateRequest) return
+    const map = mapRef.current
+    if (map && loadedRef.current) {
+      locateTrack(map, tracksRef.current, locateRequest.trackId)
+    }
+    clearLocateRequest()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateRequest?.seq])
 
   function confirmCp() {
     if (!cpForm) return

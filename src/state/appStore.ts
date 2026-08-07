@@ -37,6 +37,18 @@ interface AppState {
   tracks: Track[]
   activeTrackId?: string
   hover?: HoverState
+  /**
+   * A pending "move the camera onto this track" request from the "定位"
+   * button on a TrackList row (MapView owns the actual map instance, so it
+   * can't be commanded directly -- see the comment on `requestLocate`).
+   * `seq` is a monotonically increasing counter rather than the request
+   * being reduced to just `trackId`: clicking 定位 twice in a row on the
+   * *same* track must fire the camera move twice (e.g. the user manually
+   * panned away in between), but a plain "did the id change" watcher in
+   * MapView would collapse the second click into a no-op since the id is
+   * identical to the one already recorded.
+   */
+  locateRequest?: { trackId: string; seq: number }
   sourceMemory: Record<string, Crs>
   cps: CheckPoint[]
   statsOptions: StatsOptions
@@ -64,6 +76,15 @@ interface AppState {
   updateTrackStyle(id: string, patch: { color?: string; lineWidth?: number }): void
   setActive(id: string): void
   setHover(h?: HoverState): void
+  /**
+   * Records a request to move the map camera onto `trackId`. MapView watches
+   * `locateRequest` and, once it has acted on it (via `trackLayer.ts`'s
+   * `locateTrack`), calls `clearLocateRequest` -- see that field's doc
+   * comment for why `seq` (not just `trackId`) is what actually changes on
+   * every call, so repeated clicks on the same track each get their own turn.
+   */
+  requestLocate(trackId: string): void
+  clearLocateRequest(): void
   rememberSource(creator: string, crs: Crs): void
   applyOp(label: string, fn: (tracks: Track[]) => Track[]): void
   addCp(kind: CpKind, name: string, lngLat: [number, number]): void
@@ -227,6 +248,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setActive: (id) => set({ activeTrackId: id }),
   setHover: (h) => set({ hover: h }),
+  requestLocate: (trackId) =>
+    set((s) => ({ locateRequest: { trackId, seq: (s.locateRequest?.seq ?? 0) + 1 } })),
+  clearLocateRequest: () => set({ locateRequest: undefined }),
   rememberSource: (creator, crs) => set((s) => ({ sourceMemory: { ...s.sourceMemory, [creator]: crs } })),
 
   // 工具箱操作(split/join/reverse/清洗/抽稀)每次都替换出全新 id、常常是

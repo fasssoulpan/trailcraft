@@ -12,6 +12,7 @@ export function TrackList() {
   const setActive = useAppStore((s) => s.setActive)
   const removeTrack = useAppStore((s) => s.removeTrack)
   const updateTrackStyle = useAppStore((s) => s.updateTrackStyle)
+  const requestLocate = useAppStore((s) => s.requestLocate)
 
   if (tracks.length === 0) {
     return <p className="track-list track-list--empty">尚未导入轨迹</p>
@@ -65,16 +66,32 @@ export function TrackList() {
                 />
               </label>
             </span>
-            <button
-              type="button"
-              className="track-list__remove"
-              onClick={(e) => {
-                e.stopPropagation()
-                removeTrack(t.id)
-              }}
-            >
-              删除
-            </button>
+            <span className="track-list__actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="track-list__locate"
+                title="定位到此轨迹"
+                onClick={() => {
+                  // Row clicks already call setActive; this button
+                  // stopPropagation()s that away (see the wrapping span), so
+                  // it has to set the active track itself too -- clicking
+                  // 定位 on a non-active track should both jump the camera
+                  // there and make it active, consistent with what clicking
+                  // the row anywhere else does.
+                  setActive(t.id)
+                  requestLocate(t.id)
+                }}
+              >
+                定位
+              </button>
+              <button
+                type="button"
+                className="track-list__remove"
+                onClick={() => removeTrack(t.id)}
+              >
+                删除
+              </button>
+            </span>
           </li>
         )
       })}
