@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore } from '../../src/state/appStore'
 import { createTrack } from '../../src/core/model/track'
+import { History } from '../../src/state/history'
 
 function makeTrack(fileName: string) {
   return createTrack(
@@ -11,7 +12,10 @@ function makeTrack(fileName: string) {
 
 describe('appStore', () => {
   beforeEach(() => {
-    useAppStore.setState({ tracks: [], sourceMemory: {}, activeTrackId: undefined, hover: undefined })
+    useAppStore.setState({
+      tracks: [], sourceMemory: {}, activeTrackId: undefined, hover: undefined,
+      canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined, history: new History(),
+    })
   })
 
   it('addTrack appends and sets active', () => {
@@ -91,5 +95,107 @@ describe('appStore', () => {
     expect(useAppStore.getState().sourceMemory).toEqual({ COROS: 'gcj02' })
     useAppStore.getState().rememberSource('Garmin', 'bd09')
     expect(useAppStore.getState().sourceMemory).toEqual({ COROS: 'gcj02', Garmin: 'bd09' })
+  })
+
+  describe('undo/redo', () => {
+    it('applyOp changes tracks and enables undo', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      expect(useAppStore.getState().canUndo).toBe(false)
+
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev` })))
+      const s = useAppStore.getState()
+      expect(s.tracks[0].id).toBe(`${t1.id}_rev`)
+      expect(s.canUndo).toBe(true)
+      expect(s.canRedo).toBe(false)
+    })
+
+    it('undo restores the previous track list', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev` })))
+      useAppStore.getState().undo()
+      const s = useAppStore.getState()
+      expect(s.tracks).toEqual([t1])
+      expect(s.canUndo).toBe(false)
+      expect(s.canRedo).toBe(true)
+    })
+
+    it('undo then redo returns to the post-op list', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev` })))
+      const afterOp = useAppStore.getState().tracks
+      useAppStore.getState().undo()
+      useAppStore.getState().redo()
+      const s = useAppStore.getState()
+      expect(s.tracks).toEqual(afterOp)
+      expect(s.canUndo).toBe(true)
+      expect(s.canRedo).toBe(false)
+    })
+
+    it('applyOp after undo clears redo', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev` })))
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().canRedo).toBe(true)
+      useAppStore.getState().applyOp('reverse again', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev2` })))
+      expect(useAppStore.getState().canRedo).toBe(false)
+    })
+
+    it('undo that removes the active track clears activeTrackId', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      // simulate a split/join op that replaces t1 with a differently-id'd track
+      useAppStore.getState().applyOp('split', () => [makeTrack('a-part.gpx')])
+      const newTrackId = useAppStore.getState().tracks[0].id
+      useAppStore.getState().setActive(newTrackId)
+      useAppStore.getState().undo()
+      const s = useAppStore.getState()
+      expect(s.tracks).toEqual([t1])
+      expect(s.activeTrackId).toBeUndefined()
+    })
+
+    it('undo/redo on empty history are no-ops', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().tracks).toEqual([t1])
+      useAppStore.getState().redo()
+      expect(useAppStore.getState().tracks).toEqual([t1])
+    })
+
+    it('removeTrack is undoable: undo brings the removed track back', () => {
+      const t1 = makeTrack('a.gpx')
+      const t2 = makeTrack('b.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().addTrack(t2)
+      useAppStore.getState().removeTrack(t1.id)
+      expect(useAppStore.getState().tracks).toEqual([t2])
+      expect(useAppStore.getState().canUndo).toBe(true)
+
+      useAppStore.getState().undo()
+      const s = useAppStore.getState()
+      expect(s.tracks).toEqual([t1, t2])
+      expect(s.canRedo).toBe(true)
+
+      useAppStore.getState().redo()
+      expect(useAppStore.getState().tracks).toEqual([t2])
+    })
+
+    it('mirrored undoLabel/redoLabel track the underlying history', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      expect(useAppStore.getState().undoLabel).toBeUndefined()
+
+      useAppStore.getState().applyOp('reverse', (tracks) => tracks.map((t) => ({ ...t, id: `${t.id}_rev` })))
+      expect(useAppStore.getState().undoLabel).toBe('reverse')
+      expect(useAppStore.getState().redoLabel).toBeUndefined()
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().undoLabel).toBeUndefined()
+      expect(useAppStore.getState().redoLabel).toBe('reverse')
+    })
   })
 })
