@@ -68,8 +68,10 @@ const knownTrackIds = new WeakMap<MapLibreMap, Set<string>>()
  * - The most recently added track (i.e. present now but not in the
  *   previously-known set) gets `fitBounds`.
  *
- * Caller must guard against calling this before the style has loaded
- * (`map.isStyleLoaded()` / the `load` event) — adding a source before load
+ * Caller must guard against calling this before the style has parsed (the
+ * `'style.load'` event - NOT `map.isStyleLoaded()` or the `'load'` event,
+ * both of which also wait for every source's tiles to finish loading, the
+ * OSM raster basemap included) — adding a source before the style is parsed
  * throws in MapLibre.
  */
 export function syncTrackLayers(map: MapLibreMap, tracks: Track[]): void {
@@ -212,8 +214,17 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
 
   let marker = hoverMarkers.get(map)
   if (!marker) {
-    marker = new Marker({ color: '#1d4ed8' }).addTo(map)
+    // setLngLat() before addTo(): Marker.addTo() unconditionally calls its
+    // internal _update() at the end (to position the freshly-mounted DOM
+    // element), and _update() dereferences _lngLat unconditionally too - if
+    // it hasn't been set yet, addTo() throws
+    // ("Cannot read properties of undefined (reading 'lng')") instead of
+    // placing the marker. _update() itself already no-ops until _map is
+    // set, so calling setLngLat() first (before the marker is attached to
+    // any map) is safe.
+    marker = new Marker({ color: '#1d4ed8' }).setLngLat([lon, lat]).addTo(map)
     hoverMarkers.set(map, marker)
+  } else {
+    marker.setLngLat([lon, lat])
   }
-  marker.setLngLat([lon, lat])
 }
