@@ -85,6 +85,18 @@ const ESRI_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/W
 const ESRI_IMAGERY_CREDIT = 'Esri, Maxar, Earthstar Geographics'
 const ESRI_TERRAIN_URL = 'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer'
 
+// Free, keyless ArcGIS Online basemap -- same host/URL scheme as
+// ESRI_IMAGERY_URL above (verified: both return HTTP 200 for the same
+// {z}/{y}/{x} tile coordinate), just a different service name. Used as the
+// Cesium-side "二维平面图" (plan view) imagery in `cesium/basemap.ts`/
+// `viewer.ts` (milestone N6 commit 1): a light line-map reads as a plan
+// view the way flattened *satellite* imagery alone would not, and gives
+// `contours.ts`'s per-basemap colour presets an imagery background that's
+// genuinely different from the satellite style, not just flatter terrain
+// under the same photo.
+const ESRI_STREET_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+const ESRI_STREET_CREDIT = 'Esri, HERE, Garmin, FAO, NOAA, USGS'
+
 export function maptilerTerrainUrl(key: string): string {
   return `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`
 }
@@ -108,4 +120,4 @@ export function selectImagery(mapTilerKey: string | undefined): ImagerySelection
   return { url: ESRI_IMAGERY_URL, credit: ESRI_IMAGERY_CREDIT, source: 'esri' }
 }
 
-export { ESRI_IMAGERY_URL, ESRI_IMAGERY_CREDIT, ESRI_TERRAIN_URL }
+export { ESRI_IMAGERY_URL, ESRI_IMAGERY_CREDIT, ESRI_TERRAIN_URL, ESRI_STREET_URL, ESRI_STREET_CREDIT }

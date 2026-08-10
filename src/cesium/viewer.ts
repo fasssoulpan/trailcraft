@@ -18,6 +18,7 @@ import {
   Cartesian3,
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
+  ImageryLayer,
   ScreenSpaceEventType,
   UrlTemplateImageryProvider,
   Viewer,
@@ -25,6 +26,8 @@ import {
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import {
+  ESRI_STREET_CREDIT,
+  ESRI_STREET_URL,
   ESRI_TERRAIN_URL,
   maptilerTerrainUrl,
   selectImagery,
@@ -32,6 +35,8 @@ import {
   type ImagerySource,
   type TerrainSource,
 } from './terrainSelection'
+import { terrainProviderForStyle } from './basemap'
+import { DEFAULT_BASEMAP_STYLE, type BasemapStyle } from '../state/basemapPref'
 
 // Cesium resolves its own worker/asset URLs relative to this global at
 // runtime (see buildModuleUrl.js in the Cesium source) -- vite.config.ts's
@@ -68,9 +73,38 @@ export interface CreateViewerOptions {
   mapTilerKey?: string
 }
 
+/**
+ * Cesium-side basemap-style switching surface (P1 §3.5, milestone N6
+ * commit 1), handed back from `createViewer` so `FlyView.tsx` never has to
+ * reach into Cesium internals itself. Both terrain providers and both
+ * imagery layers are constructed once, up front, in `createViewer` --
+ * `setStyle` only ever flips `viewer.terrainProvider`/`ImageryLayer#show`,
+ * never rebuilds anything, which is what lets switching preserve camera
+ * position and an in-progress flythrough (this milestone's explicit
+ * acceptance criterion).
+ */
+export interface CesiumBasemapHandle {
+  /**
+   * Applies `style`: swaps which of the two pre-built imagery layers is
+   * visible and, if the terrain provider actually needs to change,
+   * reassigns `viewer.terrainProvider` (which triggers a real terrain
+   * re-request) and reports the resulting brief loading window via
+   * `onLoadingChange`. A no-op re-application of the already-active style
+   * does NOT touch `terrainProvider` at all, so it never flashes the
+   * loading indicator for nothing.
+   */
+  setStyle: (style: BasemapStyle, onLoadingChange?: (loading: boolean) => void) => void
+  /** The attribution line for whichever imagery `style` would show --
+   * Esri (either layer) and MapTiler both require visible attribution;
+   * `viewer.ts`'s own Cesium credit container is deliberately detached
+   * (see `creditContainer` below), so the UI renders this text itself. */
+  creditFor: (style: BasemapStyle) => string
+}
+
 export interface CesiumViewerHandle {
   viewer: Viewer
   providers: ProviderReport
+  basemap: CesiumBasemapHandle
   /**
    * Fully disposes the Viewer (WebGL context, event listeners, DOM).
    * Idempotent -- safe to call twice, which React 18 StrictMode's
@@ -78,6 +112,39 @@ export interface CesiumViewerHandle {
    * mount/unmount effect for the established pattern this mirrors).
    */
   destroy: () => void
+}
+
+// How long to wait for the globe's terrain tile queue to drain after a
+// terrainProvider swap before giving up on the "brief loading indication"
+// the milestone brief calls for and clearing it unconditionally -- a safety
+// net in case `tileLoadProgressEvent` never reports back to 0 (e.g. the new
+// provider is unreachable), so the UI can't get stuck showing "reloading
+// terrain…" forever.
+const TERRAIN_SETTLE_TIMEOUT_MS = 4_000
+
+/**
+ * Waits for the globe's terrain tile-load queue to drain (or the timeout
+ * above, whichever comes first) and calls `onSettled` exactly once.
+ * Replacing `terrainProvider` at runtime -- what `setStyle` above does --
+ * discards every previously-loaded terrain tile and triggers a full
+ * re-request; this is what lets the caller show a transient loading
+ * indication instead of leaving the scene looking frozen/broken while that
+ * happens, per the milestone brief's explicit callout.
+ */
+function waitForTerrainSettle(viewer: Viewer, onSettled: () => void): void {
+  let settled = false
+  const finish = () => {
+    if (settled) return
+    settled = true
+    viewer.scene.globe.tileLoadProgressEvent.removeEventListener(listener)
+    clearTimeout(timeoutId)
+    onSettled()
+  }
+  const listener = (pendingTiles: number) => {
+    if (pendingTiles === 0) finish()
+  }
+  viewer.scene.globe.tileLoadProgressEvent.addEventListener(listener)
+  const timeoutId = setTimeout(finish, TERRAIN_SETTLE_TIMEOUT_MS)
 }
 
 /**
@@ -172,7 +239,18 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
     ),
   )
 
-  viewer.imageryLayers.addImageryProvider(
+  // Declared here (rather than down by `destroy` below, where it would
+  // otherwise naturally sit) so `basemap.setStyle`'s self-guard can close
+  // over it -- `basemap.setStyle(DEFAULT_BASEMAP_STYLE)` a few lines down
+  // runs synchronously during this same construction, before the `destroy`
+  // closure below would normally have introduced this binding.
+  let destroyed = false
+
+  // Both basemap-style imagery layers are added up front -- switching later
+  // (see `basemap.setStyle` below) only ever flips `ImageryLayer#show`, it
+  // never adds/removes a layer, so a style already visited once doesn't
+  // re-fetch tiles it already has.
+  const satelliteImageryLayer: ImageryLayer = viewer.imageryLayers.addImageryProvider(
     new UrlTemplateImageryProvider({
       url: imagery.url,
       credit: imagery.credit,
@@ -180,6 +258,51 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
       maximumLevel: 20,
     }),
   )
+  const planImageryLayer: ImageryLayer = viewer.imageryLayers.addImageryProvider(
+    new UrlTemplateImageryProvider({
+      url: ESRI_STREET_URL,
+      credit: ESRI_STREET_CREDIT,
+      minimumLevel: 0,
+      maximumLevel: 19,
+    }),
+  )
+  planImageryLayer.show = false
+
+  // Flat fallback for "二维平面图": a second, independent
+  // EllipsoidTerrainProvider instance (never shared with the ellipsoid
+  // `selectTerrain` may itself have already fallen back to for the "3D"
+  // style -- see this constant's own doc comment on `CesiumBasemapHandle`)
+  // so the two styles are always genuinely distinct providers to assign,
+  // even in that degraded case.
+  const flatTerrainProvider = new EllipsoidTerrainProvider()
+  const basemapCredit: Record<BasemapStyle, string> = {
+    satellite: imagery.credit,
+    plan: ESRI_STREET_CREDIT,
+  }
+
+  const basemap: CesiumBasemapHandle = {
+    setStyle: (style, onLoadingChange) => {
+      if (destroyed) return
+      satelliteImageryLayer.show = style === 'satellite'
+      planImageryLayer.show = style === 'plan'
+      const nextTerrain = terrainProviderForStyle(style, { threeD: terrain.provider, flat: flatTerrainProvider })
+      if (viewer.terrainProvider !== nextTerrain) {
+        viewer.terrainProvider = nextTerrain
+        onLoadingChange?.(true)
+        waitForTerrainSettle(viewer, () => onLoadingChange?.(false))
+      }
+      viewer.scene.requestRender()
+    },
+    creditFor: (style) => basemapCredit[style],
+  }
+  // Applies the default style's imagery visibility (satellite layer already
+  // shown, plan layer already hidden above) without touching
+  // terrainProvider a second time or flashing the loading indicator --
+  // callers apply their own persisted starting style right after
+  // `createViewer` resolves (see FlyView.tsx), this call just guarantees
+  // `basemap`'s internal bookkeeping matches the Viewer's actual initial
+  // state even if a caller never calls `setStyle` at all.
+  basemap.setStyle(DEFAULT_BASEMAP_STYLE)
 
   const cameraController = viewer.scene.screenSpaceCameraController
   cameraController.enableCollisionDetection = false
@@ -201,7 +324,8 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
     destination: Cartesian3.fromDegrees(DEFAULT_CENTER.lon, DEFAULT_CENTER.lat, DEFAULT_CENTER.height),
   })
 
-  let destroyed = false
+  // `destroyed` itself is declared further up, next to the imagery layers,
+  // so `basemap.setStyle`'s self-guard can close over it.
   const destroy = () => {
     if (destroyed) return
     destroyed = true
@@ -211,6 +335,7 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   return {
     viewer,
     providers: { terrain: terrain.source, imagery: imagery.source },
+    basemap,
     destroy,
   }
 }
