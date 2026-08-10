@@ -7,6 +7,7 @@ import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
 import { backfillTrackStyles } from '../core/model/trackStyle'
 import { History } from './history'
+import { loadMode, saveMode, type Mode } from './mode'
 
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
 
@@ -59,6 +60,17 @@ interface AppState {
    */
   paceParams: PaceParams
   raceStartTime: string
+  /**
+   * 规划模式 / 巡游模式(2D planning vs. 3D flythrough, App.tsx switches
+   * between MapView and FlyView on this). A pure UI setting like paceParams
+   * above: not in the undo history, not in the project file -- switching
+   * modes must never lose or roll back tracks/cps. Persisted to localStorage
+   * via state/mode.ts (mirroring layout.ts) so reopening the app returns to
+   * the last-used mode; that persistence is a side effect of `setMode`
+   * itself, not something callers have to remember to do separately.
+   */
+  mode: Mode
+  setMode(mode: Mode): void
   canUndo: boolean
   canRedo: boolean
   undoLabel?: string
@@ -209,6 +221,11 @@ function resolveActiveTrackAfterOp(tracks: Track[], oldActiveIdx: number): Track
 export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
   paceParams: DEFAULT_PACE_PARAMS, raceStartTime: defaultLocalTimeToday(6, 0),
+  mode: loadMode(),
+  setMode: (mode) => {
+    saveMode(mode)
+    set({ mode })
+  },
   canUndo: false, canRedo: false, history: new History<EditableState>(),
   // 新导入轨迹如果自带 color/lineWidth(理论上不会——importInWorker 产出
   // 的 Track 从不设置这两个字段)就原样保留,否则由 backfillTrackStyles

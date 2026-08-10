@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MapView } from './map/MapView'
+import { FlyView } from './ui/FlyView'
+import { ModeSwitch } from './ui/ModeSwitch'
 import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
 import { ToolboxPanel } from './ui/ToolboxPanel'
@@ -33,6 +35,7 @@ function App() {
   // space by default, and the segment table (a full data table) is heavy
   // enough that it deserves to be an explicit ask, not always-on real estate.
   const [segmentsOpen, setSegmentsOpen] = useState(false)
+  const mode = useAppStore((s) => s.mode)
   const sourceMemory = useAppStore((s) => s.sourceMemory)
   // 首次挂载后本地写入还没触发时,不应该把"空对象"的初始 state 覆盖回
   // IndexedDB,把加载完成前那次 useEffect(依赖 sourceMemory)误当作"用户
@@ -106,6 +109,7 @@ function App() {
         className="app-layout__sidebar"
         style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
       >
+        <ModeSwitch />
         <ProjectToolbar />
         <ImportPanel />
         <TrackList />
@@ -124,7 +128,11 @@ function App() {
       />
       <div className="app-layout__main" ref={mainRef}>
         <div className="app-layout__map">
-          <MapView />
+          {/* Only one of these is ever mounted -- switching modes must
+           * genuinely destroy the previous engine (MapLibre's WebGL context
+           * and tile fetching, or Cesium's Viewer) rather than just hiding
+           * it, so two GPU-backed map engines are never running at once. */}
+          {mode === 'plan' ? <MapView /> : <FlyView />}
         </div>
         <div className="app-layout__segments" ref={segmentsRef}>
           <button

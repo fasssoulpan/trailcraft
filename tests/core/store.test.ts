@@ -646,4 +646,46 @@ describe('appStore', () => {
       expect(useAppStore.getState().tracks).toEqual([a])
     })
   })
+
+  // App.tsx switches between MapView (2D) and FlyView (3D) on this field.
+  // It's a pure UI setting -- not project data, not undo-able -- so these
+  // tests only need to cover the store mechanics; the localStorage
+  // round-trip itself is covered by tests/core/mode.test.ts, mirroring how
+  // layout.test.ts splits the same concern for sidebar/profile sizes.
+  describe('mode', () => {
+    it('defaults to plan', () => {
+      // beforeEach doesn't reset `mode` (see the setState block above) --
+      // this asserts the module's own initial state, which loadMode()
+      // resolves to 'plan' with no localStorage present (Node test env).
+      expect(useAppStore.getState().mode).toBe('plan')
+    })
+
+    it('setMode switches to fly and back', () => {
+      useAppStore.getState().setMode('fly')
+      expect(useAppStore.getState().mode).toBe('fly')
+      useAppStore.getState().setMode('plan')
+      expect(useAppStore.getState().mode).toBe('plan')
+    })
+
+    it('setMode does not touch tracks, cps, or the undo history', () => {
+      const t = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t)
+      useAppStore.getState().addCp('cp', 'CP1', [116.1, 39.9])
+      const before = useAppStore.getState()
+
+      useAppStore.getState().setMode('fly')
+
+      const after = useAppStore.getState()
+      expect(after.tracks).toEqual(before.tracks)
+      expect(after.cps).toEqual(before.cps)
+      expect(after.canUndo).toBe(before.canUndo)
+      expect(after.canRedo).toBe(before.canRedo)
+
+      useAppStore.getState().setMode('plan') // leave mode as found for later tests
+    })
+
+    it('setMode does not throw despite no localStorage in this environment', () => {
+      expect(() => useAppStore.getState().setMode('fly')).not.toThrow()
+    })
+  })
 })
