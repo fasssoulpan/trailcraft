@@ -8,6 +8,8 @@ import { defaultLocalTimeToday } from '../core/util/localTime'
 import { backfillTrackStyles } from '../core/model/trackStyle'
 import { History } from './history'
 import { loadMode, saveMode, type Mode } from './mode'
+import { loadBasemapStyle, saveBasemapStyle, type BasemapScope, type BasemapStyle } from './basemapPref'
+import { loadLayerPrefs, saveLayerPrefs } from './layerPrefs'
 
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
 
@@ -100,6 +102,32 @@ interface AppState {
    */
   mode: Mode
   setMode(mode: Mode): void
+  /**
+   * Basemap style (3D 卫星图 / 二维平面图, P1 §3.5, milestone N6 commit 1) --
+   * another pure UI setting, same category as `mode` above: not in the undo
+   * history, not in the project file. Remembered **separately per mode**
+   * (planning vs flythrough, matching `state/basemapPref.ts`'s own
+   * `BasemapScope`) rather than as one shared value -- a user who prefers the
+   * plain OSM style while planning but wants satellite imagery while flying
+   * through shouldn't have one choice clobber the other. `LayerPanel.tsx` is
+   * the only UI surface that writes these; `MapView.tsx`/`FlyView.tsx` each
+   * read their own mode's field and apply it to their own map engine.
+   */
+  planBasemapStyle: BasemapStyle
+  flyBasemapStyle: BasemapStyle
+  setBasemapStyle(scope: BasemapScope, style: BasemapStyle): void
+  /**
+   * Contour-overlay / distance-radar on-off toggles (P1 §3.6/§3.7, milestone
+   * N6 commits 3-4) -- `state/layerPrefs.ts`'s own doc comment explains why
+   * these are single booleans (not per-mode like `planBasemapStyle`/
+   * `flyBasemapStyle` above): both overlays are Cesium/flythrough-only today,
+   * but the on/off *intent* itself should carry across a mode switch rather
+   * than reset every time the user leaves and returns to 巡游模式.
+   */
+  contoursEnabled: boolean
+  radarEnabled: boolean
+  setContoursEnabled(enabled: boolean): void
+  setRadarEnabled(enabled: boolean): void
   canUndo: boolean
   canRedo: boolean
   undoLabel?: string
@@ -255,6 +283,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMode: (mode) => {
     saveMode(mode)
     set({ mode })
+  },
+  planBasemapStyle: loadBasemapStyle('plan'),
+  flyBasemapStyle: loadBasemapStyle('fly'),
+  setBasemapStyle: (scope, style) => {
+    saveBasemapStyle(scope, style)
+    set(scope === 'plan' ? { planBasemapStyle: style } : { flyBasemapStyle: style })
+  },
+  contoursEnabled: loadLayerPrefs().contoursEnabled,
+  radarEnabled: loadLayerPrefs().radarEnabled,
+  setContoursEnabled: (enabled) => {
+    const s = get()
+    saveLayerPrefs({ contoursEnabled: enabled, radarEnabled: s.radarEnabled })
+    set({ contoursEnabled: enabled })
+  },
+  setRadarEnabled: (enabled) => {
+    const s = get()
+    saveLayerPrefs({ contoursEnabled: s.contoursEnabled, radarEnabled: enabled })
+    set({ radarEnabled: enabled })
   },
   canUndo: false, canRedo: false, history: new History<EditableState>(),
   // 新导入轨迹如果自带 color/lineWidth(理论上不会——importInWorker 产出

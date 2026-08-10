@@ -688,4 +688,79 @@ describe('appStore', () => {
       expect(() => useAppStore.getState().setMode('fly')).not.toThrow()
     })
   })
+
+  // LayerPanel.tsx (milestone N6 commit 1): basemap style is remembered
+  // separately per mode (state/basemapPref.ts's BasemapScope), contours/
+  // radar are single shared booleans (state/layerPrefs.ts) -- these tests
+  // only cover the store mechanics; the localStorage round-trip itself is
+  // covered by tests/cesium/basemap.test.ts-adjacent modules' own suites
+  // (basemapPref/layerPrefs have no dedicated test files yet, mirroring
+  // mode.ts's split, but the store-level behavior below is what LayerPanel
+  // and FlyView/MapView actually depend on).
+  describe('basemap style + layer toggles', () => {
+    it('defaults to satellite for both scopes and both layers off', () => {
+      const s = useAppStore.getState()
+      expect(s.planBasemapStyle).toBe('satellite')
+      expect(s.flyBasemapStyle).toBe('satellite')
+      expect(s.contoursEnabled).toBe(false)
+      expect(s.radarEnabled).toBe(false)
+    })
+
+    it('setBasemapStyle only touches the given scope', () => {
+      useAppStore.getState().setBasemapStyle('plan', 'plan')
+      expect(useAppStore.getState().planBasemapStyle).toBe('plan')
+      expect(useAppStore.getState().flyBasemapStyle).toBe('satellite')
+
+      useAppStore.getState().setBasemapStyle('fly', 'plan')
+      expect(useAppStore.getState().flyBasemapStyle).toBe('plan')
+      expect(useAppStore.getState().planBasemapStyle).toBe('plan')
+
+      // leave state as found for later tests
+      useAppStore.getState().setBasemapStyle('plan', 'satellite')
+      useAppStore.getState().setBasemapStyle('fly', 'satellite')
+    })
+
+    it('setContoursEnabled / setRadarEnabled toggle independently', () => {
+      useAppStore.getState().setContoursEnabled(true)
+      expect(useAppStore.getState().contoursEnabled).toBe(true)
+      expect(useAppStore.getState().radarEnabled).toBe(false)
+
+      useAppStore.getState().setRadarEnabled(true)
+      expect(useAppStore.getState().radarEnabled).toBe(true)
+      expect(useAppStore.getState().contoursEnabled).toBe(true)
+
+      // leave state as found for later tests
+      useAppStore.getState().setContoursEnabled(false)
+      useAppStore.getState().setRadarEnabled(false)
+    })
+
+    it('none of these touch tracks, cps, or the undo history', () => {
+      const t = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t)
+      const before = useAppStore.getState()
+
+      useAppStore.getState().setBasemapStyle('fly', 'plan')
+      useAppStore.getState().setContoursEnabled(true)
+      useAppStore.getState().setRadarEnabled(true)
+
+      const after = useAppStore.getState()
+      expect(after.tracks).toEqual(before.tracks)
+      expect(after.canUndo).toBe(before.canUndo)
+      expect(after.canRedo).toBe(before.canRedo)
+
+      // leave state as found for later tests
+      useAppStore.getState().setBasemapStyle('fly', 'satellite')
+      useAppStore.getState().setContoursEnabled(false)
+      useAppStore.getState().setRadarEnabled(false)
+    })
+
+    it('setBasemapStyle/setContoursEnabled/setRadarEnabled do not throw despite no localStorage in this environment', () => {
+      expect(() => useAppStore.getState().setBasemapStyle('plan', 'plan')).not.toThrow()
+      expect(() => useAppStore.getState().setContoursEnabled(true)).not.toThrow()
+      expect(() => useAppStore.getState().setRadarEnabled(true)).not.toThrow()
+      useAppStore.getState().setBasemapStyle('plan', 'satellite')
+      useAppStore.getState().setContoursEnabled(false)
+      useAppStore.getState().setRadarEnabled(false)
+    })
+  })
 })

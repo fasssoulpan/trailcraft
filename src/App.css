@@ -577,6 +577,80 @@
   font-weight: 500;
 }
 
+/* Layer toggles (ui/LayerPanel.tsx), milestone N6 commit 1 -- basemap style
+ * / contours / distance radar. Same row/hint idiom as toolbox-panel, sitting
+ * right under mode-switch since it's the same "how do I want to look at the
+ * map right now" family of settings. */
+.layer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.layer-panel__title {
+  margin: 0;
+}
+
+.layer-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.layer-panel__field-label {
+  font-size: 13px;
+}
+
+.layer-panel__group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.layer-panel__chip {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.layer-panel__chip:not(:first-child) {
+  border-left: 1px solid var(--border);
+}
+
+.layer-panel__chip--active {
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-weight: 500;
+}
+
+.layer-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.layer-panel__toggle:has(input:disabled) {
+  cursor: default;
+  color: var(--text);
+  opacity: 0.7;
+}
+
+.layer-panel__hint {
+  color: var(--text);
+  font-size: 12px;
+  margin: 0;
+}
+
 /* 3D flythrough view (ui/FlyView.tsx). Dark background so the loading/error
  * overlay reads correctly before the Cesium canvas (also dark) attaches --
  * an empty white pane while several MB downloads would look broken. */

@@ -79,6 +79,14 @@ export function FlyView() {
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
   const flythroughSpeed = useAppStore((s) => s.flythroughSpeed)
   const flythroughCameraMode = useAppStore((s) => s.flythroughCameraMode)
+  const flyBasemapStyle = useAppStore((s) => s.flyBasemapStyle)
+
+  // True while `basemap.setStyle` is mid-terrain-reload (see
+  // `cesium/viewer.ts`'s `CesiumBasemapHandle#setStyle` doc comment):
+  // swapping `terrainProvider` discards every previously-loaded terrain tile
+  // and triggers a full re-request, so without some indication the scene
+  // just appears to freeze for the couple of seconds that takes.
+  const [basemapLoading, setBasemapLoading] = useState(false)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
@@ -214,6 +222,12 @@ export function FlyView() {
         handle = h
         viewerHandleRef.current = h
         setState({ status: 'ready', providers: h.providers })
+        // Applies the persisted per-mode basemap style (milestone N6 commit
+        // 1) once the Viewer exists -- createViewer itself only ever applies
+        // `DEFAULT_BASEMAP_STYLE` (see its own doc comment on why), so
+        // without this a user who last chose 二维平面图 for 巡游模式 would
+        // see satellite imagery again on every fresh flythrough session.
+        h.basemap.setStyle(useAppStore.getState().flyBasemapStyle, (loading) => setBasemapLoading(loading))
         // First sync as soon as the viewer exists, using whatever
         // tracks/cps/activeTrackId are current right now -- the effects
         // below only re-run on a *subsequent* change, so without this the
@@ -328,6 +342,19 @@ export function FlyView() {
     engineRef.current?.setCameraMode(flythroughCameraMode)
   }, [flythroughCameraMode])
 
+  // Propagates a later basemap-style change (LayerPanel, milestone N6
+  // commit 1) into the live viewer -- the initial style is applied once,
+  // inline, right after `createViewer` resolves (see the mount effect
+  // above); this only fires on a *subsequent* change, same split as the
+  // speed/camera-mode effects above. No-ops until the viewer is ready
+  // (`viewerHandleRef.current` is still undefined at the moment this effect
+  // first runs on mount, since `createViewer` is async).
+  useEffect(() => {
+    const h = viewerHandleRef.current
+    if (!h) return
+    h.basemap.setStyle(flyBasemapStyle, (loading) => setBasemapLoading(loading))
+  }, [flyBasemapStyle])
+
   // Acts on the "定位" (locate) request from a TrackList row, the same
   // `locateRequest`/`requestLocate` mechanism MapView.tsx's own effect
   // consumes for the 2D map -- see appStore's doc comment on `locateRequest`
@@ -362,7 +389,9 @@ export function FlyView() {
       )}
       {state.status === 'ready' && (
         <div className="fly-view__badge" role="status">
-          地形：{TERRAIN_LABEL[state.providers.terrain]} · 影像：{IMAGERY_LABEL[state.providers.imagery]}
+          {basemapLoading
+            ? '正在切换底图…'
+            : <>地形：{TERRAIN_LABEL[state.providers.terrain]} · 影像：{IMAGERY_LABEL[state.providers.imagery]}</>}
         </div>
       )}
       {state.status === 'ready' && (

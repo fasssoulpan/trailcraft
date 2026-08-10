@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MapView } from './map/MapView'
 import { FlyView } from './ui/FlyView'
 import { ModeSwitch } from './ui/ModeSwitch'
+import { LayerPanel } from './ui/LayerPanel'
 import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
 import { ToolboxPanel } from './ui/ToolboxPanel'
@@ -110,6 +111,7 @@ function App() {
         style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
       >
         <ModeSwitch />
+        <LayerPanel />
         <ProjectToolbar />
         <ImportPanel />
         <TrackList />
