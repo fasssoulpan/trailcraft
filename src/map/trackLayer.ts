@@ -391,8 +391,12 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
 
 // Distinct per-kind marker colour so CPs stay visually distinguishable at a
 // glance (danger/quit points in particular should read as "different" from
-// a plain CP even before you read the label).
-const CP_KIND_COLORS: Record<CpKind, string> = {
+// a plain CP even before you read the label). Exported so
+// src/cesium/cpEntities.ts (the 3D equivalent) can reuse the exact same
+// values rather than maintaining a second colour table that could drift out
+// of sync with this one -- a checkpoint should look the same colour in both
+// 规划 and 巡游 modes.
+export const CP_KIND_COLORS: Record<CpKind, string> = {
   cp: '#1d4ed8',
   aid: '#16a34a',
   gear: '#ca8a04',

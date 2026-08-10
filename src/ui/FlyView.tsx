@@ -39,11 +39,13 @@ function describeError(err: unknown, chunkFailed: boolean): string {
 
 // Only referenced as a type here (`typeof import(...)`), never as a runtime
 // value -- this is erased entirely at compile time, so it does NOT create a
-// static import of trackEntities.ts (which itself imports `cesium`). The
-// module is only ever loaded at runtime via the dynamic `import()` in the
-// mount effect below, alongside `cesium/viewer`, keeping both confined to
-// the lazy chunk exactly like N1 established for `cesium/viewer` alone.
+// static import of trackEntities.ts/cpEntities.ts (both of which import
+// `cesium`). Both modules are only ever loaded at runtime via the dynamic
+// `import()` in the mount effect below, alongside `cesium/viewer`, keeping
+// all three confined to the lazy chunk exactly like N1 established for
+// `cesium/viewer` alone.
 type TrackEntitiesModule = typeof import('../cesium/trackEntities')
+type CpEntitiesModule = typeof import('../cesium/cpEntities')
 
 /**
  * Mounts only while appStore's `mode === 'fly'` (see App.tsx) -- the 2D
@@ -65,6 +67,7 @@ export function FlyView() {
 
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
+  const cps = useAppStore((s) => s.cps)
   const locateRequest = useAppStore((s) => s.locateRequest)
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
 
@@ -76,12 +79,16 @@ export function FlyView() {
   tracksRef.current = tracks
   const activeTrackIdRef = useRef(activeTrackId)
   activeTrackIdRef.current = activeTrackId
+  const cpsRef = useRef(cps)
+  cpsRef.current = cps
 
-  // Populated once the viewer/trackEntities chunk has loaded and the Viewer
-  // itself exists -- the later effects (track sync, locate) all gate on
-  // this being set, exactly like MapView.tsx gates on its own `loadedRef`.
+  // Populated once the viewer/trackEntities/cpEntities chunk has loaded and
+  // the Viewer itself exists -- the later effects (track sync, CP sync,
+  // locate) all gate on this being set, exactly like MapView.tsx gates on
+  // its own `loadedRef`.
   const viewerHandleRef = useRef<CesiumViewerHandle | undefined>(undefined)
   const entitiesModRef = useRef<TrackEntitiesModule | undefined>(undefined)
+  const cpModRef = useRef<CpEntitiesModule | undefined>(undefined)
 
   useEffect(() => {
     const container = containerRef.current
@@ -91,14 +98,16 @@ export function FlyView() {
     let handle: CesiumViewerHandle | undefined
     let chunkFailed = true // flipped to false once the dynamic import() itself resolves
 
-    // Both cesium-touching modules load together, off the same dynamic
-    // import() boundary -- trackEntities.ts must never be statically
-    // imported (see the TrackEntitiesModule comment above) or it would pull
-    // `cesium` back into the main bundle.
-    Promise.all([import('../cesium/viewer'), import('../cesium/trackEntities')])
-      .then(([viewerMod, entitiesMod]) => {
+    // All three cesium-touching modules load together, off the same
+    // dynamic import() boundary -- neither trackEntities.ts nor
+    // cpEntities.ts must ever be statically imported (see the
+    // TrackEntitiesModule/CpEntitiesModule comment above) or `cesium` would
+    // re-enter the main bundle.
+    Promise.all([import('../cesium/viewer'), import('../cesium/trackEntities'), import('../cesium/cpEntities')])
+      .then(([viewerMod, entitiesMod, cpMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
+        cpModRef.current = cpMod
         return viewerMod.createViewer(container)
       })
       .then((h) => {
@@ -114,13 +123,14 @@ export function FlyView() {
         viewerHandleRef.current = h
         setState({ status: 'ready', providers: h.providers })
         // First sync as soon as the viewer exists, using whatever
-        // tracks/activeTrackId are current right now -- the effect below
-        // only re-runs on a *subsequent* tracks/activeTrackId change, so
-        // without this the initially-loaded tracks would never render
-        // until the next store update. Also flies to the newest track the
-        // very first time it appears, same as syncTrackLayers does for the
-        // 2D map (see trackEntities.ts's `pendingFlyTo`).
+        // tracks/cps/activeTrackId are current right now -- the effects
+        // below only re-run on a *subsequent* change, so without this the
+        // initially-loaded tracks/CPs would never render until the next
+        // store update. Also flies to the newest track the very first time
+        // it appears, same as syncTrackLayers does for the 2D map (see
+        // trackEntities.ts's `pendingFlyTo`).
         entitiesModRef.current?.syncTrackEntities(h.viewer, tracksRef.current, activeTrackIdRef.current)
+        cpModRef.current?.syncCpEntities(h.viewer, cpsRef.current, tracksRef.current, activeTrackIdRef.current)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -154,14 +164,27 @@ export function FlyView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Re-sync track/CP entities whenever the track list or active track
-  // changes, mirroring MapView.tsx's own tracks/activeTrackId effect.
+  // Re-sync track entities whenever the track list or active track changes,
+  // mirroring MapView.tsx's own tracks/activeTrackId effect.
   useEffect(() => {
     const h = viewerHandleRef.current
     const mod = entitiesModRef.current
     if (!h || !mod) return
     mod.syncTrackEntities(h.viewer, tracks, activeTrackId)
   }, [tracks, activeTrackId])
+
+  // Re-sync CP entities whenever the CP list, the track list, or the active
+  // track changes -- cpEntities.ts resolves each CP's position against
+  // `activeTrackId`'s own Track data (via anchorIndex), so a toolbox op
+  // that replaces the active track (new coordinates at the same indices)
+  // must trigger this too, not just an actual cps-array change. Mirrors
+  // MapView.tsx's own CP-marker effect.
+  useEffect(() => {
+    const h = viewerHandleRef.current
+    const mod = cpModRef.current
+    if (!h || !mod) return
+    mod.syncCpEntities(h.viewer, cps, tracks, activeTrackId)
+  }, [cps, tracks, activeTrackId])
 
   // Acts on the "定位" (locate) request from a TrackList row, the same
   // `locateRequest`/`requestLocate` mechanism MapView.tsx's own effect
