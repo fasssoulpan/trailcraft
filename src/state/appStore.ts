@@ -12,6 +12,15 @@ import { loadMode, saveMode, type Mode } from './mode'
 export interface HoverState { trackId: string; index: number } // 全轨迹点索引
 
 /**
+ * 巡游相机模式,与 `cesium/flythrough.ts` 的 `CameraMode` 保持同一组字面量
+ * 但故意不从那个文件 import 类型——那个模块顶层 `import`s `cesium`
+ * (真实 WebGL/DOM 环境),appStore.ts 是纯逻辑,任何一天不小心把它换成值
+ * import(而不是 type-only)都会把 Cesium 拖进主 bundle。重复一行字面量
+ * 联合类型比冒这个险更便宜。
+ */
+export type FlythroughCameraMode = 'follow' | 'orbit' | 'free'
+
+/**
  * 可撤销的可编辑状态切片。刻意做成对象而不是裸的 Track[] ——
  * checkpoints 加进来之后(本任务),两者共用同一份撤销/重做历史:任何一次
  * CP 编辑(新增/删除/重排)都和轨迹工具箱操作一样,先把变更前的 {tracks, cps}
@@ -60,6 +69,26 @@ interface AppState {
    */
   paceParams: PaceParams
   raceStartTime: string
+  /**
+   * 巡游播放倍速(1x~20x)与相机模式(跟随/俯瞰/自由)——和 paceParams/
+   * statsOptions 一样不进撤销栈(倍速/相机模式随时可调,没有"撤销这次
+   * 调速"的心智模型)。**但与 paceParams/statsOptions 不同的是也不进工程
+   * 文件**——那两个是"这条路线该怎么配速/怎么统计"的规划态参数,值得随
+   * 工程保存;巡游倍速/相机模式纯粹是"我这次想怎么看"的会话态偏好,与
+   * 具体工程内容无关,保存进工程文件反而会把上次看巡游时随手调的倍速
+   * 带进下次打开的、可能完全不同的工程里。`core/model/project.ts`的
+   * `serializeProject`/`deserializeProject` 因此不接触这两个字段。
+   *
+   * 刻意 **不** 把巡游的实时进度/里程/当前点索引放进这里——那些数据由
+   * `cesium/flythrough.ts` 的 `FlythroughEngine` 通过回调、以最高 60Hz
+   * 的频率上报(见该文件 `FlythroughProgressInfo` 的注释),塞进 Zustand
+   * 会让全局 store 以那个频率触发订阅者重渲染;`FlyView.tsx` 把这部分
+   * 数据放在自己的组件本地 state 里,只转发给 `FlyControls.tsx`。
+   */
+  flythroughSpeed: number
+  flythroughCameraMode: FlythroughCameraMode
+  setFlythroughSpeed(speed: number): void
+  setFlythroughCameraMode(mode: FlythroughCameraMode): void
   /**
    * 规划模式 / 巡游模式(2D planning vs. 3D flythrough, App.tsx switches
    * between MapView and FlyView on this). A pure UI setting like paceParams
@@ -221,6 +250,7 @@ function resolveActiveTrackAfterOp(tracks: Track[], oldActiveIdx: number): Track
 export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
   paceParams: DEFAULT_PACE_PARAMS, raceStartTime: defaultLocalTimeToday(6, 0),
+  flythroughSpeed: 1, flythroughCameraMode: 'follow',
   mode: loadMode(),
   setMode: (mode) => {
     saveMode(mode)
@@ -373,6 +403,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 配速参数/起跑时间同理:纯展示态调参,不入撤销栈。
   setPaceParams: (patch) => set((s) => ({ paceParams: { ...s.paceParams, ...patch } })),
   setRaceStartTime: (iso) => set({ raceStartTime: iso }),
+
+  // 巡游倍速/相机模式同理:纯展示态调参,不入撤销栈,不进工程文件。
+  setFlythroughSpeed: (speed) => set({ flythroughSpeed: speed }),
+  setFlythroughCameraMode: (mode) => set({ flythroughCameraMode: mode }),
 
   // backfillTrackStyles covers project files saved before per-track
   // color/lineWidth existed (schema_version is still '1.0' -- see

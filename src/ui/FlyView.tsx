@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CesiumViewerHandle, ProviderReport } from '../cesium/viewer'
+import type { FlythroughEngine, FlythroughProgressInfo } from '../cesium/flythrough'
+import type { Track } from '../core/model/track'
 import { useAppStore } from '../state/appStore'
+import { FlyControls } from './FlyControls'
 
 type ViewState =
   | { status: 'loading' }
@@ -39,13 +42,14 @@ function describeError(err: unknown, chunkFailed: boolean): string {
 
 // Only referenced as a type here (`typeof import(...)`), never as a runtime
 // value -- this is erased entirely at compile time, so it does NOT create a
-// static import of trackEntities.ts/cpEntities.ts (both of which import
-// `cesium`). Both modules are only ever loaded at runtime via the dynamic
-// `import()` in the mount effect below, alongside `cesium/viewer`, keeping
-// all three confined to the lazy chunk exactly like N1 established for
-// `cesium/viewer` alone.
+// static import of trackEntities.ts/cpEntities.ts/flythrough.ts (all three
+// import `cesium`). All three modules are only ever loaded at runtime via
+// the dynamic `import()` in the mount effect below, alongside
+// `cesium/viewer`, keeping all four confined to the lazy chunk exactly like
+// N1 established for `cesium/viewer` alone.
 type TrackEntitiesModule = typeof import('../cesium/trackEntities')
 type CpEntitiesModule = typeof import('../cesium/cpEntities')
+type FlythroughModule = typeof import('../cesium/flythrough')
 
 /**
  * Mounts only while appStore's `mode === 'fly'` (see App.tsx) -- the 2D
@@ -70,6 +74,10 @@ export function FlyView() {
   const cps = useAppStore((s) => s.cps)
   const locateRequest = useAppStore((s) => s.locateRequest)
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
+  const flythroughSpeed = useAppStore((s) => s.flythroughSpeed)
+  const flythroughCameraMode = useAppStore((s) => s.flythroughCameraMode)
+
+  const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
   // Refs mirroring the latest store values, for the same reason MapView.tsx
   // keeps its own tracksRef/etc.: the mount effect's callbacks (the
@@ -89,6 +97,62 @@ export function FlyView() {
   const viewerHandleRef = useRef<CesiumViewerHandle | undefined>(undefined)
   const entitiesModRef = useRef<TrackEntitiesModule | undefined>(undefined)
   const cpModRef = useRef<CpEntitiesModule | undefined>(undefined)
+  const flythroughModRef = useRef<FlythroughModule | undefined>(undefined)
+
+  // The one live FlythroughEngine, if any -- undefined whenever there is no
+  // active track (or the viewer/chunk isn't ready yet). `rebuildFlythrough`
+  // below is the single place that creates/destroys it, so `engineRef` is
+  // always either undefined or an engine matching the *current* active
+  // track, never a stale one left over from a previous track.
+  const engineRef = useRef<FlythroughEngine | undefined>(undefined)
+
+  // High-frequency playback telemetry (progress/mileage/point index),
+  // pushed by the engine's onProgress callback -- up to once per rendered
+  // frame while playing. Kept as local component state rather than in
+  // appStore deliberately (see appStore.ts's `flythroughSpeed` doc comment
+  // for why): only FlyControls (a child of this component) needs it, so
+  // there is no reason to fan it out through the global store.
+  const [progressInfo, setProgressInfo] = useState<FlythroughProgressInfo | undefined>(undefined)
+  // Mirrors the live engine's readonly `syntheticTimeline` flag into actual
+  // React state (set once, whenever `rebuildFlythrough` runs) rather than
+  // reading `engineRef.current.syntheticTimeline` straight from the ref
+  // during render -- refs aren't supposed to drive render output, and while
+  // it happens to be safe here (every `engineRef` mutation is paired with a
+  // `setProgressInfo` call that forces a re-render before paint), this
+  // avoids relying on that coincidence.
+  const [syntheticTimeline, setSyntheticTimeline] = useState(false)
+
+  /**
+   * Tears down whatever engine is currently live (idempotent -- see
+   * `FlythroughEngine.destroy`'s own doc comment) and, if `track` and the
+   * viewer/chunk are both ready, builds a fresh one for it. Called both
+   * inline (once, right after the viewer/chunk first become ready -- see
+   * the mount effect below) and from the `activeTrack`-keyed effect for
+   * every subsequent track switch, so this is the single place engine
+   * construction/destruction happens; nothing else touches `engineRef`
+   * directly. New speed/camera-mode settings are applied from the store's
+   * *current* values (not the possibly-stale ones captured in a closure),
+   * so a track rebuilt mid-session still starts with whatever the user last
+   * selected in FlyControls.
+   */
+  function rebuildFlythrough(handle: CesiumViewerHandle, track: Track | undefined): void {
+    engineRef.current?.destroy()
+    engineRef.current = undefined
+    setProgressInfo(undefined)
+    setSyntheticTimeline(false)
+
+    const mod = flythroughModRef.current
+    if (!track || !mod) return
+
+    const engine = new mod.FlythroughEngine(handle.viewer, track, {
+      onProgress: (info) => setProgressInfo(info),
+    })
+    const s = useAppStore.getState()
+    engine.setSpeed(s.flythroughSpeed)
+    engine.setCameraMode(s.flythroughCameraMode)
+    engineRef.current = engine
+    setSyntheticTimeline(engine.syntheticTimeline)
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -98,16 +162,22 @@ export function FlyView() {
     let handle: CesiumViewerHandle | undefined
     let chunkFailed = true // flipped to false once the dynamic import() itself resolves
 
-    // All three cesium-touching modules load together, off the same
-    // dynamic import() boundary -- neither trackEntities.ts nor
-    // cpEntities.ts must ever be statically imported (see the
-    // TrackEntitiesModule/CpEntitiesModule comment above) or `cesium` would
-    // re-enter the main bundle.
-    Promise.all([import('../cesium/viewer'), import('../cesium/trackEntities'), import('../cesium/cpEntities')])
-      .then(([viewerMod, entitiesMod, cpMod]) => {
+    // All four cesium-touching modules load together, off the same dynamic
+    // import() boundary -- none of trackEntities.ts/cpEntities.ts/
+    // flythrough.ts must ever be statically imported (see the
+    // TrackEntitiesModule/CpEntitiesModule/FlythroughModule comment above)
+    // or `cesium` would re-enter the main bundle.
+    Promise.all([
+      import('../cesium/viewer'),
+      import('../cesium/trackEntities'),
+      import('../cesium/cpEntities'),
+      import('../cesium/flythrough'),
+    ])
+      .then(([viewerMod, entitiesMod, cpMod, flythroughMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
         cpModRef.current = cpMod
+        flythroughModRef.current = flythroughMod
         return viewerMod.createViewer(container)
       })
       .then((h) => {
@@ -131,6 +201,13 @@ export function FlyView() {
         // trackEntities.ts's `pendingFlyTo`).
         entitiesModRef.current?.syncTrackEntities(h.viewer, tracksRef.current, activeTrackIdRef.current)
         cpModRef.current?.syncCpEntities(h.viewer, cpsRef.current, tracksRef.current, activeTrackIdRef.current)
+        // Same "first build inline, subsequent changes via effect" split as
+        // the track/CP sync above, and for the identical reason: the
+        // effect watching `activeTrack` (below) only fires on a
+        // *subsequent* change, so without this the flythrough engine for
+        // an already-active track would never get built.
+        const track = tracksRef.current.find((t) => t.id === activeTrackIdRef.current)
+        rebuildFlythrough(h, track)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -158,6 +235,14 @@ export function FlyView() {
     return () => {
       cancelled = true
       ro.disconnect()
+      // Destroy the engine BEFORE the viewer -- not that order actually
+      // matters for correctness (FlythroughEngine.destroy() tolerates an
+      // already-destroyed Viewer, see its own doc comment), but destroying
+      // it first means it still gets a chance to do its own cleanup
+      // (removing listeners it added) against a live Viewer rather than
+      // relying on the Viewer's teardown to have implicitly discarded them.
+      engineRef.current?.destroy()
+      engineRef.current = undefined
       viewerHandleRef.current = undefined
       handle?.destroy()
     }
@@ -185,6 +270,41 @@ export function FlyView() {
     if (!h || !mod) return
     mod.syncCpEntities(h.viewer, cps, tracks, activeTrackId)
   }, [cps, tracks, activeTrackId])
+
+  // Rebuilds the flythrough engine whenever the active *Track object*
+  // changes -- covers every subsequent track switch (the initial build for
+  // whatever track is already active on mount happens inline in the mount
+  // effect's `.then()`, for the same reason `syncTrackEntities`'s first
+  // call does: this effect's dependency array doesn't change just because
+  // the viewer transitioned from not-ready to ready). Reference identity
+  // (not just id) is the right comparison here, matching every other
+  // Track-keyed cache in this codebase (trackEntities.ts's geometryCache,
+  // etc.): a toolbox op replaces the active track with a brand-new object
+  // at the same id, and the engine's camera path must be rebuilt from that
+  // new geometry, not silently keep flying through stale positions.
+  useEffect(() => {
+    const h = viewerHandleRef.current
+    if (!h) return
+    rebuildFlythrough(h, activeTrack)
+    return () => {
+      engineRef.current?.destroy()
+      engineRef.current = undefined
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTrack])
+
+  // Propagates speed/camera-mode changes from appStore into whichever
+  // engine is currently live -- the engine itself only reads these once,
+  // at construction (see rebuildFlythrough), so without this a user
+  // changing speed/mode mid-flight in FlyControls would have no effect
+  // until the next track switch happened to rebuild the engine.
+  useEffect(() => {
+    engineRef.current?.setSpeed(flythroughSpeed)
+  }, [flythroughSpeed])
+
+  useEffect(() => {
+    engineRef.current?.setCameraMode(flythroughCameraMode)
+  }, [flythroughCameraMode])
 
   // Acts on the "定位" (locate) request from a TrackList row, the same
   // `locateRequest`/`requestLocate` mechanism MapView.tsx's own effect
@@ -222,6 +342,15 @@ export function FlyView() {
         <div className="fly-view__badge" role="status">
           地形：{TERRAIN_LABEL[state.providers.terrain]} · 影像：{IMAGERY_LABEL[state.providers.imagery]}
         </div>
+      )}
+      {state.status === 'ready' && (
+        <FlyControls
+          hasActiveTrack={activeTrack !== undefined}
+          syntheticTimeline={syntheticTimeline}
+          progress={progressInfo}
+          onTogglePlay={() => engineRef.current?.togglePlay()}
+          onSeek={(progress) => engineRef.current?.seek(progress)}
+        />
       )}
     </div>
   )
