@@ -71,9 +71,18 @@ export const RadarOverlay = forwardRef<RadarOverlayHandle, RadarOverlayProps>(fu
     const maxRadiusPx = Math.min(width, height) / 2 - RADIUS_MARGIN_PX
     if (maxRadiusPx <= 0) return
     const ringSet = chooseRadarRings(projection.metersPerPixel, maxRadiusPx)
+    // The rings are centred in THIS canvas's own box, not at the marker's
+    // viewport position. `projectRadarCenter` reports `centerX`/`centerY` in
+    // full-viewport CSS pixels (e.g. ~800,400 on a 1600x900 window), while
+    // this canvas is a small fixed box in the corner (150x150 -- see
+    // `.radar-overlay` in App.css). Feeding the viewport coordinates straight
+    // in put the centre far outside the canvas, so nothing was ever drawn.
+    // Only `metersPerPixel` and `headingRad` are position-independent and
+    // meaningful here. `overlay/captureDraw.ts`'s `drawRadarCapture` centres
+    // itself the same way for the recorded frame, so the two agree.
     drawRadar(ctx, width, height, ringSet, {
-      centerX: projection.centerX,
-      centerY: projection.centerY,
+      centerX: width / 2,
+      centerY: height / 2,
       headingRad: projection.headingRad,
     })
   }
