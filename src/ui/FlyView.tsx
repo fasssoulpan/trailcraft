@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CesiumViewerHandle, ProviderReport } from '../cesium/viewer'
 import type { FlythroughEngine, FlythroughProgressInfo } from '../cesium/flythrough'
+import type { ContourHandle } from '../cesium/contours'
 import type { Track } from '../core/model/track'
 import { useAppStore } from '../state/appStore'
 import { FlyControls } from './FlyControls'
@@ -53,6 +54,7 @@ function describeError(err: unknown, chunkFailed: boolean): string {
 type TrackEntitiesModule = typeof import('../cesium/trackEntities')
 type CpEntitiesModule = typeof import('../cesium/cpEntities')
 type FlythroughModule = typeof import('../cesium/flythrough')
+type ContoursModule = typeof import('../cesium/contours')
 
 /**
  * Mounts only while appStore's `mode === 'fly'` (see App.tsx) -- the 2D
@@ -80,6 +82,7 @@ export function FlyView() {
   const flythroughSpeed = useAppStore((s) => s.flythroughSpeed)
   const flythroughCameraMode = useAppStore((s) => s.flythroughCameraMode)
   const flyBasemapStyle = useAppStore((s) => s.flyBasemapStyle)
+  const contoursEnabled = useAppStore((s) => s.contoursEnabled)
 
   // True while `basemap.setStyle` is mid-terrain-reload (see
   // `cesium/viewer.ts`'s `CesiumBasemapHandle#setStyle` doc comment):
@@ -109,6 +112,13 @@ export function FlyView() {
   const entitiesModRef = useRef<TrackEntitiesModule | undefined>(undefined)
   const cpModRef = useRef<CpEntitiesModule | undefined>(undefined)
   const flythroughModRef = useRef<FlythroughModule | undefined>(undefined)
+  const contoursModRef = useRef<ContoursModule | undefined>(undefined)
+
+  // The one live contour-overlay handle, if any -- created once the viewer
+  // exists (see the mount effect's `.then(h)` below) and destroyed alongside
+  // it. Unlike `engineRef`, this is never rebuilt per-track: contours are a
+  // globe-level overlay, not something tied to any particular track.
+  const contourHandleRef = useRef<ContourHandle | undefined>(undefined)
 
   // The one live FlythroughEngine, if any -- undefined whenever there is no
   // active track (or the viewer/chunk isn't ready yet). `rebuildFlythrough`
@@ -192,22 +202,24 @@ export function FlyView() {
     let handle: CesiumViewerHandle | undefined
     let chunkFailed = true // flipped to false once the dynamic import() itself resolves
 
-    // All four cesium-touching modules load together, off the same dynamic
+    // All five cesium-touching modules load together, off the same dynamic
     // import() boundary -- none of trackEntities.ts/cpEntities.ts/
-    // flythrough.ts must ever be statically imported (see the
-    // TrackEntitiesModule/CpEntitiesModule/FlythroughModule comment above)
-    // or `cesium` would re-enter the main bundle.
+    // flythrough.ts/contours.ts must ever be statically imported (see the
+    // TrackEntitiesModule/CpEntitiesModule/FlythroughModule/ContoursModule
+    // comment above) or `cesium` would re-enter the main bundle.
     Promise.all([
       import('../cesium/viewer'),
       import('../cesium/trackEntities'),
       import('../cesium/cpEntities'),
       import('../cesium/flythrough'),
+      import('../cesium/contours'),
     ])
-      .then(([viewerMod, entitiesMod, cpMod, flythroughMod]) => {
+      .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
         cpModRef.current = cpMod
         flythroughModRef.current = flythroughMod
+        contoursModRef.current = contoursMod
         return viewerMod.createViewer(container)
       })
       .then((h) => {
@@ -228,6 +240,17 @@ export function FlyView() {
         // without this a user who last chose 二维平面图 for 巡游模式 would
         // see satellite imagery again on every fresh flythrough session.
         h.basemap.setStyle(useAppStore.getState().flyBasemapStyle, (loading) => setBasemapLoading(loading))
+        // Wires the contour overlay (milestone N6 commit 3) to this Viewer,
+        // applying whatever the persisted basemap style / layerPrefs.ts
+        // toggle currently say -- same "apply the persisted value once here,
+        // react to later changes via the effects below" split as the
+        // basemap-style line just above.
+        const contoursMod = contoursModRef.current
+        if (contoursMod) {
+          const contourHandle = contoursMod.attachContours(h.viewer, useAppStore.getState().flyBasemapStyle)
+          contourHandle.setEnabled(useAppStore.getState().contoursEnabled)
+          contourHandleRef.current = contourHandle
+        }
         // First sync as soon as the viewer exists, using whatever
         // tracks/cps/activeTrackId are current right now -- the effects
         // below only re-run on a *subsequent* change, so without this the
@@ -279,6 +302,8 @@ export function FlyView() {
       // relying on the Viewer's teardown to have implicitly discarded them.
       engineRef.current?.destroy()
       engineRef.current = undefined
+      contourHandleRef.current?.destroy()
+      contourHandleRef.current = undefined
       viewerHandleRef.current = undefined
       handle?.destroy()
     }
@@ -354,6 +379,20 @@ export function FlyView() {
     if (!h) return
     h.basemap.setStyle(flyBasemapStyle, (loading) => setBasemapLoading(loading))
   }, [flyBasemapStyle])
+
+  // Keeps the contour overlay's basemap-style preset (milestone N6 commit 3)
+  // in sync with the same basemap-style changes the effect above applies to
+  // the Viewer -- two independent effects (rather than one combined) since
+  // `attachContours`'s handle only exists once the viewer/chunk are ready,
+  // same "no-op until ready" gate as every other post-mount effect here.
+  useEffect(() => {
+    contourHandleRef.current?.setBasemapStyle(flyBasemapStyle)
+  }, [flyBasemapStyle])
+
+  // Propagates the LayerPanel contours on/off toggle into the live handle.
+  useEffect(() => {
+    contourHandleRef.current?.setEnabled(contoursEnabled)
+  }, [contoursEnabled])
 
   // Acts on the "定位" (locate) request from a TrackList row, the same
   // `locateRequest`/`requestLocate` mechanism MapView.tsx's own effect
