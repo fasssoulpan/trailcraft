@@ -4,9 +4,12 @@ import { computeCaptureLayout } from '../../src/overlay/captureLayout'
 import { formatHudStats } from '../../src/ui/hudStats'
 import { buildCheckpointCardData } from '../../src/ui/checkpointApproach'
 import { chooseRadarRings } from '../../src/overlay/radarMath'
+import { buildRadarTargets, type RadarTargetSet } from '../../src/overlay/radarTargets'
 import { createTrack, type Track } from '../../src/core/model/track'
 import { computeCumDist } from '../../src/core/geo/distance'
 import type { CheckPoint } from '../../src/core/model/checkpoint'
+
+const EMPTY_TARGET_SET: RadarTargetSet = { targets: [], next: undefined }
 
 /**
  * A minimal stand-in for `CanvasRenderingContext2D` -- same pattern
@@ -48,6 +51,7 @@ function makeFakeCtx() {
     }),
     stroke: vi.fn(),
     fill: vi.fn(),
+    setLineDash: vi.fn(),
     set strokeStyle(_v: string) {},
     set fillStyle(_v: string) {},
     set lineWidth(_v: number) {},
@@ -137,16 +141,36 @@ describe('drawRadarCapture', () => {
   it('does not throw and translates by the layout position before drawing', () => {
     const { ctx, state } = makeFakeCtx()
     const layout = computeCaptureLayout(1920, 1080)
-    const ringSet = chooseRadarRings(2, layout.radar.size / 2 - 24)
-    expect(() => drawRadarCapture(ctx, layout.radar, ringSet, 0)).not.toThrow()
+    const ringSet = chooseRadarRings(2, layout.radar.scopeSize / 2 - 24)
+    expect(() => drawRadarCapture(ctx, layout.radar, ringSet, 0, 2, EMPTY_TARGET_SET)).not.toThrow()
     expect(state.translateX).toBeCloseTo(layout.radar.x, 5)
     expect(state.translateY).toBeCloseTo(layout.radar.y, 5)
   })
 
-  it('skips drawing entirely for a degenerate zero-size box', () => {
+  it('skips scope drawing entirely for a degenerate zero-size box', () => {
     const { ctx } = makeFakeCtx()
     const ringSet = chooseRadarRings(2, 100)
-    expect(() => drawRadarCapture(ctx, { x: 0, y: 0, size: 0, scale: 1 }, ringSet, 0)).not.toThrow()
+    const layout = { x: 0, y: 0, scopeSize: 0, readoutX: 0, readoutWidth: 0, scale: 1 }
+    expect(() => drawRadarCapture(ctx, layout, ringSet, 0, 2, EMPTY_TARGET_SET)).not.toThrow()
     expect(ctx.translate).not.toHaveBeenCalled()
+  })
+
+  it('draws the next-checkpoint readout alongside the scope, including target blips when checkpoints are ahead', () => {
+    const { ctx, fillTextCalls } = makeFakeCtx()
+    const layout = computeCaptureLayout(1920, 1080)
+    const track = makeTrack()
+    const cp: CheckPoint = { id: 'cp1', trackId: track.id, name: '补给站A', kind: 'aid', anchorIndex: 15 }
+    const ringSet = chooseRadarRings(2, layout.radar.scopeSize / 2 - 24)
+    const targetSet = buildRadarTargets(track, [cp], 5, 0, undefined)
+    expect(() => drawRadarCapture(ctx, layout.radar, ringSet, 0, 2, targetSet)).not.toThrow()
+    expect(fillTextCalls).toContain('补给站A')
+  })
+
+  it('draws the muted placeholder when there is no next checkpoint', () => {
+    const { ctx, fillTextCalls } = makeFakeCtx()
+    const layout = computeCaptureLayout(1920, 1080)
+    const ringSet = chooseRadarRings(2, layout.radar.scopeSize / 2 - 24)
+    expect(() => drawRadarCapture(ctx, layout.radar, ringSet, 0, 2, EMPTY_TARGET_SET)).not.toThrow()
+    expect(fillTextCalls).toContain('无下一检查点')
   })
 })

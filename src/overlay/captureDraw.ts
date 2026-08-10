@@ -21,7 +21,8 @@ import type { HudStatEntry } from '../ui/hudStats'
 import type { CheckpointCardData } from '../ui/checkpointApproach'
 import type { CaptureLayout } from './captureLayout'
 import type { RadarRingSet } from './radarMath'
-import { drawRadar } from './radarRender'
+import type { RadarTargetSet } from './radarTargets'
+import { drawRadar, drawNextCheckpointReadout } from './radarRender'
 
 const HUD_CHIP_BG = 'rgba(11, 12, 16, 0.55)'
 const HUD_CHIP_BORDER = 'rgba(255, 255, 255, 0.35)'
@@ -152,36 +153,48 @@ export function drawCheckpointCard(
 }
 
 /**
- * Draws the distance radar into its own `layout.size`x`layout.size` box at
- * `(layout.x, layout.y)`, reusing `radarRender.ts#drawRadar` unmodified --
- * that function already takes an arbitrary context/width/height/centre
- * precisely so this milestone could do exactly this (see its own doc
- * comment). `ctx.translate` remaps `drawRadar`'s own `0,0`-origin
- * `clearRect`/drawing calls onto this box's actual position on the shared
- * recording canvas, without `drawRadar` itself needing to know an offset
- * exists.
+ * Draws the distance radar -- ring scope plus checkpoint targets, plus the
+ * next-checkpoint text readout beside it -- into `layout`'s box on the
+ * shared recording canvas, reusing `radarRender.ts#drawRadar`/
+ * `drawNextCheckpointReadout` unmodified: both already take an arbitrary
+ * context/position/size precisely so this milestone could do exactly this
+ * (see their own doc comments). `ctx.translate` remaps `drawRadar`'s own
+ * `0,0`-origin `clearRect`/drawing calls onto the scope's actual position on
+ * the shared canvas, without `drawRadar` itself needing to know an offset
+ * exists; the readout is drawn directly at its own `(layout.readoutX,
+ * layout.y)` position instead, since it has no `0,0`-origin convention to
+ * remap.
  *
- * The radar is drawn self-centred within its own box (`centerX/centerY =
- * layout.size / 2`) rather than at the live marker's absolute on-screen
- * projection -- matching a corner "scope" widget convention (always
- * centred on itself, like a minimap), which is also what `RadarOverlay.tsx`
- * visually reads as on screen given its own fixed-size corner box (see that
- * component's CSS). Only `ringSet` (ground-scale-dependent ring distances)
- * and `headingRad` (compass orientation) come from the live projection.
+ * The scope is drawn self-centred within its own box (`centerX/centerY =
+ * layout.scopeSize / 2`) rather than at the live marker's absolute
+ * on-screen projection -- matching a corner "scope" widget convention
+ * (always centred on itself, like a minimap), which is also what
+ * `RadarOverlay.tsx` visually reads as on screen given its own fixed-size
+ * corner box (see that component's CSS). `ringSet`/`headingRad`/
+ * `metersPerPixel` (ground-scale-dependent) and `targetSet` (checkpoint
+ * positions relative to the live camera) all come from the same live
+ * projection/track data the on-screen radar uses for the same tick, so the
+ * recorded frame never shows different numbers than what was on screen.
  */
 export function drawRadarCapture(
   ctx: CanvasRenderingContext2D,
   layout: CaptureLayout['radar'],
   ringSet: RadarRingSet,
   headingRad: number,
+  metersPerPixel: number,
+  targetSet: RadarTargetSet,
 ): void {
-  if (layout.size <= 0) return
+  if (layout.scopeSize <= 0) return
   ctx.save()
   ctx.translate(layout.x, layout.y)
-  drawRadar(ctx, layout.size, layout.size, ringSet, {
-    centerX: layout.size / 2,
-    centerY: layout.size / 2,
+  drawRadar(ctx, layout.scopeSize, layout.scopeSize, ringSet, {
+    centerX: layout.scopeSize / 2,
+    centerY: layout.scopeSize / 2,
     headingRad,
+    metersPerPixel,
+    targets: targetSet.targets,
   })
   ctx.restore()
+
+  drawNextCheckpointReadout(ctx, layout.readoutX, layout.y, layout.readoutWidth, layout.scopeSize, targetSet.next)
 }

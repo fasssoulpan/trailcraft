@@ -7,7 +7,8 @@ describe('computeCaptureLayout', () => {
     expect(layout.scale).toBeCloseTo(1, 6)
     expect(layout.hud.x).toBeCloseTo(8, 6)
     expect(layout.hud.y).toBeCloseTo(8, 6)
-    expect(layout.radar.size).toBeCloseTo(150, 6)
+    expect(layout.radar.scopeSize).toBeCloseTo(150, 6)
+    expect(layout.radar.readoutWidth).toBeCloseTo(150, 6)
   })
 
   it('scales every position/size linearly with a uniform resolution increase', () => {
@@ -17,7 +18,8 @@ describe('computeCaptureLayout', () => {
     expect(doubled.hud.x).toBeCloseTo(base.hud.x * 2, 6)
     expect(doubled.hud.chipWidthPx).toBeCloseTo(base.hud.chipWidthPx * 2, 6)
     expect(doubled.checkpointCard.width).toBeCloseTo(base.checkpointCard.width * 2, 6)
-    expect(doubled.radar.size).toBeCloseTo(base.radar.size * 2, 6)
+    expect(doubled.radar.scopeSize).toBeCloseTo(base.radar.scopeSize * 2, 6)
+    expect(doubled.radar.readoutWidth).toBeCloseTo(base.radar.readoutWidth * 2, 6)
   })
 
   it('picks the SMALLER of the two axis ratios, so an unusually narrow/short target never pushes an overlay past the opposite edge', () => {
@@ -36,8 +38,8 @@ describe('computeCaptureLayout', () => {
     expect(layout.checkpointCard.y + layout.checkpointCard.height).toBeLessThanOrEqual(1080)
     expect(layout.radar.x).toBeGreaterThanOrEqual(0)
     expect(layout.radar.y).toBeGreaterThanOrEqual(0)
-    expect(layout.radar.x + layout.radar.size).toBeLessThanOrEqual(1920)
-    expect(layout.radar.y + layout.radar.size).toBeLessThanOrEqual(1080)
+    expect(layout.radar.readoutX + layout.radar.readoutWidth).toBeLessThanOrEqual(1920)
+    expect(layout.radar.y + layout.radar.scopeSize).toBeLessThanOrEqual(1080)
   })
 
   it('the checkpoint card and radar are right-aligned (their right edge tracks width, not a fixed x)', () => {

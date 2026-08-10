@@ -10,6 +10,8 @@ import { FlyOverlayLayer } from './FlyOverlayLayer'
 import { HudOverlay, type HudOverlayHandle } from './HudOverlay'
 import { CheckpointCard, type CheckpointCardHandle } from './CheckpointCard'
 import { RadarOverlay, type RadarOverlayHandle } from './RadarOverlay'
+import { getHudTrackStats } from './hudStats'
+import { buildRadarTargets } from '../overlay/radarTargets'
 
 type ViewState =
   | { status: 'loading' }
@@ -219,17 +221,27 @@ export function FlyView() {
         // exact first synchronous call.
         hudRef.current?.update(info)
         cpCardRef.current?.update(info)
-        // Radar (milestone N6 commit 4): only does the projection work at
-        // all while the overlay is actually enabled (radarEnabledRef, not a
-        // stale closed-over `radarEnabled`, since this callback is
+        // Radar (milestone N6 commit 4; checkpoint targets/next-checkpoint
+        // readout added as a P1 follow-up): only does the projection/target
+        // work at all while the overlay is actually enabled (radarEnabledRef,
+        // not a stale closed-over `radarEnabled`, since this callback is
         // registered once per engine and must see later toggle changes) --
         // `handle.viewer` (not a re-read of `viewerHandleRef.current`) is
         // exactly the viewer this engine belongs to, and `rebuildFlythrough`
         // is always called with the same `handle` those two would otherwise
-        // just duplicate.
+        // just duplicate. `track` is this closure's own parameter (the exact
+        // track this engine was built for, never stale), matching how `mod`
+        // above is captured. The gain prefix array comes from
+        // `getHudTrackStats`, the SAME cache `HudOverlay.tsx` already
+        // populates for its own ascent figure -- reusing that one cache entry
+        // (see radarTargets.ts's file comment) instead of a second
+        // O(track length) pass just for the radar.
         if (radarEnabledRef.current) {
           const radarMod = radarProjectionModRef.current
-          radarRef.current?.update(radarMod ? radarMod.projectRadarCenter(handle.viewer) : undefined)
+          const projection = radarMod ? radarMod.projectRadarCenter(handle.viewer) : undefined
+          const stats = getHudTrackStats(track, useAppStore.getState().statsOptions)
+          const targets = buildRadarTargets(track, cpsRef.current, info.pointIndex, projection?.headingRad ?? 0, stats.gain)
+          radarRef.current?.update(projection, targets)
         }
         // Video recording (milestone N5): the SAME onProgress tick feeds
         // the compositor's overlay content and detects auto-stop-at-end --

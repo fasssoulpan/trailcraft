@@ -922,16 +922,23 @@
 }
 
 /* Distance radar (ui/RadarOverlay.tsx), milestone N6 commit 4 -- a
- * concentric range-ring scope docked to the bottom-right, high enough above
- * fly-controls' bottom bar to clear it even at its tallest (two rows plus
- * the optional synthetic-timeline hint) and far enough from checkpoint-card
- * (top-right) and hud-overlay (top-left) that neither can collide with it. */
+ * concentric range-ring scope PLUS the next-checkpoint text readout beside
+ * it (P1 follow-up resolving §3.7's open question, see
+ * overlay/radarTargets.ts's own file comment: rings stay as a scale
+ * reference, the next checkpoint ahead is the primary readout). Docked to
+ * the bottom-right, high enough above fly-controls' bottom bar to clear it
+ * even at its tallest (two rows plus the optional synthetic-timeline hint)
+ * and far enough from checkpoint-card (top-right) and hud-overlay (top-left)
+ * that neither can collide with it -- widened to fit the readout, but the
+ * HEIGHT and bottom offset are unchanged from the ring-only box, so this
+ * widening cannot introduce a new collision with anything that box already
+ * cleared. */
 .radar-overlay {
   position: absolute;
   right: 8px;
   bottom: 140px;
   z-index: 1;
-  width: 150px;
+  width: 310px;
   height: 150px;
   pointer-events: none;
 }

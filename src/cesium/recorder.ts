@@ -61,6 +61,7 @@ import type { StatsOptions } from '../core/stats/segments'
 import { getHudTrackStats, computeHudReadout, formatHudStats, type HudStatEntry } from '../ui/hudStats'
 import { pickApproachingCheckpoint, buildCheckpointCardData, type CheckpointCardData } from '../ui/checkpointApproach'
 import { chooseRadarRings, type RadarRingSet } from '../overlay/radarMath'
+import { buildRadarTargets, type RadarTargetSet } from '../overlay/radarTargets'
 import { computeCaptureLayout } from '../overlay/captureLayout'
 import { drawHudEntries, drawCheckpointCard, drawRadarCapture } from '../overlay/captureDraw'
 import { FrameCompositor } from '../overlay/frameCompositor'
@@ -183,7 +184,7 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
   // hold a ref, so these are just closure-local variables instead.
   let hudEntries: HudStatEntry[] = []
   let checkpointCard: CheckpointCardData | undefined
-  let radar: { ringSet: RadarRingSet; headingRad: number } | undefined
+  let radar: { ringSet: RadarRingSet; headingRad: number; metersPerPixel: number; targetSet: RadarTargetSet } | undefined
 
   let compositor: FrameCompositor
   try {
@@ -197,7 +198,9 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
         if (!viewer.isDestroyed()) viewer.scene.requestRenderMode = false
         if (hudEntries.length > 0) drawHudEntries(ctx, hudEntries, layout.hud)
         if (checkpointCard) drawCheckpointCard(ctx, checkpointCard, layout.checkpointCard)
-        if (radar) drawRadarCapture(ctx, layout.radar, radar.ringSet, radar.headingRad)
+        if (radar) {
+          drawRadarCapture(ctx, layout.radar, radar.ringSet, radar.headingRad, radar.metersPerPixel, radar.targetSet)
+        }
       },
     })
   } catch (err) {
@@ -275,10 +278,22 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
 
     if (options.radarEnabled) {
       const projection = projectRadarCenter(viewer)
-      const maxRadiusPx = layout.radar.size / 2 - RADAR_LABEL_MARGIN_PX * layout.scale
+      const maxRadiusPx = layout.radar.scopeSize / 2 - RADAR_LABEL_MARGIN_PX * layout.scale
       radar =
         projection && maxRadiusPx > 0
-          ? { ringSet: chooseRadarRings(projection.metersPerPixel, maxRadiusPx), headingRad: projection.headingRad }
+          ? {
+              ringSet: chooseRadarRings(projection.metersPerPixel, maxRadiusPx),
+              headingRad: projection.headingRad,
+              metersPerPixel: projection.metersPerPixel,
+              // Reuses `stats.gain` computed just above for the HUD's own
+              // ascent figure -- same track, same statsOptions, so this is
+              // the one already-cached array (see hudStats.ts's WeakMap),
+              // not a second O(track length) pass. See radarTargets.ts's
+              // file comment for why the pure target-building function
+              // takes the prefix array as a plain argument instead of
+              // computing it itself.
+              targetSet: buildRadarTargets(track, cps, info.pointIndex, projection.headingRad, stats.gain),
+            }
           : undefined
     } else {
       radar = undefined

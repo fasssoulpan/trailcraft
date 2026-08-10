@@ -55,9 +55,19 @@ const CARD_KIND_FONT_PX = 11
 const CARD_NAME_FONT_PX = 15
 const CARD_META_FONT_PX = 12
 
-// Distance radar (App.css's .radar-overlay): a square box docked to the
-// bottom-right corner, high enough to clear fly-controls' bottom bar.
-const RADAR_SIZE_PX = 150
+// Distance radar (App.css's .radar-overlay): a square ring-scope docked to
+// the bottom-right corner, high enough to clear fly-controls' bottom bar,
+// with the next-checkpoint text readout appended immediately to its left
+// (the readout is the PRIMARY information now -- see
+// `overlay/radarTargets.ts`'s file comment -- so it gets its own dedicated
+// width rather than being squeezed inside the scope). Both constants below
+// are tuned at the SAME reference resolution the scope's own on-screen size
+// is (`RadarOverlay.tsx`'s `.radar-overlay__canvas`, via `App.css`'s
+// `.radar-overlay` box), so the recorded readout matches the on-screen one
+// at `scale === 1`.
+const RADAR_SCOPE_SIZE_PX = 150
+const RADAR_GAP_PX = 10
+const RADAR_READOUT_WIDTH_PX = 150
 const RADAR_BOTTOM_PX = 140
 
 export interface HudCaptureLayout {
@@ -87,9 +97,18 @@ export interface CheckpointCardCaptureLayout {
 }
 
 export interface RadarCaptureLayout {
+  /** Left edge of the ring-scope square (the whole radar box's left edge --
+   * the readout panel sits to the RIGHT of the scope, see `readoutX`). */
   x: number
   y: number
-  size: number
+  /** Side length of the (square) ring-scope. Also the readout panel's
+   * height -- the two sit side by side at the same `y`, sharing one
+   * height. */
+  scopeSize: number
+  /** Left edge of the next-checkpoint text readout panel, immediately to
+   * the right of the scope (`x + scopeSize + gap`). */
+  readoutX: number
+  readoutWidth: number
   scale: number
 }
 
@@ -130,7 +149,10 @@ export function computeCaptureLayout(width: number, height: number): CaptureLayo
   const cardWidth = CARD_WIDTH_PX * scale
   const cardHeight = CARD_HEIGHT_PX * scale
 
-  const radarSize = RADAR_SIZE_PX * scale
+  const scopeSize = RADAR_SCOPE_SIZE_PX * scale
+  const radarGap = RADAR_GAP_PX * scale
+  const readoutWidth = RADAR_READOUT_WIDTH_PX * scale
+  const radarBoxWidth = scopeSize + radarGap + readoutWidth
 
   return {
     scale,
@@ -159,9 +181,11 @@ export function computeCaptureLayout(width: number, height: number): CaptureLayo
       scale,
     },
     radar: {
-      x: safeWidth - margin - radarSize,
-      y: safeHeight - RADAR_BOTTOM_PX * scale - radarSize,
-      size: radarSize,
+      x: safeWidth - margin - radarBoxWidth,
+      y: safeHeight - RADAR_BOTTOM_PX * scale - scopeSize,
+      scopeSize,
+      readoutX: safeWidth - margin - readoutWidth,
+      readoutWidth,
       scale,
     },
   }
