@@ -2,6 +2,14 @@ import type { Track } from '../core/model/track'
 import { locateByDist } from '../core/geo/distance'
 import { decimateIndices } from '../core/toolbox/decimate'
 
+/** Default decimation cap shared by every consumer of `buildProfileData`
+ * (`ProfileCanvas.tsx`'s chart AND `src/ui/hudStats.ts`'s flythrough HUD
+ * gradient, milestone N4) -- both must decimate to the exact same point
+ * count, or `nearestSamplePos`/`gradientAt` looking up "the same" full-
+ * precision index in each one's `ProfileData` would land on different
+ * decimated positions and disagree on-screen. */
+export const MAX_PROFILE_POINTS = 2000
+
 export interface ProfileData {
   dist: Float64Array // 抽稀后各采样点的累计里程(米)
   ele: Float32Array // 抽稀后各采样点的海拔(米),可能含 NaN
@@ -29,7 +37,7 @@ export interface ProfileData {
  *   "无海拔数据"提示 —— min/max 收敛到 0 只是保证坐标换算不会算出 Infinity/NaN,
  *   不代表"这段海拔就是 0"。
  */
-export function buildProfileData(t: Track, maxPoints = 2000): ProfileData | undefined {
+export function buildProfileData(t: Track, maxPoints = MAX_PROFILE_POINTS): ProfileData | undefined {
   const { ele, cumDist } = t.points
   if (!ele || !cumDist) return undefined
 
@@ -57,6 +65,28 @@ export function buildProfileData(t: Track, maxPoints = 2000): ProfileData | unde
 
   const totalDist = dist.length > 0 ? dist[dist.length - 1] : 0
   return { dist, ele: eleOut, idx, totalDist, minEle, maxEle }
+}
+
+/**
+ * Binary-search `p.idx` (ascending) for the decimated sample position whose
+ * full-precision index is closest to `fullIndex`. Used to map a
+ * full-precision index (a profile hover position, or -- as of milestone
+ * N4 -- the flythrough engine's `pointIndex`) back onto the decimated
+ * sample array for gradient/cursor lookups. Extracted out of
+ * `ProfileCanvas.tsx` (unchanged) so `src/ui/hudStats.ts` can share the
+ * exact same lookup instead of a second copy that could drift.
+ */
+export function nearestSamplePos(idx: Uint32Array, fullIndex: number): number {
+  if (idx.length === 0) return 0
+  let lo = 0
+  let hi = idx.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (idx[mid] < fullIndex) lo = mid + 1
+    else hi = mid
+  }
+  if (lo > 0 && Math.abs(idx[lo - 1] - fullIndex) <= Math.abs(idx[lo] - fullIndex)) return lo - 1
+  return lo
 }
 
 /**

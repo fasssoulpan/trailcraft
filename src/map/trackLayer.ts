@@ -1,7 +1,8 @@
 import { GeoJSONSource, LngLatBounds, Marker, type Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature, LineString } from 'geojson'
 import type { Track } from '../core/model/track'
-import type { CheckPoint, CpKind } from '../core/model/checkpoint'
+import type { CheckPoint } from '../core/model/checkpoint'
+import { CP_KIND_COLORS } from '../core/model/checkpoint'
 import type { HoverState } from '../state/appStore'
 import { decimateIndices } from '../core/toolbox/decimate'
 import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
@@ -389,20 +390,11 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
   }
 }
 
-// Distinct per-kind marker colour so CPs stay visually distinguishable at a
-// glance (danger/quit points in particular should read as "different" from
-// a plain CP even before you read the label). Exported so
-// src/cesium/cpEntities.ts (the 3D equivalent) can reuse the exact same
-// values rather than maintaining a second colour table that could drift out
-// of sync with this one -- a checkpoint should look the same colour in both
-// 规划 and 巡游 modes.
-export const CP_KIND_COLORS: Record<CpKind, string> = {
-  cp: '#1d4ed8',
-  aid: '#16a34a',
-  gear: '#ca8a04',
-  danger: '#dc2626',
-  quit: '#6b7280',
-}
+// Re-exported for existing call sites (this file's own getCpElement below,
+// and cpEntities.ts's import of it) -- the canonical definition now lives in
+// core/model/checkpoint.ts (see its own doc comment on CP_KIND_COLORS for
+// why it moved out of this maplibre-gl-importing module).
+export { CP_KIND_COLORS }
 
 // One Marker per CP id, per map instance, so we can move/recolor markers in
 // place instead of tearing down and recreating the whole set on every sync

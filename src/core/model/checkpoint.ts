@@ -9,6 +9,28 @@ export const CP_KIND_LABELS: Record<CpKind, string> = {
   quit: '退赛点',
 }
 
+/**
+ * Distinct per-kind colour so CPs stay visually distinguishable at a glance
+ * (danger/quit points in particular should read as "different" from a plain
+ * CP even before you read the label). Lives here (not `map/trackLayer.ts`,
+ * where it originated) precisely so it's reachable from anything that must
+ * NOT statically pull in `maplibre-gl` -- `src/cesium/cpEntities.ts` (the 3D
+ * pin colour) and `src/ui/CheckpointCard.tsx` (N4's flythrough card accent)
+ * both need the exact same values a checkpoint uses in 规划 mode, and the
+ * latter is reached from `FlyView.tsx`'s static import graph, not behind the
+ * `cesium`/map dynamic-import boundary -- importing `map/trackLayer.ts`
+ * (which imports `maplibre-gl` at module scope) from there would have
+ * dragged the whole MapLibre bundle into the main chunk. `map/trackLayer.ts`
+ * re-exports this constant for its own existing call sites.
+ */
+export const CP_KIND_COLORS: Record<CpKind, string> = {
+  cp: '#1d4ed8',
+  aid: '#16a34a',
+  gear: '#ca8a04',
+  danger: '#dc2626',
+  quit: '#6b7280',
+}
+
 export interface CheckPoint {
   id: string
   /**

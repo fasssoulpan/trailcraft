@@ -18,8 +18,8 @@
  */
 import { Cartesian2, Cartesian3, Color, ConstantPositionProperty, ConstantProperty, HeightReference, LabelStyle, NearFarScalar, VerticalOrigin, type Entity, type Viewer } from 'cesium'
 import type { CheckPoint } from '../core/model/checkpoint'
+import { CP_KIND_COLORS } from '../core/model/checkpoint'
 import type { Track } from '../core/model/track'
-import { CP_KIND_COLORS } from '../map/trackLayer'
 
 interface CpEntityInfo {
   /** Last-rendered CheckPoint snapshot, so we can tell whether an in-place

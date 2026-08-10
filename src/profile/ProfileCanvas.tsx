@@ -1,55 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../state/appStore'
 import type { Track } from '../core/model/track'
-import { buildProfileData, indexToX, xToIndex, type ProfileData } from './profileRender'
+import { gradientAt, GRADIENT_WINDOW } from '../core/stats/runningStats'
+import { buildProfileData, indexToX, xToIndex, nearestSamplePos, MAX_PROFILE_POINTS, type ProfileData } from './profileRender'
 
-const MAX_POINTS = 2000
+const MAX_POINTS = MAX_PROFILE_POINTS
 const PADDING = { top: 12, right: 16, bottom: 24, left: 48 }
-
-// Local-gradient smoothing window: real device tracks quantize elevation to
-// whole metres, so a naive diff between two *adjacent* decimated samples
-// (which can be only a few metres apart) routinely swings between -100%
-// and +100% from rounding alone. Averaging the rise/run over a window of
-// decimated samples on either side of the cursor damps that quantization
-// noise while still tracking local terrain. 3 samples on each side (7-wide
-// window) was picked empirically: small enough to stay "local" for a runner
-// looking at a specific spot on the climb, wide enough to smooth out
-// metre-level elevation quantization at typical decimation spacing.
-const GRADIENT_WINDOW = 3
-
-/** Binary-search p.idx (ascending) for the position whose full-precision
- * index is closest to `fullIndex`. Used to map a hover index (full
- * precision) back onto the decimated sample array for gradient/cursor math. */
-function nearestSamplePos(idx: Uint32Array, fullIndex: number): number {
-  if (idx.length === 0) return 0
-  let lo = 0
-  let hi = idx.length - 1
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (idx[mid] < fullIndex) lo = mid + 1
-    else hi = mid
-  }
-  if (lo > 0 && Math.abs(idx[lo - 1] - fullIndex) <= Math.abs(idx[lo] - fullIndex)) return lo - 1
-  return lo
-}
-
-/** Rise/run over a small window of decimated samples centred on `pos`,
- * skipping non-finite elevation samples at the window edges. Returns
- * undefined when there isn't enough finite data in the window to compute a
- * meaningful slope (flat/zero-distance window, or all-NaN neighbourhood). */
-function localGradientPercent(p: ProfileData, pos: number): number | undefined {
-  const lo0 = Math.max(0, pos - GRADIENT_WINDOW)
-  const hi0 = Math.min(p.dist.length - 1, pos + GRADIENT_WINDOW)
-  let lo = lo0
-  while (lo <= hi0 && !Number.isFinite(p.ele[lo])) lo++
-  let hi = hi0
-  while (hi >= lo0 && !Number.isFinite(p.ele[hi])) hi--
-  if (lo >= hi) return undefined
-  const dDist = p.dist[hi] - p.dist[lo]
-  if (dDist <= 0) return undefined
-  const dEle = p.ele[hi] - p.ele[lo]
-  return (dEle / dDist) * 100
-}
 
 function pickDisplayTrack(tracks: Track[], activeTrackId: string | undefined): Track | undefined {
   if (activeTrackId) {
@@ -236,7 +192,7 @@ function draw(
     const pos = nearestSamplePos(profile.idx, hoverIndex)
     const dKm = profile.dist[pos] / 1000
     const ele = profile.ele[pos]
-    const grad = localGradientPercent(profile, pos)
+    const grad = gradientAt(profile.ele, profile.dist, pos, GRADIENT_WINDOW)
 
     const parts = [`${dKm.toFixed(2)}km`]
     parts.push(Number.isFinite(ele) ? `${Math.round(ele)}m` : '—')
