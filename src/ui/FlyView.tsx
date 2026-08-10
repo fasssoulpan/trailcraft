@@ -6,6 +6,7 @@ import { useAppStore } from '../state/appStore'
 import { FlyControls } from './FlyControls'
 import { FlyOverlayLayer } from './FlyOverlayLayer'
 import { HudOverlay, type HudOverlayHandle } from './HudOverlay'
+import { CheckpointCard, type CheckpointCardHandle } from './CheckpointCard'
 
 type ViewState =
   | { status: 'loading' }
@@ -108,13 +109,14 @@ export function FlyView() {
   // track, never a stale one left over from a previous track.
   const engineRef = useRef<FlythroughEngine | undefined>(undefined)
 
-  // Imperative handle for the frame-rate-driven HUD overlay (N4) -- updated
-  // directly from the engine's onProgress callback below, NOT via React
-  // props/state, so a 60Hz playback never re-renders its subtree (see
-  // HudOverlay.tsx's own doc comment for the full reasoning).
-  // `setProgressInfo` below still drives FlyControls exactly as before N4
-  // -- this is an additional, not a replacement, listener.
+  // Imperative handles for the two frame-rate-driven overlays (N4) --
+  // updated directly from the engine's onProgress callback below, NOT via
+  // React props/state, so a 60Hz playback never re-renders their subtrees
+  // (see HudOverlay.tsx/CheckpointCard.tsx's own doc comments for the full
+  // reasoning). `setProgressInfo` below still drives FlyControls exactly
+  // as before N4 -- these are additional, not replacement, listeners.
   const hudRef = useRef<HudOverlayHandle>(null)
+  const cpCardRef = useRef<CheckpointCardHandle>(null)
 
   // High-frequency playback telemetry (progress/mileage/point index),
   // pushed by the engine's onProgress callback -- up to once per rendered
@@ -157,12 +159,14 @@ export function FlyView() {
     const engine = new mod.FlythroughEngine(handle.viewer, track, {
       onProgress: (info) => {
         setProgressInfo(info)
-        // Bypasses React entirely -- see the hudRef doc comment above. A
-        // no-op (optional chaining) until HudOverlay has mounted, which is
-        // fine: it separately paints its own "at the start" state on mount
-        // (see its own effect) rather than depending on catching this
+        // Bypasses React entirely -- see the hudRef/cpCardRef doc comment
+        // above. Both refs are no-ops (optional chaining) until their
+        // components have mounted, which is fine: HudOverlay/CheckpointCard
+        // each separately paint their own "at the start" state on mount
+        // (see their own effects) rather than depending on catching this
         // exact first synchronous call.
         hudRef.current?.update(info)
+        cpCardRef.current?.update(info)
       },
     })
     const s = useAppStore.getState()
@@ -364,6 +368,7 @@ export function FlyView() {
       {state.status === 'ready' && (
         <FlyOverlayLayer>
           <HudOverlay ref={hudRef} track={activeTrack} />
+          <CheckpointCard ref={cpCardRef} track={activeTrack} cps={cps} />
         </FlyOverlayLayer>
       )}
       {state.status === 'ready' && (

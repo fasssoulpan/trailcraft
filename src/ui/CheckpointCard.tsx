@@ -1,0 +1,138 @@
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import type { CheckPoint } from '../core/model/checkpoint'
+import { CP_KIND_LABELS, CP_KIND_COLORS } from '../core/model/checkpoint'
+import type { Track } from '../core/model/track'
+// Type-only import, erased at compile time -- same pattern as
+// HudOverlay.tsx/FlyControls.tsx for this exact type.
+import type { FlythroughProgressInfo } from '../cesium/flythrough'
+import { pickApproachingCheckpoint } from './checkpointApproach'
+
+export interface CheckpointCardHandle {
+  /** Imperative per-frame update, called directly from the flythrough
+   * engine's `onProgress` callback (see `FlyView.tsx`, same pattern as
+   * `HudOverlay.tsx#HudOverlayHandle`) -- NOT via React props/state. Unlike
+   * the HUD, this component DOES call `setState` here, but only when the
+   * picked checkpoint actually changes (see the `visibleIdRef` guard
+   * below) -- the common case (nothing to show, or the same card still
+   * showing) is a pure computation with zero React work, and even the rare
+   * case only re-renders this small subtree, never `FlyView`'s. */
+  update(info: FlythroughProgressInfo): void
+}
+
+interface CheckpointCardProps {
+  track: Track | undefined
+  /** Every CP in the project, NOT pre-filtered to `track` -- this
+   * component (via `pickApproachingCheckpoint`) does its own
+   * `trackId`-based filtering, the same defensive convention
+   * `cpEntities.ts`/`SegmentTable.tsx` follow, so a caller forgetting to
+   * filter can't reintroduce P0's cross-track CP leakage bug. */
+  cps: CheckPoint[]
+}
+
+/** HH:mm in the viewer's local timezone -- same convention/format as
+ * `SegmentTable.tsx`'s own `formatClockHM` for cutoff/ETA display, kept as
+ * a separate tiny copy here rather than a shared import since it's a
+ * one-line function and `SegmentTable.tsx` isn't otherwise a dependency of
+ * the flythrough view. */
+function formatCutoff(iso: string | undefined): string | undefined {
+  if (!iso) return undefined
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return undefined
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
+ * Checkpoint approach card (P1 §3.1/§3.4, milestone N4 commit 3): slides in
+ * as the flythrough camera nears a checkpoint on the active track, shows
+ * name / kind label / mileage / elevation / cutoff time (when set), and
+ * dismisses once the camera has moved past. Rendered as a child of
+ * `FlyOverlayLayer`.
+ *
+ * The actual "which checkpoint, if any" decision is
+ * `checkpointApproach.ts#pickApproachingCheckpoint` -- a pure, unit-tested
+ * function of the current mileage snapshot (see its own doc comment for
+ * the approach/dismiss window constants and the "nearest wins, never a
+ * pile" policy for closely-spaced checkpoints). This component is just the
+ * per-frame caller plus the rendering.
+ *
+ * Follows `HudOverlay.tsx`'s imperative-`update()`-via-ref pattern for the
+ * same reason: a naive `progress` prop would re-render this (and force
+ * `FlyView` to re-diff its props) up to 60 times/second even though the
+ * visible checkpoint typically changes a handful of times per flythrough.
+ */
+export const CheckpointCard = memo(
+  forwardRef<CheckpointCardHandle, CheckpointCardProps>(function CheckpointCard({ track, cps }, ref) {
+    const [visibleCp, setVisibleCp] = useState<CheckPoint | undefined>(undefined)
+
+    const trackRef = useRef(track)
+    trackRef.current = track
+    const cpsRef = useRef(cps)
+    cpsRef.current = cps
+    // Mirrors `visibleCp`'s id outside React state so the imperative
+    // update() below can cheaply check "did the answer change" without
+    // waiting for a re-render to see its own previous setState (state
+    // updates are not synchronously readable across ticks the way a ref
+    // is), and so it never calls setState redundantly for a checkpoint
+    // that's already showing.
+    const visibleIdRef = useRef<string | undefined>(undefined)
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        update(info) {
+          const t = trackRef.current
+          const next = t ? pickApproachingCheckpoint(cpsRef.current, t, info.mileageM) : undefined
+          const nextId = next?.id
+          if (nextId === visibleIdRef.current) return
+          visibleIdRef.current = nextId
+          setVisibleCp(next)
+        },
+      }),
+      [],
+    )
+
+    // Re-evaluates immediately on mount / track switch / cps edit, instead
+    // of showing a stale (possibly wrong-track) card until the next
+    // playback tick -- same reasoning as HudOverlay.tsx's mirror effect.
+    // Evaluated at mileage 0 (a fresh flythrough always starts there;
+    // seeking away from 0 on the very next tick corrects this via the
+    // imperative path above the same way any other seek does).
+    useEffect(() => {
+      const next = track ? pickApproachingCheckpoint(cps, track, 0) : undefined
+      visibleIdRef.current = next?.id
+      setVisibleCp(next)
+    }, [track, cps])
+
+    if (!track || !visibleCp) return null
+
+    const n = track.points.lon.length
+    const idx = Math.min(Math.max(visibleCp.anchorIndex, 0), Math.max(0, n - 1))
+    const cumDist = track.points.cumDist
+    const mileageKm = cumDist && cumDist.length > 0 ? cumDist[idx] / 1000 : undefined
+    const rawEle = track.points.ele?.[idx]
+    const eleM = rawEle !== undefined && Number.isFinite(rawEle) ? rawEle : undefined
+    const cutoff = formatCutoff(visibleCp.cutoffTime)
+    const color = CP_KIND_COLORS[visibleCp.kind]
+
+    return (
+      // `key` on the checkpoint's own id: switching to a DIFFERENT
+      // checkpoint mounts a brand-new DOM node (rather than patching the
+      // old one's text in place), which is what lets the CSS slide-in
+      // animation (App.css's `.checkpoint-card` `@keyframes`) replay for
+      // every new checkpoint instead of only the very first one.
+      <div key={visibleCp.id} className="checkpoint-card" style={{ borderLeftColor: color }} role="status">
+        <div className="checkpoint-card__kind" style={{ color }}>
+          {CP_KIND_LABELS[visibleCp.kind]}
+        </div>
+        <div className="checkpoint-card__name">{visibleCp.name}</div>
+        <div className="checkpoint-card__meta">
+          {mileageKm !== undefined && <span>{mileageKm.toFixed(2)} km</span>}
+          {eleM !== undefined && <span>{Math.round(eleM)} m</span>}
+          {cutoff !== undefined && <span className="checkpoint-card__cutoff">关门 {cutoff}</span>}
+        </div>
+      </div>
+    )
+  }),
+)
