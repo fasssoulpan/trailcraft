@@ -230,8 +230,32 @@ export function locateTrack(map: MapLibreMap, tracks: Track[], trackId: string):
  * both of which also wait for every source's tiles to finish loading, the
  * OSM raster basemap included) — adding a source before the style is parsed
  * throws in MapLibre.
+ *
+ * `opts.skipFit` (milestone N6 commit 2): `map.setStyle(...)` — how
+ * MapView.tsx now switches basemap style — diffs the *entire* live style
+ * (which includes every `trk-*` source/layer added imperatively here, since
+ * `addSource`/`addLayer` mutate the same style object graph MapLibre diffs
+ * against) against the new style spec, and removes anything the new spec
+ * doesn't mention — every track layer, not just the old basemap. `'style.load'`
+ * fires again once that diff settles, and this function runs again in
+ * response (see MapView.tsx's `handleStyleLoad`) to re-add them, which is
+ * exactly right. But without `skipFit`, every track would look "removed then
+ * newly re-added" to this function's own `existing === undefined` check, and
+ * the very last one synced would get queued into `pendingFit` — silently
+ * re-centering the camera on a basemap switch, `syncTrackLayers`'s own
+ * `pendingFit` bookkeeping never having been designed to distinguish "a
+ * genuinely new track" from "a track re-added after its source/layer were
+ * wiped out from under it". `skipFit: true` (passed only from that
+ * style-swap re-sync path, never the initial mount) suppresses both queuing
+ * *and* clears any stale pending marker, so a later unrelated resize can't
+ * replay the same unwanted re-fit.
  */
-export function syncTrackLayers(map: MapLibreMap, tracks: Track[], activeTrackId?: string): void {
+export function syncTrackLayers(
+  map: MapLibreMap,
+  tracks: Track[],
+  activeTrackId?: string,
+  opts?: { skipFit?: boolean },
+): void {
   const seen = knownTrackIds.get(map) ?? new Set<string>()
   const currentIds = new Set(tracks.map((t) => t.id))
 
@@ -280,8 +304,15 @@ export function syncTrackLayers(map: MapLibreMap, tracks: Track[], activeTrackId
   })
   knownTrackIds.set(map, seen)
 
-  if (newestTrack) pendingFit.set(map, newestTrack.id)
-  tryPendingFit(map, tracks)
+  if (opts?.skipFit) {
+    // Not a genuine "track added" event -- see this function's own doc
+    // comment on `opts.skipFit`. Explicitly drop any pending marker rather
+    // than leaving it for a later unrelated resize to consume.
+    pendingFit.delete(map)
+  } else {
+    if (newestTrack) pendingFit.set(map, newestTrack.id)
+    tryPendingFit(map, tracks)
+  }
 }
 
 const EARTH_CIRCUMFERENCE_M = 40075016.686

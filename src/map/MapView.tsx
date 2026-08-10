@@ -4,11 +4,11 @@ import {
   NavigationControl,
   type ErrorEvent as MapLibreErrorEvent,
   type MapMouseEvent,
-  type StyleSpecification,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useAppStore, type HoverState } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
+import { ALL_RASTER_SOURCE_IDS, OSM_STYLE, styleSpecForBasemap } from './basemapStyle'
 import {
   findNearestOnTrack,
   locateTrack,
@@ -20,33 +20,16 @@ import {
   HOVER_GRAB_PX,
 } from './trackLayer'
 
+// Re-exported so anything that previously imported `OSM_STYLE` from this
+// module (its original home, before milestone N6 commit 2 moved the actual
+// definition into basemapStyle.ts alongside the new Esri satellite style --
+// see that file's own doc comment for why) keeps resolving.
+export { OSM_STYLE }
+
 /** Screen-space anchor + world coordinate for the pending "add CP" inline form. */
 interface CpFormState {
   lngLat: [number, number]
   point: { x: number; y: number }
-}
-
-/**
- * Raster OSM basemap style. Exported as a constant so the tile URL is easy
- * to swap out: OpenStreetMap's own tile CDN (tile.openstreetmap.org) is
- * slow/unreliable to reach from mainland China, which is TrailCraft's
- * target market, so this is expected to become a user- or env-configurable
- * URL (e.g. pointing at a China-reachable mirror or self-hosted tiles) in a
- * later task rather than staying hardcoded.
- */
-const OSM_SOURCE_ID = 'osm'
-
-export const OSM_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    [OSM_SOURCE_ID]: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: OSM_SOURCE_ID, type: 'raster', source: OSM_SOURCE_ID }],
 }
 
 // Roughly the center of China, used only as the pre-track-load default view.
@@ -77,6 +60,7 @@ export function MapView() {
   const addCp = useAppStore((s) => s.addCp)
   const locateRequest = useAppStore((s) => s.locateRequest)
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
+  const planBasemapStyle = useAppStore((s) => s.planBasemapStyle)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
   // CheckPoint.trackId is the source of truth for which track a CP belongs
@@ -124,7 +108,11 @@ export function MapView() {
 
     const map = new MapLibreMap({
       container,
-      style: OSM_STYLE,
+      // The store's persisted value is already correct at this point --
+      // loadBasemapStyle('plan') runs synchronously at store creation (see
+      // appStore.ts), so the very first render already has the right style,
+      // with no async load/race to worry about here.
+      style: styleSpecForBasemap(planBasemapStyle),
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     })
@@ -147,9 +135,24 @@ export function MapView() {
     //    isStyleLoaded() to 'load'. Verified by reading the maplibre-gl
     //    source directly (Map._render / Style._load / Style.loaded /
     //    TileManager.loaded).
+    // This same listener also fires again on every later `map.setStyle(...)`
+    // call (milestone N6 commit 2's basemap-style switch, see the
+    // `planBasemapStyle` effect below) -- MapLibre's default diff-based
+    // `setStyle` path (`Style#setState`) fires the identical 'style.load'
+    // event once its diff has been applied, and that diff removes every
+    // `trk-*` source/layer this function itself added (they're part of the
+    // same live style graph being diffed, even though nothing in *this*
+    // component added them to the new style spec) -- so re-running the sync
+    // functions here is what makes tracks/CP markers/hover marker survive a
+    // basemap switch, not just the very first load. `isInitial` distinguishes
+    // the two cases so `syncTrackLayers` doesn't treat "every track just got
+    // wiped out and re-added by the style diff" as "every track is newly
+    // added" and re-fit the camera on a basemap switch (see that function's
+    // own doc comment on `opts.skipFit`).
     const handleStyleLoad = () => {
+      const isInitial = !loadedRef.current
       loadedRef.current = true
-      syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id)
+      syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id, { skipFit: !isInitial })
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
       syncCpMarkers(map, activeTrackRef.current, cpsRef.current)
     }
@@ -180,13 +183,15 @@ export function MapView() {
     // not be silent: the app's own layers render independently of the
     // basemap (see the `loadedRef` gate below), so without this the user
     // just sees a blank grey map with no indication of what's wrong. Only
-    // the OSM source is watched here — the tracks/hover-marker sources are
-    // local GeoJSON and don't fail this way — and it fires at most once per
-    // map instance so a run of failed tiles doesn't spam the notice.
+    // the raster basemap sources are watched here (ALL_RASTER_SOURCE_IDS,
+    // now two of them since milestone N6 commit 2 added the Esri satellite
+    // style) — the tracks/hover-marker sources are local GeoJSON and don't
+    // fail this way — and it fires at most once per map instance so a run of
+    // failed tiles doesn't spam the notice.
     let tileErrorNoticeShown = false
     const handleError = (e: MapSourceErrorEvent) => {
       if (tileErrorNoticeShown) return
-      if (e.sourceId !== OSM_SOURCE_ID) return
+      if (!e.sourceId || !ALL_RASTER_SOURCE_IDS.includes(e.sourceId)) return
       tileErrorNoticeShown = true
       setTileErrorShown(true)
     }
@@ -271,6 +276,25 @@ export function MapView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Applies a later basemap-style change (LayerPanel, milestone N6 commit 2)
+  // via `map.setStyle`. The initial style is already correct at construction
+  // time (see the mount effect above), so this only needs to react to
+  // *subsequent* changes -- gated on `loadedRef` for the same reason every
+  // other post-mount sync effect in this file is (calling `setStyle` before
+  // the initial style has parsed throws in MapLibre, same as `addSource`
+  // would). `map.setStyle` re-fires 'style.load' synchronously in the same
+  // call for an object style spec (verified by reading maplibre-gl's own
+  // source: `Map#_diffStyle`'s object-spec branch has no `await` before
+  // calling `_updateDiff`, which fires the event) -- so by the time this
+  // effect returns, `handleStyleLoad` has already re-added every track/CP/
+  // hover layer via `syncTrackLayers`/`syncCpMarkers`/`syncHoverMarker`.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!loadedRef.current) return
+    map.setStyle(styleSpecForBasemap(planBasemapStyle))
+  }, [planBasemapStyle])
 
   // Re-sync track layers whenever the track list changes.
   //
