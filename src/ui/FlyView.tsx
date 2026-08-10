@@ -4,6 +4,8 @@ import type { FlythroughEngine, FlythroughProgressInfo } from '../cesium/flythro
 import type { Track } from '../core/model/track'
 import { useAppStore } from '../state/appStore'
 import { FlyControls } from './FlyControls'
+import { FlyOverlayLayer } from './FlyOverlayLayer'
+import { HudOverlay, type HudOverlayHandle } from './HudOverlay'
 
 type ViewState =
   | { status: 'loading' }
@@ -106,6 +108,14 @@ export function FlyView() {
   // track, never a stale one left over from a previous track.
   const engineRef = useRef<FlythroughEngine | undefined>(undefined)
 
+  // Imperative handle for the frame-rate-driven HUD overlay (N4) -- updated
+  // directly from the engine's onProgress callback below, NOT via React
+  // props/state, so a 60Hz playback never re-renders its subtree (see
+  // HudOverlay.tsx's own doc comment for the full reasoning).
+  // `setProgressInfo` below still drives FlyControls exactly as before N4
+  // -- this is an additional, not a replacement, listener.
+  const hudRef = useRef<HudOverlayHandle>(null)
+
   // High-frequency playback telemetry (progress/mileage/point index),
   // pushed by the engine's onProgress callback -- up to once per rendered
   // frame while playing. Kept as local component state rather than in
@@ -145,7 +155,15 @@ export function FlyView() {
     if (!track || !mod) return
 
     const engine = new mod.FlythroughEngine(handle.viewer, track, {
-      onProgress: (info) => setProgressInfo(info),
+      onProgress: (info) => {
+        setProgressInfo(info)
+        // Bypasses React entirely -- see the hudRef doc comment above. A
+        // no-op (optional chaining) until HudOverlay has mounted, which is
+        // fine: it separately paints its own "at the start" state on mount
+        // (see its own effect) rather than depending on catching this
+        // exact first synchronous call.
+        hudRef.current?.update(info)
+      },
     })
     const s = useAppStore.getState()
     engine.setSpeed(s.flythroughSpeed)
@@ -342,6 +360,11 @@ export function FlyView() {
         <div className="fly-view__badge" role="status">
           地形：{TERRAIN_LABEL[state.providers.terrain]} · 影像：{IMAGERY_LABEL[state.providers.imagery]}
         </div>
+      )}
+      {state.status === 'ready' && (
+        <FlyOverlayLayer>
+          <HudOverlay ref={hudRef} track={activeTrack} />
+        </FlyOverlayLayer>
       )}
       {state.status === 'ready' && (
         <FlyControls

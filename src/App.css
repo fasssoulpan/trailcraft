@@ -707,3 +707,127 @@
   font-size: 12px;
   color: #d1d5db;
 }
+
+/* Composable overlay layer (ui/FlyOverlayLayer.tsx), milestone N4 -- covers
+ * the whole 3D viewport above the Cesium canvas but below fly-controls'
+ * bottom bar (later in DOM order, so it naturally stacks on top at the
+ * same z-index -- see that file's own doc comment on why fly-controls is a
+ * sibling, not a child, of this layer). Pointer-events pass through to the
+ * canvas by default; individual overlay children opt back in if they ever
+ * need to be interactive (none do yet). */
+.fly-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Flythrough HUD (ui/HudOverlay.tsx), milestone N4 -- a row of stat chips
+ * docked to the top-left of the 3D viewport. Same dark-chrome palette as
+ * fly-controls/fly-view__badge (this sits on the same dark canvas they
+ * do), but deliberately unobtrusive: it must stay legible over satellite
+ * imagery of any brightness without competing for attention with the
+ * scene itself. text-shadow (not a solid backing panel per stat, just on
+ * the numbers) is what keeps it legible against bright/busy imagery
+ * without needing a full opaque background. */
+.hud-overlay {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-overlay__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 9px;
+  background: rgba(11, 12, 16, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+
+.hud-overlay__label {
+  font-size: 11px;
+  color: #d1d5db;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.hud-overlay__value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.hud-overlay__unit {
+  font-size: 11px;
+  color: #d1d5db;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Checkpoint approach card (ui/CheckpointCard.tsx), milestone N4 -- slides
+ * in from the right as the flythrough camera nears a checkpoint on the
+ * active track, docked below the top-right corner so it never overlaps the
+ * top-left HUD or the bottom fly-controls bar. Re-mounted (via its `key`,
+ * see CheckpointCard.tsx) on every new checkpoint so this animation replays
+ * each time, not just on the very first card of a flythrough. */
+@keyframes checkpoint-card-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.checkpoint-card {
+  position: absolute;
+  right: 8px;
+  top: 48px;
+  z-index: 1;
+  width: 220px;
+  padding: 10px 12px;
+  color: #f3f4f6;
+  background: rgba(11, 12, 16, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 4px solid #38bdf8;
+  border-radius: 8px;
+  font-size: 13px;
+  animation: checkpoint-card-slide-in 0.25s ease-out;
+}
+
+.checkpoint-card__kind {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.checkpoint-card__name {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.checkpoint-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #d1d5db;
+}
+
+.checkpoint-card__cutoff {
+  color: #fca5a5;
+}
