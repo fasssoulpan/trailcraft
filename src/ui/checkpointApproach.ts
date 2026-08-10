@@ -22,7 +22,7 @@
  * number rather than something a future edit has to go hunting for.
  */
 import type { Track } from '../core/model/track'
-import type { CheckPoint } from '../core/model/checkpoint'
+import { CP_KIND_COLORS, CP_KIND_LABELS, type CheckPoint, type CpKind } from '../core/model/checkpoint'
 
 /** Card starts showing this many metres BEFORE the runner reaches the
  * checkpoint. 300m: roughly a couple of minutes' running-time runway at
@@ -107,4 +107,68 @@ export function pickApproachingCheckpoint(
     if (!best || absDelta < Math.abs(best.deltaM)) best = { cp, cpMileageM, deltaM }
   }
   return best?.cp
+}
+
+// ---- Shared DOM/canvas card content (milestone N5) ------------------------
+
+/** HH:mm in the viewer's local timezone. Shared by `CheckpointCard.tsx` (on
+ * screen) and `cesium/recorder.ts`'s frame compositor (recorded video,
+ * milestone N5) via `buildCheckpointCardData` below -- pulled out of
+ * `CheckpointCard.tsx` (where it originated) specifically so the two
+ * rendering targets read the exact same formatted string, never two
+ * independent reimplementations that could drift on locale/padding. */
+export function formatCheckpointCutoff(iso: string | undefined): string | undefined {
+  if (!iso) return undefined
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return undefined
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export interface CheckpointCardData {
+  id: string
+  kind: CpKind
+  kindLabel: string
+  name: string
+  /** Per-kind accent colour, same `CP_KIND_COLORS` map the 3D pin/2D marker
+   * use -- see checkpoint.ts's own doc comment on why this lives there. */
+  color: string
+  /** `undefined` when the track has no `cumDist` yet. */
+  mileageKm: number | undefined
+  /** `undefined` when the track has no elevation column, or this point's
+   * reading is missing (NaN). */
+  eleM: number | undefined
+  /** `undefined` when the checkpoint has no cutoff time set, or it fails to
+   * parse. */
+  cutoff: string | undefined
+}
+
+/**
+ * Formats everything `CheckpointCard.tsx` displays for `cp` against `track`
+ * -- the single source of truth both the on-screen card and the video
+ * compositor's canvas-drawn card (milestone N5) read from, for the exact
+ * same "must not drift apart" reason `hudStats.ts#formatHudStats` documents
+ * for the HUD. `anchorIndex` is clamped into the track's valid point range,
+ * matching `CheckpointCard.tsx`'s own historical clamping (a CP anchored
+ * before a toolbox decimation op can end up pointing past the now-shorter
+ * `points` arrays).
+ */
+export function buildCheckpointCardData(cp: CheckPoint, track: Track): CheckpointCardData {
+  const n = track.points.lon.length
+  const idx = Math.min(Math.max(cp.anchorIndex, 0), Math.max(0, n - 1))
+  const cumDist = track.points.cumDist
+  const mileageKm = cumDist && cumDist.length > 0 ? cumDist[idx] / 1000 : undefined
+  const rawEle = track.points.ele?.[idx]
+  const eleM = rawEle !== undefined && Number.isFinite(rawEle) ? rawEle : undefined
+  return {
+    id: cp.id,
+    kind: cp.kind,
+    kindLabel: CP_KIND_LABELS[cp.kind],
+    name: cp.name,
+    color: CP_KIND_COLORS[cp.kind],
+    mileageKm,
+    eleM,
+    cutoff: formatCheckpointCutoff(cp.cutoffTime),
+  }
 }

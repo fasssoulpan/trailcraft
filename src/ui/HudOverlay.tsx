@@ -1,11 +1,11 @@
-import { forwardRef, memo, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useRef, type RefObject } from 'react'
 import type { Track } from '../core/model/track'
 // Type-only import, erased at compile time -- does NOT create a static
 // value import of 'cesium'. Same pattern FlyControls.tsx already
 // established for this exact type.
 import type { FlythroughProgressInfo } from '../cesium/flythrough'
 import { useAppStore } from '../state/appStore'
-import { getHudTrackStats, computeHudReadout, type HudReadout } from './hudStats'
+import { getHudTrackStats, computeHudReadout, formatHudStats, type HudReadout, type HudStatKey } from './hudStats'
 
 export interface HudOverlayHandle {
   /** Imperative per-frame update, called directly from the flythrough
@@ -85,20 +85,25 @@ export const HudOverlay = memo(
     const statsOptionsRef = useRef(statsOptions)
     statsOptionsRef.current = statsOptions
 
+    // Which ref each formatHudStats() entry key writes into -- the entries
+    // themselves (label/value/unit strings) come from hudStats.ts's
+    // formatHudStats, the SAME function cesium/recorder.ts's frame
+    // compositor calls for the recorded video (milestone N5), so the two
+    // can never independently drift on formatting. This component only
+    // owns "which DOM node", not "what text".
+    const statRefs: Record<HudStatKey, RefObject<HTMLSpanElement | null>> = {
+      mileage: mileageRef,
+      ele: eleRef,
+      ascent: ascentRef,
+      gradient: gradientRef,
+      hr: hrRef,
+    }
+
     function applyReadout(readout: HudReadout) {
-      if (mileageRef.current) mileageRef.current.textContent = readout.mileageKm.toFixed(2)
-      if (eleRef.current) {
-        eleRef.current.textContent = readout.elevationM !== undefined ? String(Math.round(readout.elevationM)) : PLACEHOLDER
-      }
-      if (ascentRef.current) {
-        ascentRef.current.textContent = readout.ascentM !== undefined ? String(Math.round(readout.ascentM)) : PLACEHOLDER
-      }
-      if (gradientRef.current) {
-        gradientRef.current.textContent =
-          readout.gradientPct !== undefined ? `${readout.gradientPct >= 0 ? '+' : ''}${readout.gradientPct.toFixed(1)}%` : PLACEHOLDER
-      }
-      if (hrRef.current) {
-        hrRef.current.textContent = readout.heartRateBpm !== undefined ? String(readout.heartRateBpm) : PLACEHOLDER
+      const hasHr = trackRef.current?.points.hr !== undefined
+      for (const entry of formatHudStats(readout, hasHr)) {
+        const span = statRefs[entry.key].current
+        if (span) span.textContent = entry.value
       }
     }
 

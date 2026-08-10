@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createTrack, type Track } from '../../src/core/model/track'
 import { computeCumDist } from '../../src/core/geo/distance'
-import { getHudTrackStats, computeHudReadout } from '../../src/ui/hudStats'
+import { getHudTrackStats, computeHudReadout, formatHudStats, type HudReadout } from '../../src/ui/hudStats'
 import { buildProfileData } from '../../src/profile/profileRender'
 import { computeGainLoss, smoothElevation } from '../../src/core/stats/elevation'
 
@@ -106,5 +106,68 @@ describe('computeHudReadout', () => {
     expect(() => computeHudReadout(t, stats, -5)).not.toThrow()
     expect(() => computeHudReadout(t, stats, 9999)).not.toThrow()
     expect(computeHudReadout(t, stats, -5).mileageKm).toBeCloseTo(computeHudReadout(t, stats, 0).mileageKm, 6)
+  })
+})
+
+// formatHudStats is the shared text-formatting layer both HudOverlay.tsx
+// (DOM) and cesium/recorder.ts's video compositor (canvas, milestone N5)
+// read from -- see that function's own doc comment for why this must stay
+// the one place mileage/elevation/ascent/gradient/heart-rate get formatted
+// into strings.
+describe('formatHudStats', () => {
+  const FULL_READOUT: HudReadout = {
+    mileageKm: 3.47,
+    elevationM: 274,
+    ascentM: 245,
+    gradientPct: 1.5,
+    heartRateBpm: 140,
+  }
+
+  it('formats mileage to two decimal places with a km unit', () => {
+    const entries = formatHudStats(FULL_READOUT, true)
+    const mileage = entries.find((e) => e.key === 'mileage')!
+    expect(mileage.value).toBe('3.47')
+    expect(mileage.unit).toBe('km')
+    expect(mileage.label).toBe('里程')
+  })
+
+  it('rounds elevation and ascent to the nearest metre', () => {
+    const entries = formatHudStats({ ...FULL_READOUT, elevationM: 274.6, ascentM: 244.5 }, true)
+    expect(entries.find((e) => e.key === 'ele')!.value).toBe('275')
+    expect(entries.find((e) => e.key === 'ascent')!.value).toBe('245')
+  })
+
+  it('formats gradient with an explicit + sign for climbs and no sign for descents', () => {
+    const climb = formatHudStats({ ...FULL_READOUT, gradientPct: 7.95 }, true)
+    expect(climb.find((e) => e.key === 'gradient')!.value).toBe('+8.0%')
+    const descent = formatHudStats({ ...FULL_READOUT, gradientPct: -7.59 }, true)
+    expect(descent.find((e) => e.key === 'gradient')!.value).toBe('-7.6%')
+  })
+
+  it('shows the "--" placeholder for undefined elevation/ascent/gradient, not "undefined" or NaN', () => {
+    const entries = formatHudStats(
+      { mileageKm: 1, elevationM: undefined, ascentM: undefined, gradientPct: undefined, heartRateBpm: undefined },
+      false,
+    )
+    expect(entries.find((e) => e.key === 'ele')!.value).toBe('--')
+    expect(entries.find((e) => e.key === 'ascent')!.value).toBe('--')
+    expect(entries.find((e) => e.key === 'gradient')!.value).toBe('--')
+  })
+
+  it('omits the heart-rate entry entirely when hasHr is false, even if heartRateBpm is set', () => {
+    const entries = formatHudStats(FULL_READOUT, false)
+    expect(entries.some((e) => e.key === 'hr')).toBe(false)
+  })
+
+  it('includes a heart-rate entry (placeholder if undefined) when hasHr is true', () => {
+    const withReading = formatHudStats(FULL_READOUT, true)
+    expect(withReading.find((e) => e.key === 'hr')!.value).toBe('140')
+    const withoutReading = formatHudStats({ ...FULL_READOUT, heartRateBpm: undefined }, true)
+    expect(withoutReading.find((e) => e.key === 'hr')!.value).toBe('--')
+  })
+
+  it('returns entries in a stable key order: mileage, ele, ascent, gradient[, hr]', () => {
+    const entries = formatHudStats(FULL_READOUT, true)
+    expect(entries.map((e) => e.key)).toEqual(['mileage', 'ele', 'ascent', 'gradient', 'hr'])
   })
 })

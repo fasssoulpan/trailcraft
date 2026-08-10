@@ -141,3 +141,71 @@ export function computeHudReadout(track: Track, stats: HudTrackStats, pointIndex
 
   return { mileageKm, elevationM, ascentM, gradientPct, heartRateBpm }
 }
+
+// ---- Shared DOM/canvas text formatting (milestone N5) --------------------
+
+/** Stable per-stat key -- `HudOverlay.tsx` uses this to pick which `<span>`
+ * ref to write into; the video-recording compositor (`cesium/recorder.ts`,
+ * milestone N5) uses the same key set purely for iteration, since it draws
+ * fresh text every frame rather than mutating persistent DOM nodes. */
+export type HudStatKey = 'mileage' | 'ele' | 'ascent' | 'gradient' | 'hr'
+
+export interface HudStatEntry {
+  key: HudStatKey
+  label: string
+  value: string
+  unit?: string
+}
+
+const HUD_PLACEHOLDER = '--'
+
+/**
+ * Formats a `HudReadout` into the exact label/value/unit strings the HUD
+ * shows -- the single source of truth both `HudOverlay.tsx` (writes into
+ * DOM `<span>` textContent, on screen) and `cesium/recorder.ts`'s frame
+ * compositor (draws onto an offscreen canvas for the recorded video,
+ * milestone N5, closing risk R8) read from. Extracted specifically so those
+ * two rendering targets cannot independently drift on formatting/rounding
+ * (e.g. gradient's sign prefix, mileage's two decimal places, the '--'
+ * placeholder for missing data) -- see this module's file comment and the
+ * milestone brief's explicit callout against duplicating this logic.
+ *
+ * `hasHr` mirrors `HudOverlay.tsx`'s own `track.points.hr !== undefined`
+ * check: the heart-rate entry is omitted entirely (not just shown as a
+ * placeholder) when the track has no `hr` column, exactly like the on-screen
+ * row is conditionally omitted from the JSX.
+ */
+export function formatHudStats(readout: HudReadout, hasHr: boolean): HudStatEntry[] {
+  const entries: HudStatEntry[] = [
+    { key: 'mileage', label: '里程', value: readout.mileageKm.toFixed(2), unit: 'km' },
+    {
+      key: 'ele',
+      label: '海拔',
+      value: readout.elevationM !== undefined ? String(Math.round(readout.elevationM)) : HUD_PLACEHOLDER,
+      unit: 'm',
+    },
+    {
+      key: 'ascent',
+      label: '累计爬升',
+      value: readout.ascentM !== undefined ? String(Math.round(readout.ascentM)) : HUD_PLACEHOLDER,
+      unit: 'm',
+    },
+    {
+      key: 'gradient',
+      label: '坡度',
+      value:
+        readout.gradientPct !== undefined
+          ? `${readout.gradientPct >= 0 ? '+' : ''}${readout.gradientPct.toFixed(1)}%`
+          : HUD_PLACEHOLDER,
+    },
+  ]
+  if (hasHr) {
+    entries.push({
+      key: 'hr',
+      label: '心率',
+      value: readout.heartRateBpm !== undefined ? String(readout.heartRateBpm) : HUD_PLACEHOLDER,
+      unit: 'bpm',
+    })
+  }
+  return entries
+}

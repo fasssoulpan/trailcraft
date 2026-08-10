@@ -1,11 +1,10 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { CheckPoint } from '../core/model/checkpoint'
-import { CP_KIND_LABELS, CP_KIND_COLORS } from '../core/model/checkpoint'
 import type { Track } from '../core/model/track'
 // Type-only import, erased at compile time -- same pattern as
 // HudOverlay.tsx/FlyControls.tsx for this exact type.
 import type { FlythroughProgressInfo } from '../cesium/flythrough'
-import { pickApproachingCheckpoint } from './checkpointApproach'
+import { pickApproachingCheckpoint, buildCheckpointCardData } from './checkpointApproach'
 
 export interface CheckpointCardHandle {
   /** Imperative per-frame update, called directly from the flythrough
@@ -27,20 +26,6 @@ interface CheckpointCardProps {
    * `cpEntities.ts`/`SegmentTable.tsx` follow, so a caller forgetting to
    * filter can't reintroduce P0's cross-track CP leakage bug. */
   cps: CheckPoint[]
-}
-
-/** HH:mm in the viewer's local timezone -- same convention/format as
- * `SegmentTable.tsx`'s own `formatClockHM` for cutoff/ETA display, kept as
- * a separate tiny copy here rather than a shared import since it's a
- * one-line function and `SegmentTable.tsx` isn't otherwise a dependency of
- * the flythrough view. */
-function formatCutoff(iso: string | undefined): string | undefined {
-  if (!iso) return undefined
-  const ms = Date.parse(iso)
-  if (Number.isNaN(ms)) return undefined
-  const d = new Date(ms)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /**
@@ -107,14 +92,11 @@ export const CheckpointCard = memo(
 
     if (!track || !visibleCp) return null
 
-    const n = track.points.lon.length
-    const idx = Math.min(Math.max(visibleCp.anchorIndex, 0), Math.max(0, n - 1))
-    const cumDist = track.points.cumDist
-    const mileageKm = cumDist && cumDist.length > 0 ? cumDist[idx] / 1000 : undefined
-    const rawEle = track.points.ele?.[idx]
-    const eleM = rawEle !== undefined && Number.isFinite(rawEle) ? rawEle : undefined
-    const cutoff = formatCutoff(visibleCp.cutoffTime)
-    const color = CP_KIND_COLORS[visibleCp.kind]
+    // Same formatting checkpointApproach.ts#buildCheckpointCardData feeds
+    // cesium/recorder.ts's video compositor (milestone N5) -- see that
+    // function's own doc comment for why this must not be reimplemented
+    // here instead of called.
+    const card = buildCheckpointCardData(visibleCp, track)
 
     return (
       // `key` on the checkpoint's own id: switching to a DIFFERENT
@@ -122,15 +104,15 @@ export const CheckpointCard = memo(
       // old one's text in place), which is what lets the CSS slide-in
       // animation (App.css's `.checkpoint-card` `@keyframes`) replay for
       // every new checkpoint instead of only the very first one.
-      <div key={visibleCp.id} className="checkpoint-card" style={{ borderLeftColor: color }} role="status">
-        <div className="checkpoint-card__kind" style={{ color }}>
-          {CP_KIND_LABELS[visibleCp.kind]}
+      <div key={card.id} className="checkpoint-card" style={{ borderLeftColor: card.color }} role="status">
+        <div className="checkpoint-card__kind" style={{ color: card.color }}>
+          {card.kindLabel}
         </div>
-        <div className="checkpoint-card__name">{visibleCp.name}</div>
+        <div className="checkpoint-card__name">{card.name}</div>
         <div className="checkpoint-card__meta">
-          {mileageKm !== undefined && <span>{mileageKm.toFixed(2)} km</span>}
-          {eleM !== undefined && <span>{Math.round(eleM)} m</span>}
-          {cutoff !== undefined && <span className="checkpoint-card__cutoff">关门 {cutoff}</span>}
+          {card.mileageKm !== undefined && <span>{card.mileageKm.toFixed(2)} km</span>}
+          {card.eleM !== undefined && <span>{Math.round(card.eleM)} m</span>}
+          {card.cutoff !== undefined && <span className="checkpoint-card__cutoff">关门 {card.cutoff}</span>}
         </div>
       </div>
     )
