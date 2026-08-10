@@ -18,25 +18,35 @@ export default defineConfig({
   plugins: [
     react(),
     viteStaticCopy({
-      // vite-plugin-static-copy always preserves each target's source
-      // directory structure under `dest` (unlike rollup-plugin-copy's
-      // `flatten` option) -- `rename: { stripBase: true }` is what drops
-      // the `node_modules/cesium/Build/Cesium/` prefix so e.g. `Workers/`
-      // lands directly at `dist/cesium/Workers/`, matching the flat layout
-      // Cesium expects under `window.CESIUM_BASE_URL`.
+      // By default vite-plugin-static-copy preserves each matched file's
+      // full path *relative to the project root* under `dest` -- so copying
+      // `node_modules/cesium/Build/Cesium/Workers` would land at
+      // `dist/cesium/node_modules/cesium/Build/Cesium/Workers/...`, not
+      // `dist/cesium/Workers/...`. `rename: { stripBase: N }` strips the
+      // leading N path segments from that relative path before it's
+      // rejoined under `dest`. `node_modules/cesium/Build/Cesium/` is 4
+      // segments, so `stripBase: 4` leaves exactly `Workers/...`,
+      // `Assets/...`, etc, which is the flat layout Cesium expects under
+      // `window.CESIUM_BASE_URL`. (`stripBase: true` strips *all* segments
+      // of each file's directory, which flattens every file -- including
+      // ones nested several directories deep, e.g. under `Assets/Images/`
+      // or `Widgets/Viewer/` -- into one directory, silently merging
+      // same-named files and breaking Cesium's own asset lookups.)
       targets: ['Workers', 'ThirdParty', 'Assets', 'Widgets'].map((dir) => ({
         src: `node_modules/cesium/Build/Cesium/${dir}`,
         dest: CESIUM_BASE_URL,
-        rename: { stripBase: true },
+        rename: { stripBase: 4 },
       })),
     }),
   ],
   define: {
     // Read by src/cesium/viewer.ts (see the ambient declaration in
-    // src/vite-env.d.ts). Same base path in dev and build: viteStaticCopy
-    // also copies into Vite's dev-time public-serving root, so
-    // `/cesium/...` resolves identically under `npm run dev` and the built
-    // `dist/` output.
+    // src/vite-env.d.ts). Same base path in dev and build: vite-plugin-
+    // static-copy registers a dev-server middleware (see its `apply:
+    // 'serve'` plugin) that serves each target at the same `dest` path
+    // it would copy to during a build, so `/cesium/...` resolves
+    // identically under `npm run dev` and the built `dist/` output --
+    // it does not literally write files to disk in dev.
     CESIUM_BASE_URL: JSON.stringify(`/${CESIUM_BASE_URL}`),
   },
   build: {
