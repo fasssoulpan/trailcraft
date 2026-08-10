@@ -125,6 +125,13 @@ function effectiveGroundHeightM(viewer: Viewer, lon: number, lat: number, pointH
 const MARKER_PX = 26
 const MARKER_CLEARANCE_M = 2
 
+/** Exported so `cesium/radarProjection.ts` (milestone N6 commit 4) can look
+ * up the moving marker's current position via `viewer.entities.getById`
+ * without duplicating this string literal -- the radar's screen centre is
+ * this entity's live projected position, not something re-derived from
+ * `FlythroughProgressInfo`. */
+export const FLYTHROUGH_MARKER_ENTITY_ID = 'flythrough-marker'
+
 let markerImageCache: string | undefined
 
 function markerImage(): string {
@@ -156,7 +163,7 @@ function markerImage(): string {
 
 function buildMarkerEntityOptions(position: TrackPathPoint, heightReference: HeightReference): Entity.ConstructorOptions {
   return {
-    id: 'flythrough-marker',
+    id: FLYTHROUGH_MARKER_ENTITY_ID,
     position: Cartesian3.fromDegrees(position.lon, position.lat, position.height),
     billboard: {
       image: markerImage(),

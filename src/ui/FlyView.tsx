@@ -8,6 +8,7 @@ import { FlyControls } from './FlyControls'
 import { FlyOverlayLayer } from './FlyOverlayLayer'
 import { HudOverlay, type HudOverlayHandle } from './HudOverlay'
 import { CheckpointCard, type CheckpointCardHandle } from './CheckpointCard'
+import { RadarOverlay, type RadarOverlayHandle } from './RadarOverlay'
 
 type ViewState =
   | { status: 'loading' }
@@ -55,6 +56,7 @@ type TrackEntitiesModule = typeof import('../cesium/trackEntities')
 type CpEntitiesModule = typeof import('../cesium/cpEntities')
 type FlythroughModule = typeof import('../cesium/flythrough')
 type ContoursModule = typeof import('../cesium/contours')
+type RadarProjectionModule = typeof import('../cesium/radarProjection')
 
 /**
  * Mounts only while appStore's `mode === 'fly'` (see App.tsx) -- the 2D
@@ -83,6 +85,7 @@ export function FlyView() {
   const flythroughCameraMode = useAppStore((s) => s.flythroughCameraMode)
   const flyBasemapStyle = useAppStore((s) => s.flyBasemapStyle)
   const contoursEnabled = useAppStore((s) => s.contoursEnabled)
+  const radarEnabled = useAppStore((s) => s.radarEnabled)
 
   // True while `basemap.setStyle` is mid-terrain-reload (see
   // `cesium/viewer.ts`'s `CesiumBasemapHandle#setStyle` doc comment):
@@ -103,6 +106,13 @@ export function FlyView() {
   activeTrackIdRef.current = activeTrackId
   const cpsRef = useRef(cps)
   cpsRef.current = cps
+  // Mirrors `radarEnabled` for the onProgress closure below (registered once
+  // per engine, must always see the current toggle) -- same reasoning as
+  // every other *Ref mirror in this file. Read here rather than skipped
+  // entirely so the per-tick projection work (cesium/radarProjection.ts) is
+  // only ever done while the overlay is actually visible.
+  const radarEnabledRef = useRef(radarEnabled)
+  radarEnabledRef.current = radarEnabled
 
   // Populated once the viewer/trackEntities/cpEntities chunk has loaded and
   // the Viewer itself exists -- the later effects (track sync, CP sync,
@@ -113,6 +123,7 @@ export function FlyView() {
   const cpModRef = useRef<CpEntitiesModule | undefined>(undefined)
   const flythroughModRef = useRef<FlythroughModule | undefined>(undefined)
   const contoursModRef = useRef<ContoursModule | undefined>(undefined)
+  const radarProjectionModRef = useRef<RadarProjectionModule | undefined>(undefined)
 
   // The one live contour-overlay handle, if any -- created once the viewer
   // exists (see the mount effect's `.then(h)` below) and destroyed alongside
@@ -127,14 +138,16 @@ export function FlyView() {
   // track, never a stale one left over from a previous track.
   const engineRef = useRef<FlythroughEngine | undefined>(undefined)
 
-  // Imperative handles for the two frame-rate-driven overlays (N4) --
-  // updated directly from the engine's onProgress callback below, NOT via
-  // React props/state, so a 60Hz playback never re-renders their subtrees
-  // (see HudOverlay.tsx/CheckpointCard.tsx's own doc comments for the full
-  // reasoning). `setProgressInfo` below still drives FlyControls exactly
-  // as before N4 -- these are additional, not replacement, listeners.
+  // Imperative handles for the frame-rate-driven overlays (N4's HUD/
+  // checkpoint card, N6 commit 4's radar) -- updated directly from the
+  // engine's onProgress callback below, NOT via React props/state, so a
+  // 60Hz playback never re-renders their subtrees (see HudOverlay.tsx/
+  // CheckpointCard.tsx's own doc comments for the full reasoning).
+  // `setProgressInfo` below still drives FlyControls exactly as before N4 --
+  // these are additional, not replacement, listeners.
   const hudRef = useRef<HudOverlayHandle>(null)
   const cpCardRef = useRef<CheckpointCardHandle>(null)
+  const radarRef = useRef<RadarOverlayHandle>(null)
 
   // High-frequency playback telemetry (progress/mileage/point index),
   // pushed by the engine's onProgress callback -- up to once per rendered
@@ -185,6 +198,18 @@ export function FlyView() {
         // exact first synchronous call.
         hudRef.current?.update(info)
         cpCardRef.current?.update(info)
+        // Radar (milestone N6 commit 4): only does the projection work at
+        // all while the overlay is actually enabled (radarEnabledRef, not a
+        // stale closed-over `radarEnabled`, since this callback is
+        // registered once per engine and must see later toggle changes) --
+        // `handle.viewer` (not a re-read of `viewerHandleRef.current`) is
+        // exactly the viewer this engine belongs to, and `rebuildFlythrough`
+        // is always called with the same `handle` those two would otherwise
+        // just duplicate.
+        if (radarEnabledRef.current) {
+          const radarMod = radarProjectionModRef.current
+          radarRef.current?.update(radarMod ? radarMod.projectRadarCenter(handle.viewer) : undefined)
+        }
       },
     })
     const s = useAppStore.getState()
@@ -202,24 +227,27 @@ export function FlyView() {
     let handle: CesiumViewerHandle | undefined
     let chunkFailed = true // flipped to false once the dynamic import() itself resolves
 
-    // All five cesium-touching modules load together, off the same dynamic
+    // All six cesium-touching modules load together, off the same dynamic
     // import() boundary -- none of trackEntities.ts/cpEntities.ts/
-    // flythrough.ts/contours.ts must ever be statically imported (see the
-    // TrackEntitiesModule/CpEntitiesModule/FlythroughModule/ContoursModule
-    // comment above) or `cesium` would re-enter the main bundle.
+    // flythrough.ts/contours.ts/radarProjection.ts must ever be statically
+    // imported (see the TrackEntitiesModule/CpEntitiesModule/
+    // FlythroughModule/ContoursModule/RadarProjectionModule comment above)
+    // or `cesium` would re-enter the main bundle.
     Promise.all([
       import('../cesium/viewer'),
       import('../cesium/trackEntities'),
       import('../cesium/cpEntities'),
       import('../cesium/flythrough'),
       import('../cesium/contours'),
+      import('../cesium/radarProjection'),
     ])
-      .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod]) => {
+      .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod, radarProjectionMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
         cpModRef.current = cpMod
         flythroughModRef.current = flythroughMod
         contoursModRef.current = contoursMod
+        radarProjectionModRef.current = radarProjectionMod
         return viewerMod.createViewer(container)
       })
       .then((h) => {
@@ -437,6 +465,7 @@ export function FlyView() {
         <FlyOverlayLayer>
           <HudOverlay ref={hudRef} track={activeTrack} />
           <CheckpointCard ref={cpCardRef} track={activeTrack} cps={cps} />
+          <RadarOverlay ref={radarRef} enabled={radarEnabled} />
         </FlyOverlayLayer>
       )}
       {state.status === 'ready' && (
