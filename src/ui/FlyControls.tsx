@@ -1,4 +1,5 @@
 import type { CameraMode, FlythroughProgressInfo } from '../cesium/flythrough'
+import type { RecorderStatus } from '../cesium/recorder'
 import { useAppStore } from '../state/appStore'
 
 // Only ever referenced as a type here -- erased entirely at compile time,
@@ -27,10 +28,33 @@ export interface FlyControlsProps {
   progress?: FlythroughProgressInfo
   onTogglePlay: () => void
   onSeek: (progress: number) => void
+  /** Video recording (P1 §2.1 交付物 8, milestone N5) -- state/handlers all
+   * owned by `FlyView.tsx` (it holds the `viewer`/`engine`/`track` a
+   * recording is tied to), forwarded here the same way playback's own
+   * `progress`/`onTogglePlay`/`onSeek` are. */
+  recordingStatus: RecorderStatus
+  /** The codec `MediaRecorder.isTypeSupported` picked (VP9 > VP8 > generic
+   * webm) -- `undefined` until a recording has actually started once. */
+  recordingCodec?: string
+  /** Set when starting failed (unsupported browser, no 2D canvas context,
+   * ...) -- cleared automatically on the next successful start. */
+  recordingError?: string
+  onStartRecording: () => void
+  onStopRecording: () => void
 }
 
 function formatKm(mileageM: number): string {
   return (mileageM / 1000).toFixed(2)
+}
+
+/** Short display name for the codec `recorder.ts#pickMimeType` chose --
+ * mirrors the brief's "report which codec was chosen" without the UI having
+ * to know the exact mime-type string syntax. */
+function codecLabel(mimeType: string | undefined): string | undefined {
+  if (!mimeType) return undefined
+  if (mimeType.includes('vp9')) return 'VP9'
+  if (mimeType.includes('vp8')) return 'VP8'
+  return 'WebM'
 }
 
 /**
@@ -48,7 +72,18 @@ function formatKm(mileageM: number): string {
  * (toggle play, seek) come in as props, since that data lives outside
  * Zustand entirely (see `appStore.ts`'s `flythroughSpeed` doc comment).
  */
-export function FlyControls({ hasActiveTrack, syntheticTimeline, progress, onTogglePlay, onSeek }: FlyControlsProps) {
+export function FlyControls({
+  hasActiveTrack,
+  syntheticTimeline,
+  progress,
+  onTogglePlay,
+  onSeek,
+  recordingStatus,
+  recordingCodec,
+  recordingError,
+  onStartRecording,
+  onStopRecording,
+}: FlyControlsProps) {
   const speed = useAppStore((s) => s.flythroughSpeed)
   const setSpeed = useAppStore((s) => s.setFlythroughSpeed)
   const cameraMode = useAppStore((s) => s.flythroughCameraMode)
@@ -112,6 +147,29 @@ export function FlyControls({ hasActiveTrack, syntheticTimeline, progress, onTog
           ))}
         </div>
       </div>
+
+      <div className="fly-controls__row fly-controls__row--record">
+        <button
+          type="button"
+          className={
+            recordingStatus === 'recording' ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'
+          }
+          disabled={recordingStatus === 'saving'}
+          onClick={recordingStatus === 'recording' ? onStopRecording : onStartRecording}
+        >
+          {recordingStatus === 'recording' ? '停止录制' : recordingStatus === 'saving' ? '生成中…' : '录制视频'}
+        </button>
+        {/* 预览级标注 (P1 §1.4/R4): 实时 MediaRecorder 录屏会丢帧且分辨率受限,
+            与 P2 的确定性逐帧渲染管线不是同一质量水平 -- 这行文字必须一直可见,
+            不只是录制中才出现,用户不应该把这次录制误当作最终画质上限。 */}
+        <span className="fly-controls__record-hint">
+          预览级 1080p 实时录屏
+          {recordingStatus === 'recording' && '（录制中…）'}
+          {recordingStatus === 'saving' && '（正在生成视频…）'}
+          {recordingStatus === 'idle' && recordingCodec && `（上次编码：${codecLabel(recordingCodec)}）`}
+        </span>
+      </div>
+      {recordingError && <p className="fly-controls__hint fly-controls__hint--error">{recordingError}</p>}
 
       {syntheticTimeline && (
         <p className="fly-controls__hint">该轨迹没有记录的时间戳，巡游时长为按里程估算，非实际用时</p>

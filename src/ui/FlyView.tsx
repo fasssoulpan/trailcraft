@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CesiumViewerHandle, ProviderReport } from '../cesium/viewer'
 import type { FlythroughEngine, FlythroughProgressInfo } from '../cesium/flythrough'
 import type { ContourHandle } from '../cesium/contours'
+import type { RecorderHandle, RecorderStatus } from '../cesium/recorder'
 import type { Track } from '../core/model/track'
 import { useAppStore } from '../state/appStore'
 import { FlyControls } from './FlyControls'
@@ -57,6 +58,7 @@ type CpEntitiesModule = typeof import('../cesium/cpEntities')
 type FlythroughModule = typeof import('../cesium/flythrough')
 type ContoursModule = typeof import('../cesium/contours')
 type RadarProjectionModule = typeof import('../cesium/radarProjection')
+type RecorderModule = typeof import('../cesium/recorder')
 
 /**
  * Mounts only while appStore's `mode === 'fly'` (see App.tsx) -- the 2D
@@ -124,6 +126,7 @@ export function FlyView() {
   const flythroughModRef = useRef<FlythroughModule | undefined>(undefined)
   const contoursModRef = useRef<ContoursModule | undefined>(undefined)
   const radarProjectionModRef = useRef<RadarProjectionModule | undefined>(undefined)
+  const recorderModRef = useRef<RecorderModule | undefined>(undefined)
 
   // The one live contour-overlay handle, if any -- created once the viewer
   // exists (see the mount effect's `.then(h)` below) and destroyed alongside
@@ -148,6 +151,16 @@ export function FlyView() {
   const hudRef = useRef<HudOverlayHandle>(null)
   const cpCardRef = useRef<CheckpointCardHandle>(null)
   const radarRef = useRef<RadarOverlayHandle>(null)
+
+  // The one live recorder handle, if any (milestone N5) -- undefined
+  // whenever no recording is in progress. Not a React ref-to-component
+  // (recorder.ts owns no DOM/canvas of its own, see that module's file
+  // comment), just a plain mutable slot for the same "must survive re-
+  // renders, driven imperatively from onProgress" reason engineRef is one.
+  const recorderRef = useRef<RecorderHandle | undefined>(undefined)
+  const [recordingStatus, setRecordingStatus] = useState<RecorderStatus>('idle')
+  const [recordingCodec, setRecordingCodec] = useState<string | undefined>(undefined)
+  const [recordingError, setRecordingError] = useState<string | undefined>(undefined)
 
   // High-frequency playback telemetry (progress/mileage/point index),
   // pushed by the engine's onProgress callback -- up to once per rendered
@@ -179,6 +192,14 @@ export function FlyView() {
    * selected in FlyControls.
    */
   function rebuildFlythrough(handle: CesiumViewerHandle, track: Track | undefined): void {
+    // A recording (milestone N5) is tied to one specific engine/track --
+    // rebuilding the engine out from under it (a track switch mid-
+    // recording) would otherwise leave the recorder driving a destroyed
+    // FlythroughEngine. Single choke point, since this function is the only
+    // place that ever replaces engineRef (see this function's own doc
+    // comment).
+    recorderRef.current?.stop()
+    recorderRef.current = undefined
     engineRef.current?.destroy()
     engineRef.current = undefined
     setProgressInfo(undefined)
@@ -210,6 +231,11 @@ export function FlyView() {
           const radarMod = radarProjectionModRef.current
           radarRef.current?.update(radarMod ? radarMod.projectRadarCenter(handle.viewer) : undefined)
         }
+        // Video recording (milestone N5): the SAME onProgress tick feeds
+        // the compositor's overlay content and detects auto-stop-at-end --
+        // see cesium/recorder.ts's own doc comment. A no-op whenever no
+        // recording is in progress (recorderRef.current is undefined).
+        recorderRef.current?.onProgress(info)
       },
     })
     const s = useAppStore.getState()
@@ -227,12 +253,12 @@ export function FlyView() {
     let handle: CesiumViewerHandle | undefined
     let chunkFailed = true // flipped to false once the dynamic import() itself resolves
 
-    // All six cesium-touching modules load together, off the same dynamic
+    // All seven cesium-touching modules load together, off the same dynamic
     // import() boundary -- none of trackEntities.ts/cpEntities.ts/
-    // flythrough.ts/contours.ts/radarProjection.ts must ever be statically
-    // imported (see the TrackEntitiesModule/CpEntitiesModule/
-    // FlythroughModule/ContoursModule/RadarProjectionModule comment above)
-    // or `cesium` would re-enter the main bundle.
+    // flythrough.ts/contours.ts/radarProjection.ts/recorder.ts must ever be
+    // statically imported (see the TrackEntitiesModule/CpEntitiesModule/
+    // FlythroughModule/ContoursModule/RadarProjectionModule/RecorderModule
+    // comment above) or `cesium` would re-enter the main bundle.
     Promise.all([
       import('../cesium/viewer'),
       import('../cesium/trackEntities'),
@@ -240,14 +266,16 @@ export function FlyView() {
       import('../cesium/flythrough'),
       import('../cesium/contours'),
       import('../cesium/radarProjection'),
+      import('../cesium/recorder'),
     ])
-      .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod, radarProjectionMod]) => {
+      .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod, radarProjectionMod, recorderMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
         cpModRef.current = cpMod
         flythroughModRef.current = flythroughMod
         contoursModRef.current = contoursMod
         radarProjectionModRef.current = radarProjectionMod
+        recorderModRef.current = recorderMod
         return viewerMod.createViewer(container)
       })
       .then((h) => {
@@ -322,6 +350,13 @@ export function FlyView() {
     return () => {
       cancelled = true
       ro.disconnect()
+      // Stop any in-progress recording BEFORE tearing down the engine/
+      // viewer it's recording -- recorder.ts tolerates an already-destroyed
+      // Viewer internally (see its own doc comment), but there is no reason
+      // to let a MediaRecorder keep running against a Viewer that's about
+      // to disappear out from under it.
+      recorderRef.current?.stop()
+      recorderRef.current = undefined
       // Destroy the engine BEFORE the viewer -- not that order actually
       // matters for correctness (FlythroughEngine.destroy() tolerates an
       // already-destroyed Viewer, see its own doc comment), but destroying
@@ -441,6 +476,45 @@ export function FlyView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locateRequest?.seq])
 
+  /**
+   * Starts recording the flythrough (milestone N5) -- disabled from
+   * `FlyControls` unless the viewer/engine/track are all ready (mirrors
+   * every other engine-driving handler here). `statsOptions` is read fresh
+   * from the store at click time rather than subscribed to, the same
+   * one-shot-read convention `rebuildFlythrough` already uses for
+   * `flythroughSpeed`/`flythroughCameraMode`.
+   */
+  function handleStartRecording(): void {
+    const h = viewerHandleRef.current
+    const engine = engineRef.current
+    const mod = recorderModRef.current
+    if (!h || !engine || !activeTrack || !mod) return
+    setRecordingError(undefined)
+    setRecordingCodec(undefined)
+    recorderRef.current = mod.startRecording({
+      viewer: h.viewer,
+      engine,
+      track: activeTrack,
+      cps: cpsRef.current,
+      statsOptions: useAppStore.getState().statsOptions,
+      radarEnabled: radarEnabledRef.current,
+      onStateChange: (s) => {
+        setRecordingStatus(s)
+        if (s === 'idle') recorderRef.current = undefined
+      },
+      onCodecChosen: setRecordingCodec,
+      onError: (message) => {
+        setRecordingError(message)
+        setRecordingStatus('idle')
+        recorderRef.current = undefined
+      },
+    })
+  }
+
+  function handleStopRecording(): void {
+    recorderRef.current?.stop()
+  }
+
   return (
     <div className="fly-view">
       <div ref={containerRef} className="fly-view__container" />
@@ -475,6 +549,11 @@ export function FlyView() {
           progress={progressInfo}
           onTogglePlay={() => engineRef.current?.togglePlay()}
           onSeek={(progress) => engineRef.current?.seek(progress)}
+          recordingStatus={recordingStatus}
+          recordingCodec={recordingCodec}
+          recordingError={recordingError}
+          onStartRecording={handleStartRecording}
+          onStopRecording={handleStopRecording}
         />
       )}
     </div>
