@@ -1032,3 +1032,11 @@
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
+
+.fly-controls__eta {
+  margin-left: 8px;
+  align-self: center;
+  color: var(--muted, #9aa0a6);
+  font-size: 12px;
+  white-space: nowrap;
+}

@@ -191,6 +191,15 @@ export interface FlythroughProgressInfo {
    */
   pointIndex: number
   isPlaying: boolean
+  /**
+   * Wall-clock seconds a full 1x traversal takes, i.e. total mileage divided
+   * by this engine's own base speed. Reported from here rather than
+   * recomputed by the UI so the displayed "how long will this take" can never
+   * disagree with the speed model actually driving the camera (see
+   * `cameraPath.ts#averageSpeedMps`). Divide by the speed multiplier for the
+   * duration at any other setting.
+   */
+  baseDurationSeconds: number
 }
 
 export interface FlythroughEngineOptions {
@@ -477,6 +486,7 @@ export class FlythroughEngine {
       mileageM: this.mileageM,
       pointIndex: fullPrecisionIndex(this.idx, sample.renderIndex, sample.t),
       isPlaying: this.playing,
+      baseDurationSeconds: this.baseSpeedMps > 0 ? this.path.totalMileage / this.baseSpeedMps : 0,
     })
   }
 

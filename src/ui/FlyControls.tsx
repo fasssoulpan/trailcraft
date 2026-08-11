@@ -8,7 +8,28 @@ import { useAppStore } from '../state/appStore'
 // Cesium-touching modules themselves; see FlyView.tsx's own
 // TrackEntitiesModule/CpEntitiesModule comment for the same pattern).
 
-const SPEED_OPTIONS = [1, 2, 5, 10, 20]
+// 1x is the track's own recorded pace (see cameraPath.ts#averageSpeedMps), so
+// playback duration is recorded-duration / multiplier. That makes the useful
+// range enormously track-dependent: a 14 km outing replays in ~5 min at 20x,
+// while a 172 km race route (19 h of synthesized time) still needs ~57 min at
+// the same multiplier. Hence the ladder runs well past 20x, and the estimated
+// playback duration is shown alongside so the right choice is obvious rather
+// than something you discover by waiting.
+const SPEED_OPTIONS = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+
+/** "1小时02分" / "4分30秒" / "45秒" -- estimated wall-clock playback time. */
+function formatPlaybackDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—'
+  if (seconds < 60) return `${Math.round(seconds)}秒`
+  const totalMin = Math.round(seconds / 60)
+  if (totalMin < 60) {
+    const s = Math.round(seconds % 60)
+    return s > 0 && totalMin < 10 ? `${Math.floor(seconds / 60)}分${s}秒` : `${totalMin}分`
+  }
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return m > 0 ? `${h}小时${m}分` : `${h}小时`
+}
 
 const CAMERA_MODE_OPTIONS: Array<{ mode: CameraMode; label: string }> = [
   { mode: 'follow', label: '跟随' },
@@ -132,6 +153,9 @@ export function FlyControls({
               {s}×
             </button>
           ))}
+          <span className="fly-controls__eta">
+            全程约 {formatPlaybackDuration((progress?.baseDurationSeconds ?? 0) / speed)}
+          </span>
         </div>
 
         <div className="fly-controls__group" role="group" aria-label="相机模式">
