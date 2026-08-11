@@ -37,14 +37,40 @@
  * systematically relative to the reference (P0's algorithm was validated
  * against 崇礼168's official gain and reads ~4.8% LOWER than a naive
  * diff-sum on that route, which is directionally similar to but not
- * identical in magnitude to the reference's own dead-zone accumulator). The
- * LEVELS thresholds below are kept AS THE REFERENCE CALIBRATED THEM
- * (精英级 700 / 优秀 500 / 良好 380 / 中等 200 / 入门 0) -- this is a
- * deliberate non-decision, not an endorsement: recalibrating them is a
- * product judgement call for the user, not something this port should do
- * unilaterally. See this module's test suite (`real recordings` block) and
- * the milestone report for the measured shift on real tracks, both with
- * TrailCraft's ascent and the reference's own algorithm on the same inputs.
+ * identical in magnitude to the reference's own dead-zone accumulator).
+ *
+ * ── LEVELS recalibration (P2 Q2 commit 2) ────────────────────────────────
+ * The reference's author tuned the level LABELS (精英级/优秀/良好/中等/入门)
+ * to sit at meaningful points in the PI distribution produced by their OWN
+ * pipeline -- i.e. the thresholds are meaningful relative to the reference's
+ * ascent algorithm, not as raw numbers in the abstract. Since kme_v2 here
+ * feeds a systematically different (higher) ascent, keeping the reference's
+ * raw threshold numbers (700/500/380/200) would silently relabel people the
+ * reference calibration calls 优秀 as 精英级, etc -- preserving the LABEL
+ * semantics matters more than preserving the raw numbers.
+ *
+ * Measured across 12 real recordings (`computePerformance`, TrailCraft P0
+ * ascent, vs a from-scratch re-implementation of the reference's own
+ * dead-zone accumulator, same inputs -- see this module's test suite's
+ * `real recordings` block for the harness):
+ *
+ *   +9.6%, +10.3%, -1.2%, +3.7%, -0.8%, +17.1%, +5.6%, +9.7%, +9.6%,
+ *   (capped at 1000 both ways), +10.4%, +10.5%
+ *
+ * median ~= +9.6%. The thresholds below are the reference's own numbers
+ * scaled by that measured median shift and rounded to readable numbers.
+ * This is an approximation, not a re-derivation -- the shift is NOT uniform
+ * across tracks (ranges -1.2% to +17.1% in the sample above), so no single
+ * scale factor is exactly right for every track; a single real file
+ * (张家口市_越野跑20260725084217.fit) lands on opposite sides of the
+ * 优秀/良好 boundary depending on which ascent algorithm feeds it (539 vs
+ * 488), which is the concrete mislabelling this recalibration fixes.
+ *
+ * The power-law constants SPI_C/SPI_K below are NOT touched by this --
+ * they're anchored to nominal official distance/ascent figures (see the
+ * dual-anchor calibration above), not to either implementation's ascent
+ * algorithm, so there is nothing about them for the ascent divergence to
+ * invalidate.
  */
 import type { Track } from '../model/track'
 import type { StatsOptions } from '../stats/segments'
@@ -69,15 +95,27 @@ const SPI_K = 1.25
 export type PerformanceLevel = '精英级' | '优秀' | '良好' | '中等' | '入门'
 
 /**
- * Level thresholds, kept exactly as the reference calibrated them. See this
- * file's header comment for why they are NOT re-derived here even though
- * P0's ascent algorithm shifts PI relative to the reference.
+ * Level thresholds, scaled from the reference's own calibration (700/500/
+ * 380/200) by the ~+9.6% median PI shift measured across 12 real recordings
+ * under TrailCraft's ascent, then rounded to readable numbers. See this
+ * file's header comment for the measured per-track shift table and the
+ * rationale for scaling rather than keeping the reference's raw numbers.
+ *
+ *   Level  | Reference | TrailCraft
+ *   -------|----------:|----------:
+ *   精英级 |       700 |        770
+ *   优秀   |       500 |        550
+ *   良好   |       380 |        420
+ *   中等   |       200 |        220
+ *   入门   |      <200 |       <220  (implied catch-all below 中等, not its
+ *          |           |             own scaled threshold -- see LEVELS'
+ *          |           |             fixed `threshold: 0` catch-all entry)
  */
 const LEVELS: { threshold: number; label: PerformanceLevel }[] = [
-  { threshold: 700, label: '精英级' },
-  { threshold: 500, label: '优秀' },
-  { threshold: 380, label: '良好' },
-  { threshold: 200, label: '中等' },
+  { threshold: 770, label: '精英级' },
+  { threshold: 550, label: '优秀' },
+  { threshold: 420, label: '良好' },
+  { threshold: 220, label: '中等' },
   { threshold: 0, label: '入门' },
 ]
 

@@ -92,13 +92,17 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     expect(calculateSpi(50, -1, 1.0)).toBeUndefined()
   })
 
-  it('level thresholds match the reference exactly at their boundaries', () => {
+  // P2 Q2 commit 2: level thresholds recalibrated (700/500/380/200 ->
+  // 770/550/420/220) to preserve the reference's label semantics under
+  // TrailCraft's systematically higher ascent -- see score.ts's header
+  // comment and its LEVELS declaration for the measured shift table.
+  it('level thresholds match TrailCraft-recalibrated boundaries exactly', () => {
     // Solve kme/hours so that C*(speed)^K lands exactly on each threshold.
     const speedFor = (score: number) => (score / 30.0) ** (1 / 1.25)
-    expect(calculateSpi(speedFor(700) * 10, 10, 1.0)!.level).toBe('精英级')
-    expect(calculateSpi(speedFor(500) * 10, 10, 1.0)!.level).toBe('优秀')
-    expect(calculateSpi(speedFor(380) * 10, 10, 1.0)!.level).toBe('良好')
-    expect(calculateSpi(speedFor(200) * 10, 10, 1.0)!.level).toBe('中等')
+    expect(calculateSpi(speedFor(770) * 10, 10, 1.0)!.level).toBe('精英级')
+    expect(calculateSpi(speedFor(550) * 10, 10, 1.0)!.level).toBe('优秀')
+    expect(calculateSpi(speedFor(420) * 10, 10, 1.0)!.level).toBe('良好')
+    expect(calculateSpi(speedFor(220) * 10, 10, 1.0)!.level).toBe('中等')
     expect(calculateSpi(speedFor(10) * 10, 10, 1.0)!.level).toBe('入门')
   })
 })
