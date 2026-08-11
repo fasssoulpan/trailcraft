@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseKml } from '../../src/core/parsers/kml'
+import { parseKml, parseKmlWaypoints } from '../../src/core/parsers/kml'
 import { parseFit } from '../../src/core/parsers/fit'
+import { checkpointsFromWaypoints } from '../../src/core/pipeline/checkpointImport'
+import { computeCumDist } from '../../src/core/geo/distance'
 
 const lineKml = `<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>线路</name><LineString><coordinates>
  116.19,39.99,116
@@ -103,6 +105,34 @@ describe('parseKml', () => {
   })
 })
 
+describe('parseKmlWaypoints', () => {
+  it('extracts named Point placemarks with lon/lat/ele, excluding the LineString track placemark', () => {
+    const wp = parseKmlWaypoints(folderWithPointsKml)
+    expect(wp).toHaveLength(2)
+    expect(wp[0]).toEqual({ name: 'CP1起点-0km', lon: 116.00, lat: 39.90, ele: 1000 })
+    expect(wp[1]).toEqual({ name: 'CP2中间-5km', lon: 50.00, lat: 10.00, ele: 1234 })
+  })
+
+  it('excludes placemarks literally named Start/End', () => {
+    const wp = parseKmlWaypoints(folderWithPointsKml)
+    expect(wp.some((w) => w.name === 'Start')).toBe(false)
+    expect(wp.some((w) => w.name === 'End')).toBe(false)
+  })
+
+  it('returns [] for a KML with only line geometry (no Point placemarks)', () => {
+    expect(parseKmlWaypoints(lineKml)).toEqual([])
+    expect(parseKmlWaypoints(twoLineStringsKml)).toEqual([])
+  })
+
+  it('leaves ele undefined for a 2-tuple Point coordinate', () => {
+    const xml = `<?xml version="1.0"?><kml><Document>
+      <Placemark><name>无海拔CP</name><Point><coordinates>116.5,40.1</coordinates></Point></Placemark>
+    </Document></kml>`
+    const wp = parseKmlWaypoints(xml)
+    expect(wp).toEqual([{ name: '无海拔CP', lon: 116.5, lat: 40.1, ele: undefined }])
+  })
+})
+
 const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
 const suppDir = join(dataDir, '补充测试轨迹数据')
 
@@ -132,6 +162,47 @@ describe.skipIf(!existsSync(suppDir))('parseKml real data (崇礼172.8km race KM
   it('parses the 四灵反穿 KML (1 LineString, no checkpoints) without error', () => {
     const r = parseKml(siLingKml, '四灵.kml')
     expect(r.points.lon.length).toBeGreaterThan(0)
+    expect(parseKmlWaypoints(siLingKml)).toEqual([])
+  })
+
+  it('yields 15 checkpoints whose anchored mileage matches the km figure embedded in their own name within 0.5km', () => {
+    const track = parseKml(chongliKml, '崇礼.kml')
+    track.points.cumDist = computeCumDist(track.points.lon, track.points.lat)
+    const waypoints = parseKmlWaypoints(chongliKml)
+    expect(waypoints).toHaveLength(15)
+
+    const cps = checkpointsFromWaypoints(track, waypoints)
+    expect(cps).toHaveLength(15)
+
+    // "起终点-庆典广场" (start-&-finish, no stated km) is listed first in the
+    // document but this is a closed loop where start and finish sit ~9m
+    // apart -- it genuinely resolves a hair closer to the finish than the
+    // start. Checked separately (near either end of the course) rather than
+    // folded into the general monotonic-order assertion below, which is
+    // about the 13 checkpoints that actually state an unambiguous km.
+    const startFinish = cps.find((c) => c.name === '起终点-庆典广场')!
+    const startFinishKm = track.points.cumDist![startFinish.anchorIndex] / 1000
+    expect(startFinishKm < 5 || startFinishKm > 167.8).toBe(true)
+
+    // Not every name puts a dash before the number (compare "CP1二道营-12.5km"
+    // with "CP4桦林子50.0km"), so the km figure is matched without requiring
+    // one -- this still correctly excludes "起终点-庆典广场" (no number at
+    // all) and the malformed "CP10云顶滑雪公园-120.m" (ends in ".m", not "km").
+    const stated = cps
+      .map((cp) => ({ cp, m: /(\d+(?:\.\d+)?)km$/.exec(cp.name) }))
+      .filter((x): x is { cp: (typeof cps)[number]; m: RegExpExecArray } => x.m !== null)
+    expect(stated.length).toBe(13)
+
+    // These 13+ checkpoints are genuinely in ascending course order (unlike
+    // "起终点"), so their anchor indices must be non-decreasing too.
+    for (let i = 1; i < stated.length; i++)
+      expect(stated[i].cp.anchorIndex).toBeGreaterThanOrEqual(stated[i - 1].cp.anchorIndex)
+
+    for (const { cp, m } of stated) {
+      const officialKm = Number(m[1])
+      const anchoredKm = track.points.cumDist![cp.anchorIndex] / 1000
+      expect(Math.abs(anchoredKm - officialKm)).toBeLessThan(0.5)
+    }
   })
 
   it('both new real COROS FIT recordings parse', async () => {

@@ -71,4 +71,41 @@ describe('importFile', () => {
     await expect(importFile('a.fit', 'not-a-buffer', {})).rejects.toThrow(/ArrayBuffer/i)
     await expect(importFile('a.fit', 'not-a-buffer', {})).rejects.toThrow(/a\.fit/)
   })
+
+  it('gpx import yields no waypoints', async () => {
+    const { waypoints } = await importFile('mini.gpx', mini, {})
+    expect(waypoints).toEqual([])
+  })
+
+  it('kml import with Point placemarks yields their waypoints', async () => {
+    const kml = `<?xml version="1.0"?>
+<kml><Folder>
+ <Placemark><name>Track</name><LineString><coordinates>
+  116.1,39.9,0 116.2,39.95,0 116.3,40.0,0
+ </coordinates></LineString></Placemark>
+ <Placemark><name>CP1-1km</name><Point><coordinates>116.15,39.92,10</coordinates></Point></Placemark>
+ <Placemark><name>Start</name><Point><coordinates>116.1,39.9,0</coordinates></Point></Placemark>
+</Folder></kml>`
+    const { track, waypoints } = await importFile('wp.kml', kml, {})
+    expect(track.points.lon.length).toBe(3) // Point coordinates still excluded from the track itself
+    expect(waypoints).toEqual([{ name: 'CP1-1km', lon: 116.15, lat: 39.92, ele: 10 }])
+  })
+
+  it('CRS conversion applies identically to waypoints and track (forced gcj02)', async () => {
+    const kml = `<?xml version="1.0"?>
+<kml><Folder>
+ <Placemark><name>Track</name><LineString><coordinates>
+  116.1,39.9,0 116.2,39.95,0 116.3,40.0,0
+ </coordinates></LineString></Placemark>
+ <Placemark><name>CP1</name><Point><coordinates>116.1,39.9,0</coordinates></Point></Placemark>
+</Folder></kml>`
+    const { track, waypoints } = await importFile('wp.kml', kml, {}, 'gcj02')
+    // The waypoint sits exactly at the track's own first point in the source
+    // file -- after an *identical* conversion it must still coincide with
+    // the (now-converted) track start, not drift off on its own.
+    const d = haversine(track.points.lon[0], track.points.lat[0], waypoints[0].lon, waypoints[0].lat)
+    expect(d).toBeLessThan(1) // sub-metre: same conversion applied to both
+    // And it really was converted (not left at the original WGS-84 value).
+    expect(waypoints[0].lon).not.toBeCloseTo(116.1, 5)
+  })
 })

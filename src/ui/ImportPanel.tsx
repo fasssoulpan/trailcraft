@@ -16,6 +16,7 @@ export function ImportPanel() {
   // fileName -> current status; a failed/pending file never blocks the rest of the batch.
   const [statuses, setStatuses] = useState<Record<string, FileStatus>>({})
   const addTrack = useAppStore((s) => s.addTrack)
+  const addImportedCheckpoints = useAppStore((s) => s.addImportedCheckpoints)
   const rememberSource = useAppStore((s) => s.rememberSource)
 
   function setStatus(fileName: string, status: FileStatus) {
@@ -47,6 +48,7 @@ export function ImportPanel() {
         return
       }
       addTrack(result.track)
+      addImportedCheckpoints(result.track, result.waypoints)
       setStatus(fileName, { phase: 'done', name: result.track.meta.name })
     } catch (err) {
       setStatus(fileName, { phase: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -60,6 +62,7 @@ export function ImportPanel() {
     try {
       const result = await importInWorker(status.fileName, status.data, useAppStore.getState().sourceMemory, chosenCrs)
       addTrack(result.track)
+      addImportedCheckpoints(result.track, result.waypoints)
       if (result.track.meta.creator) rememberSource(result.track.meta.creator, chosenCrs)
       setStatus(fileName, { phase: 'done', name: result.track.meta.name })
     } catch (err) {

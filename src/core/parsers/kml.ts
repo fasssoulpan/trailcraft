@@ -88,3 +88,50 @@ export function parseKml(xml: string, fileName: string): Track {
     { name: name ?? fileName, format: 'kml', fileName },
   )
 }
+
+/** One `<Placemark><Point>` in a KML file: a named waypoint, not a line vertex. */
+export interface KmlWaypoint {
+  name: string
+  lon: number
+  lat: number
+  ele?: number
+}
+
+const PLACEMARK_RE = /<Placemark\b[^>]*>([\s\S]*?)<\/Placemark>/g
+const PLACEMARK_POINT_RE = /<Point\b[^>]*>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/Point>/
+const PLACEMARK_NAME_RE = /<name>([^<]*)<\/name>/
+
+/**
+ * Extracts the `<Placemark><Point>` waypoints a KML carries alongside its
+ * track -- for real race exports these are the named checkpoints (with
+ * official mileage baked into the name, e.g. `CP1二道营-12.5km`). `Start`/
+ * `End` markers are excluded: they duplicate the track's own first/last
+ * point rather than naming a real checkpoint, and the app already derives
+ * "start" and "finish" from the track itself.
+ *
+ * `<Placemark>` elements are never nested inside one another (unlike
+ * `<Folder>`/`<Document>`, which can nest arbitrarily around them), so a
+ * single non-greedy document-wide split is safe here even though the same
+ * trick would be wrong for scoping line geometry above (see that function's
+ * doc comment).
+ */
+export function parseKmlWaypoints(xml: string): KmlWaypoint[] {
+  const waypoints: KmlWaypoint[] = []
+  for (const pm of xml.matchAll(PLACEMARK_RE)) {
+    const pointMatch = PLACEMARK_POINT_RE.exec(pm[1])
+    if (!pointMatch) continue // no <Point> geometry -> e.g. the track's own <LineString> placemark
+    const name = PLACEMARK_NAME_RE.exec(pm[1])?.[1]?.trim()
+    if (!name || name === 'Start' || name === 'End') continue
+    const tuple = pointMatch[1].trim().split(/\s+/)[0]
+    if (!tuple) continue
+    const parts = tuple.split(',').map(Number)
+    if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) continue
+    waypoints.push({
+      name,
+      lon: parts[0],
+      lat: parts[1],
+      ele: parts.length >= 3 && Number.isFinite(parts[2]) ? parts[2] : undefined,
+    })
+  }
+  return waypoints
+}

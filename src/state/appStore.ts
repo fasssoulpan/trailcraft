@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { newId, type Crs, type Track } from '../core/model/track'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
+import { checkpointsFromWaypoints } from '../core/pipeline/checkpointImport'
+import type { KmlWaypoint } from '../core/pipeline/import'
 import type { StatsOptions } from '../core/stats/segments'
 import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
@@ -141,6 +143,19 @@ interface AppState {
    */
   history: History<EditableState>
   addTrack(t: Track): void
+  /**
+   * Turns a KML import's waypoints (see `core/pipeline/import.ts`'s
+   * `ImportResult.waypoints`) into CheckPoints anchored on `track` and
+   * appends them to `cps`. Kept as a separate action from `addTrack` (rather
+   * than an optional param on it) because most callers of `addTrack` --
+   * GPX/FIT imports, undo/redo, toolbox ops -- never have waypoints to add;
+   * `ImportPanel.tsx` calls this right after `addTrack` only when a KML
+   * import actually produced some. No-ops (and does not touch history) for
+   * an empty waypoint list, matching `addTrack` itself not being on the undo
+   * stack -- an imported track's checkpoints appearing/disappearing together
+   * with it is the expected undo granularity here, not a step of their own.
+   */
+  addImportedCheckpoints(track: Track, waypoints: KmlWaypoint[]): void
   removeTrack(id: string): void
   updateTrackStyle(id: string, patch: { color?: string; lineWidth?: number }): void
   setActive(id: string): void
@@ -315,6 +330,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const tracks = backfillTrackStyles([...s.tracks, t])
     const added = tracks[tracks.length - 1]
     set({ tracks, activeTrackId: added.id })
+  },
+  addImportedCheckpoints: (track, waypoints) => {
+    if (waypoints.length === 0) return
+    const s = get()
+    const newCps = checkpointsFromWaypoints(track, waypoints)
+    set({ cps: [...s.cps, ...newCps] })
   },
   // 颜色/粗细是纯展示态属性(和 paceParams/statsOptions 同类),调整它们不
   // 需要撤销栈——用户随时可以再调回去,不需要"撤销这次改色"的心智模型。
