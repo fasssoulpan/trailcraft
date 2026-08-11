@@ -111,7 +111,12 @@ function App() {
         className="app-layout__sidebar"
         style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
       >
-        <ModeSwitch />
+        {/* Pinned, not scrolled away with the rest of the panels: this is the
+         * app's primary mode toggle, and burying it at the top of a long
+         * scrolling column made it unfindable once any track was loaded. */}
+        <div className="app-layout__sidebar-pinned">
+          <ModeSwitch />
+        </div>
         <LayerPanel />
         <ProjectToolbar />
         <ImportPanel />

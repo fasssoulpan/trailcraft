@@ -1020,3 +1020,15 @@
   cursor: pointer;
   pointer-events: auto;
 }
+
+/* Keeps the plan/flythrough toggle visible no matter how far the panel
+ * column below it is scrolled -- see the comment at its usage in App.tsx. */
+.app-layout__sidebar-pinned {
+  position: sticky;
+  top: -16px; /* cancels the sidebar's own 16px padding-top */
+  z-index: 4;
+  margin: -16px -16px 0;
+  padding: 16px 16px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
