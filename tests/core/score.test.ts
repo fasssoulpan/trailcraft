@@ -59,6 +59,12 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     // of this test, not a value taken from the reference) and assert a
     // tolerance band around the cited ~366, not a false-precision exact
     // value the reference itself doesn't give us either.
+    //
+    // P2 Q2 commit 2: still holds under the refitted (C, K, M) model -- see
+    // score.ts's header comment ("Fitting method") for why the refit was
+    // constrained to keep both dual anchors, this one included, intact. The
+    // 中等 label in particular is load-bearing: it's the reason 良好's
+    // threshold stayed at the reference's original 380 rather than moving.
     const kmeV2 = 92 + 186 / 100 + 186 / 150
     const result = calculateSpi(kmeV2, 12.75, 1.0)
     expect(result).toBeDefined()
@@ -92,18 +98,27 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     expect(calculateSpi(50, -1, 1.0)).toBeUndefined()
   })
 
-  // P2 Q2 commit 2: level thresholds recalibrated (700/500/380/200 ->
-  // 770/550/420/220) to preserve the reference's label semantics under
-  // TrailCraft's systematically higher ascent -- see score.ts's header
-  // comment and its LEVELS declaration for the measured shift table.
-  it('level thresholds match TrailCraft-recalibrated boundaries exactly', () => {
-    // Solve kme/hours so that C*(speed)^K lands exactly on each threshold.
-    const speedFor = (score: number) => (score / 30.0) ** (1 / 1.25)
-    expect(calculateSpi(speedFor(770) * 10, 10, 1.0)!.level).toBe('精英级')
-    expect(calculateSpi(speedFor(550) * 10, 10, 1.0)!.level).toBe('优秀')
-    expect(calculateSpi(speedFor(420) * 10, 10, 1.0)!.level).toBe('良好')
-    expect(calculateSpi(speedFor(220) * 10, 10, 1.0)!.level).toBe('中等')
-    expect(calculateSpi(speedFor(10) * 10, 10, 1.0)!.level).toBe('入门')
+  // P2 Q2 commit 2: level thresholds re-derived from scratch against the
+  // refitted (C=149.0, K=0.645, M=0.38) model -- 650/500/380/200, replacing
+  // the intermediate 770/550/420/220 (itself an approximate rescale of the
+  // ORIGINAL 2-parameter model, now moot since K and the score distribution
+  // both changed). See score.ts's header comment ("LEVELS recalibration")
+  // for the two anchors (the reference's own flat-anchor 中等 label, and
+  // every 2026 崇礼168 category winner qualifying as 精英级) that pinned
+  // these numbers, and why only 精英级 moved off the reference's original.
+  it('level thresholds match the refitted-model boundaries exactly', () => {
+    // Pin kme at KME_REF (270) so the length term (kme/KME_REF)^M is
+    // exactly 1 and score reduces to C*(kme/hours)^K -- letting this test
+    // solve for hours without duplicating score.ts's private M/KME_REF.
+    const KME_REF = 270
+    const SPI_C = 149.0
+    const SPI_K = 0.645
+    const hoursFor = (score: number) => KME_REF / (score / SPI_C) ** (1 / SPI_K)
+    expect(calculateSpi(KME_REF, hoursFor(650), 1.0)!.level).toBe('精英级')
+    expect(calculateSpi(KME_REF, hoursFor(500), 1.0)!.level).toBe('优秀')
+    expect(calculateSpi(KME_REF, hoursFor(380), 1.0)!.level).toBe('良好')
+    expect(calculateSpi(KME_REF, hoursFor(200), 1.0)!.level).toBe('中等')
+    expect(calculateSpi(KME_REF, hoursFor(10), 1.0)!.level).toBe('入门')
   })
 })
 
@@ -375,4 +390,60 @@ describe.skipIf(!existsSync(dataDir))('computePerformance on real recordings', (
         .toBeGreaterThanOrEqual(trivialScore)
     }
   }, 120_000)
+
+  // P2 Q2 commit 2 regression: this is the exact headline bug from the
+  // milestone brief, guarded directly so a future constant change can't
+  // silently reintroduce it (the full picture, including the 崇礼168
+  // structural checks, lives in `scripts/calibrate-perf.ts` -- this is the
+  // one check specific enough to be worth a permanent vitest assertion).
+  it("the 13.9km recording (速攀129) must not outscore the 167.7km one (620崇礼68) -- P2 Q2's headline distance-bias bug", () => {
+    const shortP = join(dataDir, '速攀129新望京20240912160539.gpx')
+    const longP = join(dataDir, '620崇礼68 20240712170018.gpx')
+    if (!existsSync(shortP) || !existsSync(longP)) return
+
+    const loadGpxScore = (p: string, name: string) => {
+      const xml = readFileSync(p, 'utf-8')
+      const t = parseGpx(xml, name)
+      t.points.cumDist = computeCumDist(t.points.lon, t.points.lat)
+      t.meta.kindOverride = 'recorded'
+      const r = computePerformance(t)
+      expect(r.applicable, name).toBe(true)
+      return (r as PerformanceResult).spiScore
+    }
+
+    const shortScore = loadGpxScore(shortP, '速攀129新望京20240912160539.gpx')
+    const longScore = loadGpxScore(longP, '620崇礼68 20240712170018.gpx')
+    expect(shortScore, `13.9km=${shortScore} must not be >= 167.7km=${longScore}`).toBeLessThan(longScore)
+    // Not just "less than" -- the pre-fix gap was 336 points (1000 vs 664)
+    // in the wrong direction; require a decisive gap in the right one.
+    expect(longScore - shortScore).toBeGreaterThan(100)
+  })
+})
+
+describe('calibration table structural checks (P2 Q2 commit 1+2)', () => {
+  it('no 2026 崇礼168 category winner hits the 1000 cap', async () => {
+    const { CALIBRATION_TABLE } = await import('../../src/core/perf/calibration')
+    const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
+    expect(chongli.length).toBeGreaterThan(0)
+    for (const row of chongli) {
+      const kmeV2 = row.distanceKm + row.ascentM / 100 + row.descentM / 150
+      const result = calculateSpi(kmeV2, row.hours, 1.0)
+      expect(result, row.label).toBeDefined()
+      expect(result!.score, `${row.label} should not hit the 1000 cap`).toBeLessThan(1000)
+    }
+  })
+
+  it('崇礼168 category winners land within a reasonable band of each other', async () => {
+    const { CALIBRATION_TABLE } = await import('../../src/core/perf/calibration')
+    const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
+    const scores = chongli.map((row) => {
+      const kmeV2 = row.distanceKm + row.ascentM / 100 + row.descentM / 150
+      return calculateSpi(kmeV2, row.hours, 1.0)!.score
+    })
+    const spread = Math.max(...scores) - Math.min(...scores)
+    // Loose bound (not the tight design target from calibrate-perf.ts's
+    // structural penalty) -- this just guards against a future regression
+    // reintroducing the pre-fix spread of 231 with three of five AT the cap.
+    expect(spread, `scores: [${scores.join(', ')}]`).toBeLessThan(350)
+  })
 })

@@ -91,6 +91,11 @@ const FIT_FILES = ['张家口市_越野跑20260710080013.fit', '张家口市_越
 interface RealRecording {
   file: string
   distKm: number
+  /** From `PerformanceResult.kmEffortV2`, which is rounded to 1 decimal for
+   * display -- fine for `fit` mode's candidate-constant exploration
+   * (~1-point noise on a 1000-point scale), but NOT used for `report`
+   * mode's "currently shipped" numbers, which use `spiScoreShipped` below
+   * instead to match the real production score exactly. */
   kmeV2: number
   hours: number
   /** `envCompensation.totalFactor` from the actual track (mostly altitude
@@ -99,6 +104,11 @@ interface RealRecording {
    * table's rows (see `structuralPenalty` below), because we actually have
    * the elevation profile to compute it from. */
   envFactor: number
+  /** `PerformanceResult.spiScore`/`spiLevel` as actually computed by the
+   * shipped `computePerformance` (from the UNROUNDED kme_v2) -- the
+   * ground-truth "what a user sees today" figure for `report` mode. */
+  spiScoreShipped: number
+  spiLevelShipped: string
 }
 
 function bufFrom(b: Buffer): ArrayBuffer {
@@ -125,6 +135,8 @@ async function loadRealRecordings(): Promise<RealRecording[]> {
       kmeV2: res.kmEffortV2,
       hours: res.totalTimeS / 3600,
       envFactor: res.envCompensation.totalFactor,
+      spiScoreShipped: res.spiScore,
+      spiLevelShipped: res.spiLevel,
     })
   }
 
@@ -145,6 +157,8 @@ async function loadRealRecordings(): Promise<RealRecording[]> {
       kmeV2: res.kmEffortV2,
       hours: res.totalTimeS / 3600,
       envFactor: res.envCompensation.totalFactor,
+      spiScoreShipped: res.spiScore,
+      spiLevelShipped: res.spiLevel,
     })
   }
 
@@ -154,7 +168,7 @@ async function loadRealRecordings(): Promise<RealRecording[]> {
 // A deliberately tiny, slow baseline -- same construction as the test
 // file's "trivial" fixture -- for the "nothing real should score below this"
 // sanity floor. Not part of the fit; just a report-time gut check.
-function trivialBaselineKmeV2Hours(): { kmeV2: number; hours: number; envFactor: number } {
+function trivialBaselineRecording(): RealRecording {
   const n = 10
   const lon = Array.from({ length: n }, (_, i) => 116 + i * 0.001)
   const lat = Array.from({ length: n }, () => 39)
@@ -165,7 +179,15 @@ function trivialBaselineKmeV2Hours(): { kmeV2: number; hours: number; envFactor:
   const r = computePerformance(t)
   if (!r.applicable) throw new Error('trivial baseline unexpectedly not applicable')
   const res = r as PerformanceResult
-  return { kmeV2: res.kmEffortV2, hours: res.totalTimeS / 3600, envFactor: res.envCompensation.totalFactor }
+  return {
+    file: 'trivial (synthetic)',
+    distKm: res.totalDistanceM / 1000,
+    kmeV2: res.kmEffortV2,
+    hours: res.totalTimeS / 3600,
+    envFactor: res.envCompensation.totalFactor,
+    spiScoreShipped: res.spiScore,
+    spiLevelShipped: res.spiLevel,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -361,11 +383,7 @@ function printStructuralChecks(score: (row: CalibrationRow) => number | undefine
   console.log('   real-recordings section below for the actual PI numbers and pass/fail verdict)')
 }
 
-function printRealRecordings(
-  score: (kme: number, hours: number, envFactor: number) => number | undefined,
-  levelFor: (kme: number, hours: number, envFactor: number) => string | undefined,
-  real: RealRecording[],
-) {
+function printRealRecordings(pick: (r: RealRecording) => { score: number | undefined; level: string | undefined }, real: RealRecording[]) {
   console.log('\n== TrailCraft real recordings ==')
   if (real.length === 0) {
     console.log(`  (no test data found at ${dataDir} -- skipped)`)
@@ -374,15 +392,14 @@ function printRealRecordings(
   console.log('  ' + 'file'.padEnd(42) + 'dist(km)'.padStart(10) + 'PI'.padStart(8) + '  level')
   const sorted = [...real].sort((a, b) => a.distKm - b.distKm)
   for (const r of sorted) {
-    const s = score(r.kmeV2, r.hours, r.envFactor)
-    const level = levelFor(r.kmeV2, r.hours, r.envFactor)
+    const { score: s, level } = pick(r)
     console.log('  ' + r.file.padEnd(42) + fmt(r.distKm).padStart(10) + fmt(s, 0).padStart(8) + '  ' + (level ?? ''))
   }
 
-  const trivial = trivialBaselineKmeV2Hours()
-  const trivialScore = score(trivial.kmeV2, trivial.hours, trivial.envFactor)
-  console.log(`  trivial baseline (~1km, ~1.5km/h crawl): PI=${fmt(trivialScore, 0)}`)
-  const below = sorted.filter((r) => (score(r.kmeV2, r.hours, r.envFactor) ?? 0) < (trivialScore ?? 0))
+  const trivial = trivialBaselineRecording()
+  const trivialPicked = pick(trivial)
+  console.log(`  trivial baseline (~1km, ~1.5km/h crawl): PI=${fmt(trivialPicked.score, 0)}`)
+  const below = sorted.filter((r) => (pick(r).score ?? 0) < (trivialPicked.score ?? 0))
   if (below.length > 0) {
     console.log(`  *** ${below.length} real recording(s) score BELOW the trivial baseline: ${below.map((r) => r.file).join(', ')}`)
   }
@@ -390,8 +407,8 @@ function printRealRecordings(
   const short = sorted.find((r) => r.file.startsWith('速攀129'))
   const long = sorted.find((r) => r.file.startsWith('620崇礼68'))
   if (short && long) {
-    const sShort = score(short.kmeV2, short.hours, short.envFactor) ?? 0
-    const sLong = score(long.kmeV2, long.hours, long.envFactor) ?? 0
+    const sShort = pick(short).score ?? 0
+    const sLong = pick(long).score ?? 0
     console.log(
       `  monotonicity check: ${short.file} (${short.distKm.toFixed(1)}km) PI=${sShort}  vs  ${long.file} (${long.distKm.toFixed(1)}km) PI=${sLong}` +
         `  verdict: ${sShort < sLong ? 'pass' : 'FAIL -- short effort outscores the long one'}`,
@@ -419,12 +436,14 @@ async function main() {
     printCalibrationTable(score)
     printStructuralChecks(score)
     printRealRecordings(
-      (kme, hours, envFactor) => cappedScore(kme, hours, envFactor, params),
-      // Level thresholds are a separate re-derivation (P2 Q2 commit 2, done
-      // by hand against the fitted model's actual score distribution, not
-      // searched here) -- `fit` mode's job is only C/K/M, so it doesn't
-      // print a level column.
-      () => undefined,
+      (r) => ({
+        score: cappedScore(r.kmeV2, r.hours, r.envFactor, params),
+        // Level thresholds are a separate re-derivation (P2 Q2 commit 2,
+        // done by hand against the fitted model's actual score
+        // distribution, not searched here) -- `fit` mode's job is only
+        // C/K/M, so it doesn't print a level column.
+        level: undefined,
+      }),
       real,
     )
     return
@@ -434,11 +453,11 @@ async function main() {
   const score = (row: CalibrationRow) => calculateSpi(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR)?.score
   printCalibrationTable(score)
   printStructuralChecks(score)
-  printRealRecordings(
-    (kme, hours, envFactor) => calculateSpi(kme, hours, envFactor)?.score,
-    (kme, hours, envFactor) => calculateSpi(kme, hours, envFactor)?.level,
-    real,
-  )
+  // Uses the actual PerformanceResult.spiScore/spiLevel (see RealRecording's
+  // spiScoreShipped/spiLevelShipped) rather than recomputing from kmeV2/
+  // hours, which would introduce ~1-point noise from kmEffortV2 being
+  // rounded to 1 decimal for display in PerformanceResult.
+  printRealRecordings((r) => ({ score: r.spiScoreShipped, level: r.spiLevelShipped }), real)
 }
 
 main().catch((err) => {
