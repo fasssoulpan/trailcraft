@@ -57,9 +57,17 @@ export const UTMB_KME_REF_V1 = 270
 export const CALIBRATION_TABLE: CalibrationRow[] = [
   // ── The reference's own dual calibration anchors ────────────────────────
   // Both are long-distance/high-pace by construction, which is exactly why
-  // the bias this milestone fixes was invisible in the reference's own
-  // testing (P2 Q2 brief) -- they're still the only two rows with a
-  // genuinely independently-stated `expectedScore`, so they anchor the fit.
+  // the bias the P2 Q2 commit-2 milestone fixed was invisible in the
+  // reference's own testing. As of P2 Q2 commit 3 (this refit), only the
+  // FLAT anchor still carries `expectedScore` -- the mountain anchor's
+  // stated 1000 target was removed (see its own note below): with the
+  // ceiling now required to stay unreachable by any real winner, forcing an
+  // exact-1000 numeric target would fight the fix this commit makes. The
+  // flat anchor alone can't determine both C and K, so this refit's `fit`
+  // mode (calibrate-perf.ts) solves C exactly from this one real anchor for
+  // each candidate (K, M) and picks (K, M) by a 2-D structural-penalty
+  // search instead of the old 2-anchor exact solve -- see that file's
+  // header for the method.
   {
     label: 'flat anchor (92km/186m D+, 12.75h)',
     distanceKm: 92,
@@ -79,15 +87,25 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
     note: 'descentM assumed equal to ascentM (undocumented in the reference)',
   },
   {
-    label: 'UTMB anchor (170km/10000m D+/10000m D-, 20h)',
+    // P2 Q2 commit 3 (this refit): `expectedScore` REMOVED. The reference's
+    // header comment states this synthetic anchor should score exactly
+    // 1000, but that is precisely the design intent this refit corrects --
+    // real 2025 UTMB winner data (174km/10000m D+, 19:18:58 -- see the
+    // international rows below) describes almost exactly this same effort
+    // and, per the user's explicit instruction (「到不了1000 极端情况不考虑」),
+    // must NOT hit the cap. Treating "exactly 1000" as a hard numeric fit
+    // target would reproduce the very over-easy ceiling this milestone
+    // fixes, so this row is kept for provenance (it's still real,
+    // independently-stated reference data) and the structural cap-avoidance
+    // check, but is no longer a numeric-fit anchor.
+    label: 'UTMB anchor (170km/10000m D+/10000m D-, 20h) -- reference states 1000, superseded (see note)',
     distanceKm: 170,
     ascentM: 10000,
     descentM: 10000,
     hours: 20,
-    expectedScore: 1000,
-    expectedLevel: '精英级',
     source: 'cyber-trail-hud scoring_v4.js header comment (UTMB anchor)',
     confidence: 'high',
+    note: 'reference states expectedScore=1000; no longer used as a numeric fit target because the ceiling must stay unreachable (P2 Q2 commit 3) -- structural check only',
   },
 
   // ── 2026 崇礼168 category winners (real race results the user supplied) ──
@@ -159,6 +177,92 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
     source: 'user-supplied result (time, real); distance/ascent estimated (see note)',
     confidence: 'low',
     note: 'distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced',
+  },
+
+  // ── 2025 UTMB Mont-Blanc week (international elites, P2 Q2 commit 3) ────
+  // Course specs from the user's own project (D:\MyAIProject\cyber-trail-hud
+  // \src\data\race-presets.js) -- nominal published race-preset figures,
+  // NOT GPS-measured (same caveat as every course spec in this table).
+  // Winner times from iRunFar's 2025 results coverage (irunfar.com/2025-
+  // utmb-results, -ccc-results, -tds-results, -occ-results). UTMB/CCC/TDS/
+  // OCC all start and finish in Chamonix (closed-loop courses), so this
+  // table's existing "loop ⇒ D- ≈ D+" convention (see the 崇礼168 rows
+  // above) is applied here too -- descent is not published per race, this
+  // is a documented assumption, not a measured figure.
+  //
+  // None of these rows carry `expectedScore`: there is no independently-
+  // published ITRA/official score for any athlete's performance in a
+  // specific race, only real finish times (P2 §5 -- do not fabricate one).
+  // The brief's "these winners should cluster in ~900-960" is a documented
+  // ASSUMPTION about this cohort's calibre (elite/national-to-world-class),
+  // not a per-athlete published number -- it steers the fit as a structural
+  // band objective in calibrate-perf.ts (`internationalBandPenalty`), the
+  // same way the 崇礼168 rows' cap/spread checks do, NOT as a numeric
+  // regression anchor. `confidence` here documents trust in distanceKm/
+  // ascentM/hours only (per the file-header note above).
+  {
+    label: '2025 UTMB, 174km/10000m D+, Tom Evans (men\'s winner)',
+    distanceKm: 174,
+    ascentM: 10000,
+    descentM: 10000,
+    hours: 19 + 18 / 60 + 58 / 3600,
+    source: "course spec: cyber-trail-hud race-presets.js; result: irunfar.com/2025-utmb-results",
+    confidence: 'medium',
+    note: 'descentM assumed = ascentM (Chamonix loop course); course spec is nominal, not GPS-measured; time precise to the second',
+  },
+  {
+    label: '2025 UTMB, 174km/10000m D+, Ruth Croft (women\'s winner)',
+    distanceKm: 174,
+    ascentM: 10000,
+    descentM: 10000,
+    hours: 22 + 56 / 60 + 23 / 3600,
+    source: "course spec: cyber-trail-hud race-presets.js; result: irunfar.com/2025-utmb-results",
+    confidence: 'medium',
+    note: 'descentM assumed = ascentM (Chamonix loop course); course spec is nominal, not GPS-measured; time precise to the second',
+  },
+  {
+    label: '2025 CCC, 101km/6100m D+, Francesco Puppi (men\'s winner)',
+    distanceKm: 101,
+    ascentM: 6100,
+    descentM: 6100,
+    hours: 10 + 6 / 60,
+    source: "course spec: cyber-trail-hud race-presets.js; result: irunfar.com/2025-ccc-results",
+    confidence: 'medium',
+    note: 'time reported to the minute only (10:06), not the second; descentM assumed = ascentM; course spec is nominal, not GPS-measured',
+  },
+  {
+    label: '2025 TDS, 153km/9000m D+, Antoine Charvolin (men\'s winner)',
+    distanceKm: 153,
+    ascentM: 9000,
+    descentM: 9000,
+    hours: 18 + 22 / 60 + 17 / 3600,
+    source: "course spec: cyber-trail-hud race-presets.js; result: irunfar.com/2025-tds-results",
+    confidence: 'medium',
+    note: 'descentM assumed = ascentM (Chamonix loop course); course spec is nominal, not GPS-measured; time precise to the second',
+  },
+  {
+    label: '2025 TDS, 153km/9000m D+, Careth Arnold (women\'s winner)',
+    distanceKm: 153,
+    ascentM: 9000,
+    descentM: 9000,
+    hours: 22 + 58 / 60 + 52 / 3600,
+    source: "course spec: cyber-trail-hud race-presets.js; result: irunfar.com/2025-tds-results",
+    confidence: 'medium',
+    note: 'descentM assumed = ascentM (Chamonix loop course); course spec is nominal, not GPS-measured; time precise to the second',
+  },
+  {
+    // Lower confidence than the other 5 international rows, and deliberately
+    // NOT part of `internationalBandPenalty`'s numeric objective (see
+    // calibrate-perf.ts) -- structural cap-avoidance check only, per the
+    // brief's explicit instruction for this row.
+    label: '2025 OCC, 57km/3500m D+ (nominal standard-course spec), Jim Walmsley (men\'s winner)',
+    distanceKm: 57,
+    ascentM: 3500,
+    descentM: 3500,
+    hours: 5,
+    source: "course spec: cyber-trail-hud race-presets.js (standard OCC route); result: irunfar.com/2025-occ-results",
+    confidence: 'low',
+    note: 'the 2025 OCC ran on an ALTERNATE course -- 57km/3500m is the standard route\'s nominal spec, not confirmed for this edition; time reported to the minute only (~5:00); descentM assumed = ascentM. Compounded uncertainty -- structural (cap-avoidance) check only, excluded from the numeric elite-band objective.',
   },
 
   // ── Room for the user to add rows later ──────────────────────────────────

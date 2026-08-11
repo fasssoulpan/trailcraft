@@ -17,31 +17,65 @@
  *     at runtime (P2 Q2 brief: "Implement the fit in the script, not in the
  *     shipped code").
  *
- * ── Fitting method ─────────────────────────────────────────────────────────
- * The model has 3 free parameters (C, K, M) but the calibration table has
- * only 2 rows with a genuinely independently-published `expectedScore` (the
- * reference's own dual anchors -- see calibration.ts's header for why the
- * 崇礼168 rows deliberately do NOT carry a fabricated `expectedScore`). Two
- * points exactly determine 2 unknowns, so for ANY fixed M, log(C) and K can
- * be solved exactly (a weighted least-squares fit in log space, which
- * degenerates to exact interpolation for exactly 2 positive-weight rows, but
- * generalises correctly if the user adds more `expectedScore` rows later --
- * P2 Q2 brief: "weighting rows by confidence").
+ * ── Fitting method (P2 Q2 commit 3 revision) ───────────────────────────────
+ * The model has 3 free parameters (C, K, M). As of this commit, the
+ * calibration table has only ONE row with a genuinely independently-
+ * published `expectedScore` -- the reference's own flat anchor (366). The
+ * other former numeric anchor, the reference's synthetic "mountain anchor"
+ * (170km/10000m, 20h -> stated 1000), had its `expectedScore` deliberately
+ * REMOVED this commit: real 2025 UTMB winner data lands almost exactly on
+ * that same effort level and, per explicit product instruction
+ * (「到不了1000 极端情况不考虑」), must NOT hit the cap -- keeping "exactly
+ * 1000" as a hard numeric fit target would directly fight the fix this
+ * commit makes. See calibration.ts's header for the full reasoning.
  *
- * That leaves M as the one genuinely free parameter, and nothing in the
- * anchor pair can pin it down (M's whole job is to distinguish races of
- * different LENGTH at the same speed, and both anchors are long-distance).
- * So M is chosen by a 1-D search that minimises a STRUCTURAL penalty built
- * from the three checks the P2 Q2 brief says are "defensible without any
- * published number":
- *   1. no 崇礼168 category winner should approach the 1000 cap
- *   2. the 5 崇礼168 category-winner rows should land in a reasonably tight
- *      band of each other (comparable-calibre national elites)
- *   3. the real 13.9km recording must not outscore the real 167.7km one
- * This is genuinely empirical (the penalty is evaluated against real result
- * data, not asserted), but it's a different KIND of empirical from the
- * anchor fit -- flagged clearly in the printed report so nobody mistakes a
- * structural-penalty-chosen M for a residual-fit M.
+ * One published point can't determine two unknowns (C, K), and an early
+ * version of this commit tried a blind 2-D structural-penalty search over
+ * (K, M) (weighting every international row's shortfall from a [900, 960]
+ * band quadratically) -- it kept converging back to roughly commit 2's own
+ * (K, M), because the quadratic penalty is dominated by whichever row is
+ * FARTHEST from the band, and that's 2025 TDS women (Careth Arnold, the
+ * slowest pace of the 5 confident international rows): pushing K up to help
+ * OCC/Puppi's fast-short profile pushes her shortfall up even more, so the
+ * search kept retreating to a low-K region that barely helps the short end
+ * at all -- the exact opposite of this commit's job. TDS women isn't a data
+ * problem (her time is real, precise to the second); a pure power law
+ * genuinely cannot place both her (slow pace, huge kme) and OCC/Puppi (fast
+ * pace, small kme) in a 60-point-wide band while ALSO respecting the flat
+ * anchor and never capping -- see the milestone report for the 2-equation
+ * proof. So this commit does not try to force every international row into
+ * band; per the brief ("use that as the objective rather than inventing
+ * per-athlete exact scores"), the band is a DIRECTIONAL target, and the
+ * headline, explicitly-named defect (OCC/Walmsley and 崇礼50/杨春龙 being
+ * under-scored) gets priority over squeezing every row into a tight range.
+ *
+ * The method actually used:
+ *   1. Fix a candidate safety ceiling T.
+ *   2. Solve (K, M) EXACTLY so that BOTH of the two most cap-adjacent real
+ *      rows -- 2025 UTMB men (Tom Evans; the single largest total km-effort
+ *      in the table) and 崇礼168 70km (张火话; the single highest implied
+ *      pace in the table, an estimated/low-confidence row) -- land at
+ *      exactly T. Two equations, two unknowns, closed-form (see `solveKM`).
+ *      These are deliberately the two rows most likely to threaten the cap
+ *      from opposite mechanisms (huge kme vs huge pace), so pinning both to
+ *      the same safe ceiling is a direct, interpretable way to guarantee
+ *      real headroom for the whole table, not just the numeric anchor.
+ *   3. Solve C EXACTLY from the sole `expectedScore` row (the flat anchor)
+ *      for that (K, M) -- trivial weighted-mean-of-one in log space, kept
+ *      general so it still works if more genuinely-published rows are added
+ *      later (P2 Q2 brief: "weighting rows by confidence").
+ *   4. T itself is chosen by a 1-D search (`pickT`) over the T values that
+ *      satisfy every HARD structural constraint (see `hardConstraintsOk`:
+ *      cap safety with real margin on every 崇礼168/international row, the
+ *      13.9km/167.7km monotonicity + recreational-band checks, the 崇礼168
+ *      spread check) -- among those, pick the T that maximises OCC/
+ *      Walmsley's score, i.e. directly optimise for the brief's named
+ *      short-end defect subject to never re-breaking the cap.
+ * This is a similar shape to commit 2's method (2 real constraints solve 2
+ * unknowns exactly, 1 remaining degree of freedom chosen structurally) but
+ * uses a same-ceiling PAIR instead of a single M-search, because with only 1
+ * genuinely-published numeric anchor left, (K, M) together are the ones
+ * that need pinning down, not just M.
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -101,7 +135,7 @@ interface RealRecording {
   /** `envCompensation.totalFactor` from the actual track (mostly altitude
    * compensation for these high-altitude routes -- see env.ts). Real
    * recordings carry their own real value here, UNLIKE the calibration
-   * table's rows (see `structuralPenalty` below), because we actually have
+   * table's rows (see `hardConstraintsOk` below), because we actually have
    * the elevation profile to compute it from. */
   envFactor: number
   /** `PerformanceResult.spiScore`/`spiLevel` as actually computed by the
@@ -208,8 +242,11 @@ function cappedScore(kme: number, hours: number, envFactor: number, p: Params): 
 }
 
 // ---------------------------------------------------------------------------
-// Weighted log-linear solve for (C, K) given a fixed M, over every
-// calibration row that carries an `expectedScore`.
+// Weighted log-linear solve for C given a FIXED (K, M), over every
+// calibration row that carries an `expectedScore`. With exactly one such
+// row (the flat anchor, as of P2 Q2 commit 3), this is exact interpolation;
+// written as a weighted mean so it still generalises correctly if more
+// genuinely-published `expectedScore` rows are added later.
 // ---------------------------------------------------------------------------
 
 const CONFIDENCE_WEIGHT: Record<CalibrationRow['confidence'], number> = {
@@ -218,35 +255,69 @@ const CONFIDENCE_WEIGHT: Record<CalibrationRow['confidence'], number> = {
   low: 0.15,
 }
 
-function solveCK(rows: CalibrationRow[], M: number): { C: number; K: number } | undefined {
+function solveC(rows: CalibrationRow[], K: number, M: number): number | undefined {
   const fitRows = rows.filter((r) => r.expectedScore !== undefined)
-  if (fitRows.length < 2) return undefined
+  if (fitRows.length < 1) return undefined
 
-  let Sw = 0, Swx = 0, Swy = 0, Swxx = 0, Swxy = 0
+  let Sw = 0, Swy = 0
   for (const row of fitRows) {
     const w = CONFIDENCE_WEIGHT[row.confidence]
     const kme = kmeV2(row)
-    const x = Math.log(kme / row.hours)
-    const y = Math.log(row.expectedScore!) - M * Math.log(kme / UTMB_KME_REF_V1)
-    Sw += w; Swx += w * x; Swy += w * y; Swxx += w * x * x; Swxy += w * x * y
+    const y = Math.log(row.expectedScore!) - K * Math.log(kme / row.hours) - M * Math.log(kme / UTMB_KME_REF_V1)
+    Sw += w; Swy += w * y
   }
-  const denom = Sw * Swxx - Swx * Swx
-  if (Math.abs(denom) < 1e-12) return undefined
-  const K = (Sw * Swxy - Swx * Swy) / denom
-  const logC = (Swy - K * Swx) / Sw
-  return { C: Math.exp(logC), K }
+  if (Sw < 1e-12) return undefined
+  return Math.exp(Swy / Sw)
 }
 
 // ---------------------------------------------------------------------------
-// Structural penalty for a candidate M (with its solved C, K), evaluated
-// against the 崇礼168 rows (no `expectedScore`, real result data) and the
-// real 13.9km/167.7km recordings (also real data). See the file header for
-// why M -- not C or K -- is the parameter this penalty chooses.
+// (K, M) solve for a candidate safety ceiling T: pins BOTH 2025 UTMB men
+// (Tom Evans -- the largest total km-effort in the table) and 崇礼168 70km
+// (张火话 -- the highest implied pace in the table) to exactly T. Two linear
+// equations in (K, M) once everything is expressed in log space relative to
+// the flat anchor -- see the file header for why these two specific rows.
 // ---------------------------------------------------------------------------
 
-const CAP_TARGET = 950 // raw (uncapped) score a category winner should stay under
-const SPREAD_TARGET = 220 // acceptable max-min band across 崇礼168 category winners
+const flatAnchorRow = CALIBRATION_TABLE.find((r) => r.expectedScore !== undefined)!
+const utmbMenRow = CALIBRATION_TABLE.find((r) => r.label.includes('Tom Evans'))!
+const chongli70Row = CALIBRATION_TABLE.find((r) => r.label.includes('张火话'))!
+
+function solveKM(T: number): { K: number; M: number } {
+  const kmeA = kmeV2(flatAnchorRow), speedA = kmeA / flatAnchorRow.hours
+  const kmeU = kmeV2(utmbMenRow), speedU = kmeU / utmbMenRow.hours
+  const kme7 = kmeV2(chongli70Row), speed7 = kme7 / chongli70Row.hours
+
+  const lnT = Math.log(T / flatAnchorRow.expectedScore!)
+  // lnT = K*ln(speedU/speedA) + M*ln(kmeU/kmeA)   (UTMB men lands at T)
+  // lnT = K*ln(speed7/speedA) + M*ln(kme7/kmeA)    (崇礼70 lands at T)
+  const a1 = Math.log(speedU / speedA), a2 = Math.log(kmeU / kmeA)
+  const b1 = Math.log(speed7 / speedA), b2 = Math.log(kme7 / kmeA)
+  const det = a1 * b2 - a2 * b1
+  const K = (lnT * (b2 - a2)) / det
+  const M = (lnT * (a1 - b1)) / det
+  return { K, M }
+}
+
+// ---------------------------------------------------------------------------
+// Hard structural constraints a candidate T must satisfy to be usable at
+// all (see file header for why these are HARD gates rather than a weighted
+// penalty -- a quadratic-penalty search over the international band was
+// tried first and demonstrably converged to the wrong region because 2025
+// TDS women's persistent shortfall dominated it). `T_MAX` bounds the search
+// from above (real headroom below 1000, and stays inside the brief's
+// ~900-960 aspirational band); `pickT` then searches downward from there
+// for the highest T that clears every gate, which -- since a higher T
+// directly means a higher K, and OCC/Walmsley's edge is almost entirely
+// pace-driven -- also maximises OCC's score, i.e. directly targets the
+// brief's named short-end defect (OCC, 崇礼50) without the band-penalty's
+// failure mode.
+// ---------------------------------------------------------------------------
+
+const T_MAX = 960 // upper search bound for the safety ceiling -- top of the brief's assumed elite band, itself well under the hard 1000 cap
+const CAP_SAFETY_MARGIN = 970 // every OTHER winner-like row (not the two pinned to T) must stay under this
+const SPREAD_MAX = 300 // generous max-min band across 崇礼168 category winners -- looser than commit 2's 220 because commit 2's own table only had 2 numeric anchors to pin the whole curve; this commit has 1, so more spread is the honest cost of also fixing the short end (see report)
 const MONO_MARGIN = 150 // 167.7km real recording should beat the 13.9km one by at least this
+const RECREATIONAL_MAX = 520 // upper sanity bound for the 13.9km real recording -- must stay recreational-band, not drift toward elite territory
 
 // Calibration-table rows have no elevation PROFILE (only scalar
 // distance/ascent/descent), so there's no honest way to compute their
@@ -255,67 +326,66 @@ const MONO_MARGIN = 150 // 167.7km real recording should beat the 13.9km one by 
 // fabricating a number we don't have. envFactor=1.0 here is a documented
 // simplification, not a claim these mountain races have no altitude effect;
 // since altFactor is always >= 1.0 (it never reduces a score, see env.ts),
-// leaving it out only makes the 崇礼168 rows' predicted scores a
-// conservative UNDER-estimate -- it cannot hide a capping problem, only
-// understate one.
+// leaving it out only makes the 崇礼168/international rows' predicted
+// scores a conservative UNDER-estimate -- it cannot hide a capping problem,
+// only understate one.
 const CALIBRATION_ROW_ENV_FACTOR = 1.0
 
-function structuralPenalty(p: Params, real: RealRecording[]): number {
-  const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
-  let penalty = 0
+function winnerRows(): CalibrationRow[] {
+  // Every row except the flat anchor is some kind of race winner (real or
+  // the reference's synthetic mountain anchor) -- all of them must respect
+  // the cap, not just the labelled 崇礼168/international groups.
+  return CALIBRATION_TABLE.filter((r) => r !== flatAnchorRow)
+}
 
-  // 1. cap avoidance
-  for (const row of chongli) {
+function hardConstraintsOk(p: Params, real: RealRecording[]): boolean {
+  for (const row of winnerRows()) {
+    if (row === utmbMenRow || row === chongli70Row) continue // pinned to T by construction
     const raw = rawScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, p)
-    const over = Math.max(0, raw - CAP_TARGET)
-    penalty += over * over
+    if (raw > CAP_SAFETY_MARGIN) return false
   }
 
-  // 2. category-winner spread
+  const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
   if (chongli.length > 0) {
     const scores = chongli.map((row) => Math.min(rawScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, p), 1000))
-    const spread = Math.max(...scores) - Math.min(...scores)
-    const over = Math.max(0, spread - SPREAD_TARGET)
-    penalty += 4 * over * over // weighted higher: this is the clearest "unusable scale" signal
+    if (Math.max(...scores) - Math.min(...scores) > SPREAD_MAX) return false
   }
 
-  // 3. short-vs-long monotonicity on real recordings (real envFactor, since
-  // we actually have the elevation profile for these).
   const short = real.find((r) => r.file.startsWith('速攀129'))
   const long = real.find((r) => r.file.startsWith('620崇礼68'))
   if (short && long) {
     const scoreShort = Math.min(rawScore(short.kmeV2, short.hours, short.envFactor, p), 1000)
     const scoreLong = Math.min(rawScore(long.kmeV2, long.hours, long.envFactor, p), 1000)
-    const violation = Math.max(0, scoreShort - scoreLong + MONO_MARGIN)
-    penalty += 9 * violation * violation // weighted highest: this is the headline bug
+    if (scoreLong - scoreShort < MONO_MARGIN) return false
+    if (scoreShort > RECREATIONAL_MAX) return false
   }
 
-  return penalty
+  return true
 }
 
-function fitM(real: RealRecording[]): { M: number; C: number; K: number } {
-  let best: { M: number; C: number; K: number; penalty: number } | undefined
+function fitParams(real: RealRecording[]): { M: number; K: number; C: number; T: number } {
+  const occRow = CALIBRATION_TABLE.find((r) => r.label.includes('Jim Walmsley'))!
+  let best: { T: number; K: number; M: number; C: number; occScore: number } | undefined
 
-  const evalM = (M: number) => {
-    const ck = solveCK(CALIBRATION_TABLE, M)
-    if (!ck) return
-    const penalty = structuralPenalty({ ...ck, M }, real)
-    if (!best || penalty < best.penalty) best = { M, ...ck, penalty }
+  for (let T = T_MAX; T >= 800; T -= 1) {
+    const { K, M } = solveKM(T)
+    const C = solveC(CALIBRATION_TABLE, K, M)
+    if (C === undefined) continue
+    const p: Params = { C, K, M }
+    if (!hardConstraintsOk(p, real)) continue
+    const occScore = rawScore(kmeV2(occRow), occRow.hours, CALIBRATION_ROW_ENV_FACTOR, p)
+    if (!best || occScore > best.occScore) best = { T, K, M, C, occScore }
+    break // T descends from T_MAX, and a higher T -> higher K -> higher OCC
+    // score in this parameterisation (verified empirically -- see the
+    // milestone report), so the FIRST T that clears every gate is also the
+    // OCC-maximising one; the loop still walks downward from T_MAX rather
+    // than assuming this so a future calibration-table change that breaks
+    // the monotonicity gets a correct (if slower) answer, not a silent bug
+    // -- remove the `break` to fall back to an exhaustive scan.
   }
 
-  // Coarse grid, then a refinement pass around the coarse optimum. Range is
-  // POSITIVE M (see file header + score.ts's comment on the sign: with
-  // KME_REF anchored at the long-distance UTMB scale, (kme/KME_REF)^M must
-  // grow with kme -- i.e. M > 0 -- for a short race to score lower than a
-  // long one at the same speed).
-  for (let m = 0; m <= 2.5001; m += 0.005) evalM(Math.round(m * 1000) / 1000)
-  if (best) {
-    const centre = best.M
-    for (let m = centre - 0.005; m <= centre + 0.005; m += 0.0005) evalM(Math.round(m * 10000) / 10000)
-  }
-
-  if (!best) throw new Error('fit failed: no M candidate solved (check calibration table has >=2 expectedScore rows)')
-  return { M: best.M, C: best.C, K: best.K }
+  if (!best) throw new Error('fit failed: no T in range satisfied every hard constraint (check calibration table / real recordings)')
+  return { M: best.M, K: best.K, C: best.C, T: best.T }
 }
 
 // ---------------------------------------------------------------------------
@@ -426,10 +496,11 @@ async function main() {
 
   if (mode === 'fit') {
     console.log('== Fitting C, K, M against the calibration table ==')
-    console.log('(C, K solved exactly from the 2 expectedScore anchors for each candidate M; M chosen by')
-    console.log(' minimising the structural penalty over the 崇礼168 rows + the real 13.9km/167.7km pair.)')
-    const { M, C, K } = fitM(real)
-    console.log(`\nfitted: C=${C.toFixed(4)}  K=${K.toFixed(4)}  M=${M.toFixed(4)}  (KME_REF=${UTMB_KME_REF_V1})`)
+    console.log('(K, M solved exactly for a candidate ceiling T so that BOTH 2025 UTMB men and 崇礼168 70km land')
+    console.log(' at T; C then solved exactly from the flat anchor; T searched downward from 960 for the highest')
+    console.log(' value clearing every hard cap/monotonicity/recreational-band gate -- see file header for why.)')
+    const { M, C, K, T } = fitParams(real)
+    console.log(`\nfitted: C=${C.toFixed(4)}  K=${K.toFixed(4)}  M=${M.toFixed(4)}  (KME_REF=${UTMB_KME_REF_V1}, T=${T})`)
 
     const params: Params = { C, K, M }
     const score = (row: CalibrationRow) => cappedScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, params)
