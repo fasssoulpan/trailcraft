@@ -118,6 +118,13 @@ export function MapView() {
     })
     map.addControl(new NavigationControl(), 'top-right')
     mapRef.current = map
+    // Dev-only debugging handle. The map instance is otherwise reachable only
+    // by walking React's fiber tree, which is fragile and makes diagnosing
+    // "my track isn't drawing" needlessly hard. Stripped from production
+    // builds by the `import.meta.env.DEV` guard.
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __trailcraftMap?: unknown }).__trailcraftMap = map
+    }
 
     // Gate on the 'style.load' event, NOT 'load'. They sound
     // interchangeable but aren't:

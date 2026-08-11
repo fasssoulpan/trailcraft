@@ -15,6 +15,7 @@ import { Splitter } from './ui/Splitter'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
 import { clamp, loadLayoutSizes, saveLayoutSizes, type LayoutSizes } from './state/layout'
+import { MapDebugBadge } from './ui/MapDebugBadge'
 import './App.css'
 
 // Minimums/maximums for the two user-resizable panes. The map itself has no
@@ -135,6 +136,7 @@ function App() {
            * and tile fetching, or Cesium's Viewer) rather than just hiding
            * it, so two GPU-backed map engines are never running at once. */}
           {mode === 'plan' ? <MapView /> : <FlyView />}
+          {import.meta.env.DEV && mode === 'plan' ? <MapDebugBadge /> : null}
         </div>
         <div className="app-layout__segments" ref={segmentsRef}>
           <button

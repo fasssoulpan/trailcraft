@@ -948,3 +948,26 @@
   height: 100%;
   display: block;
 }
+
+/* Dev-only map diagnostic readout -- see src/ui/MapDebugBadge.tsx. */
+.map-debug-badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  max-width: 520px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #eaeaea;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  word-break: break-all;
+  pointer-events: none;
+}
+.map-debug-badge strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #ffd166;
+}
