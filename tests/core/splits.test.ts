@@ -70,11 +70,20 @@ describe('computeKmSplits', () => {
     }
   })
 
-  it('ascent/descent use the reference own >2m/<-2m diff threshold (not P0 hysteresis)', () => {
+  // P2 Q2 commit 1: ascent/descent switched from the reference's own
+  // >2m/<-2m diff threshold to a prefix difference over P0's
+  // threshold-hysteresis running totals (core/stats/runningStats.ts#
+  // buildRunningGain/buildRunningLoss) -- the same algorithm and
+  // `statsOptions` as climbs.ts and the whole-track total feeding the score.
+  // See splits.ts's header comment for the full rationale.
+  it('ascent/descent now use P0 threshold-hysteresis (default threshold=5, smoothWindow=5), same as climbs.ts and the track-total feeding the score', () => {
     const n = 20
-    // Alternating +0.5/-0.5m jitter (1.0m step-to-step diff), below the 2m
-    // threshold -> should not accumulate ANY ascent/descent, even though a
-    // naive sum-of-abs-diffs would report plenty.
+    // Alternating +0.5/-0.5m jitter (1.0m step-to-step diff) is well under
+    // P0's default 5m threshold -- and gets smoothed away further by the
+    // default 5-window smoothing before the threshold is even applied --
+    // so it should still accumulate ZERO ascent/descent, though for a
+    // different reason than before this port switched off the reference's
+    // own >2m/<-2m diff-sum rule.
     const ele = Array.from({ length: n }, (_, i) => 100 + (i % 2 === 0 ? 0.5 : -0.5))
     const t = track({ n, ele })
     const splits = computeKmSplits(t)
@@ -82,6 +91,41 @@ describe('computeKmSplits', () => {
       expect(sp.ascent).toBe(0)
       expect(sp.descent).toBe(0)
     }
+  })
+
+  it('per-split ascent/descent sum to the whole-track total from core/stats/elevation.ts#computeGainLoss (prefix-difference additivity)', async () => {
+    const { smoothElevation, computeGainLoss } = await import('../../src/core/stats/elevation')
+    const n = 50
+    // Wiggly-but-net-climbing profile spanning several km splits.
+    const ele = Array.from({ length: n }, (_, i) => 100 + Math.sin(i / 3) * 30 + i * 2)
+    const t = track({ n, ele })
+    const splits = computeKmSplits(t)
+
+    const totalAscent = splits.reduce((s, sp) => s + sp.ascent, 0)
+    const totalDescent = splits.reduce((s, sp) => s + sp.descent, 0)
+
+    const smoothed = smoothElevation(Float32Array.from(ele), 5)
+    const expected = computeGainLoss(smoothed, 5)
+
+    // Splits (unlike grade segments) always partition the whole track with
+    // no gaps, so this should hold up to per-split rounding for any track
+    // (each split's ascent/descent is independently Math.round()-ed, worst
+    // case ~0.5m of error each).
+    expect(Math.abs(totalAscent - expected.gain)).toBeLessThanOrEqual(splits.length)
+    expect(Math.abs(totalDescent - expected.loss)).toBeLessThanOrEqual(splits.length)
+  })
+
+  it('honours statsOptions threshold: a looser threshold accumulates at least as much ascent as a stricter one', () => {
+    const n = 40
+    const ele = Array.from({ length: n }, (_, i) => 100 + i * 2 + (i % 2 === 0 ? 6 : -3))
+    const t = track({ n, ele })
+
+    const loose = computeKmSplits(t, undefined, undefined, { threshold: 2, smoothWindow: 1 })
+    const strict = computeKmSplits(t, undefined, undefined, { threshold: 20, smoothWindow: 1 })
+
+    const looseAscent = loose.reduce((s, sp) => s + sp.ascent, 0)
+    const strictAscent = strict.reduce((s, sp) => s + sp.ascent, 0)
+    expect(looseAscent).toBeGreaterThan(strictAscent)
   })
 
   it('avgHR averages readings only, ignoring the 0 sentinel', () => {

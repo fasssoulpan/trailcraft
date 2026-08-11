@@ -185,6 +185,18 @@ describe('computePerformance: applicable path', () => {
     expect(b).not.toBe(a)
   })
 
+  it('splits ascent/descent sum to totalAscentM/totalDescentM (P2 Q2 commit 1: climbs/splits routed through the same P0 hysteresis as the track total)', () => {
+    const t = scoreableTrack()
+    const r = computePerformance(t) as PerformanceResult
+    const splitAscent = r.splits.reduce((s, sp) => s + sp.ascent, 0)
+    const splitDescent = r.splits.reduce((s, sp) => s + sp.descent, 0)
+    // Splits always partition the whole track with no gaps, so this holds up
+    // to per-split rounding error (each split's ascent/descent is
+    // independently Math.round()-ed, worst case ~0.5m of error each).
+    expect(Math.abs(splitAscent - r.totalAscentM)).toBeLessThanOrEqual(r.splits.length)
+    expect(Math.abs(splitDescent - r.totalDescentM)).toBeLessThanOrEqual(r.splits.length)
+  })
+
   it('recomputes when the environmental profile changes even though the Track/statsOptions did not', () => {
     const t = scoreableTrack()
     const a = computePerformance(t, {}, {}) as PerformanceResult

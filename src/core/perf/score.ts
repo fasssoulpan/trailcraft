@@ -199,8 +199,13 @@ function analyze(track: Track, statsOptions: StatsOptions, profile: EnvUserProfi
 
   const gap = computeTrackGap(track, series)
   if (!gap) return notApplicable('degenerate', '无法计算坡度修正配速')
-  const gradeSegments = computeGradeSegments(track, series)
-  const splits = computeKmSplits(track, series, gap)
+  // Resolved (not raw) threshold/smoothWindow -- same values that just fed
+  // totalAscentM/totalDescentM above -- so climbs/splits' per-segment ascent
+  // uses the identical hysteresis settings as the track-total, not merely
+  // "the same defaults" (P2 Q2 commit 1; see climbs.ts/splits.ts headers).
+  const resolvedStatsOptions = { threshold, smoothWindow }
+  const gradeSegments = computeGradeSegments(track, series, resolvedStatsOptions)
+  const splits = computeKmSplits(track, series, gap, resolvedStatsOptions)
 
   return {
     applicable: true,

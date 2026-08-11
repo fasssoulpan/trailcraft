@@ -7,18 +7,42 @@
  * whatever distance remains, however short) and reports pace/GAP/ascent/
  * descent/heart-rate/grade per split.
  *
- * Porting notes: numerically identical to the reference, including its own
- * per-point ascent/descent diff threshold (>2m / <-2m, distinct from and NOT
- * replaced by P0's `computeGainLoss` hysteresis -- see `climbs.ts`'s file
- * comment for why that substitution is scoped to the track-total ascent
- * feeding the score, not every ascent-shaped number in the port). Adapted
- * for the columnar model: consumes `pointSeries.ts#PointSeries` (dist/
+ * Porting notes: the split-boundary logic is numerically identical to the
+ * reference.
+ *
+ * ── Per-split ascent/descent (P2 Q2 commit 1) ───────────────────────────
+ * Originally (milestone Q2's first cut) this used the reference's own
+ * per-point diff threshold (>2m / <-2m), distinct from and NOT routed
+ * through P0's `computeGainLoss` hysteresis. Fixed for the same reason and
+ * the same way as `climbs.ts` (see that file's header comment for the full
+ * rationale, the path-dependence subtlety, and why prefix-difference is the
+ * right definition): ascent/descent here are now
+ * `runningGain[to] - runningGain[from]` / `runningLoss[to] - runningLoss[from]`
+ * over `core/stats/runningStats.ts#buildRunningGain`/`buildRunningLoss`'s
+ * whole-track prefix arrays, honouring the same `statsOptions` as the
+ * track-total ascent feeding the score. Unlike `climbs.ts`'s grade
+ * segments (which can drop short transitional segments below
+ * `MIN_SEGMENT_POINTS`), splits always partition the whole track with no
+ * gaps, so per-split ascent/descent sum to the whole-track total exactly
+ * (up to per-split rounding) for every track, not just specially-shaped
+ * ones -- see this file's test suite.
+ *
+ * Adapted for the columnar model: consumes `pointSeries.ts#PointSeries` (dist/
  * elapsedSec/grade) and `gap.ts#TrackGap` (gap) plus `track.points.ele`/`hr`
  * directly, instead of the reference's array of enriched point objects.
  */
 import type { Track } from '../model/track'
+import type { StatsOptions } from '../stats/segments'
+import { buildRunningGainLoss } from '../stats/runningStats'
 import { derivePointSeries, type PointSeries } from './pointSeries'
 import type { TrackGap } from './gap'
+
+// Same defaults as core/stats/segments.ts's DEFAULT_THRESHOLD/
+// DEFAULT_SMOOTH_WINDOW (not exported from there) -- mirrors score.ts's own
+// local copy of the same constants, used as the fallback when a caller
+// doesn't supply `statsOptions`.
+const DEFAULT_THRESHOLD = 5
+const DEFAULT_SMOOTH_WINDOW = 5
 
 export interface KmSplit {
   /** 1-based split number. */
@@ -32,8 +56,8 @@ export interface KmSplit {
   /** Mean GAP pace (s/km) over points with a computable GAP; `undefined`
    * when no point in the split has one (see `gap.ts#computeTrackGap`). */
   gap: number | undefined
-  /** Ascent/descent (m) within the split -- reference's own >2m/<-2m diff
-   * threshold, see file comment. */
+  /** Ascent/descent (m) within the split -- prefix difference over P0's
+   * threshold-hysteresis running totals, see file comment. */
   ascent: number
   descent: number
   /** Mean heart rate (bpm); `undefined` when the track has no `hr` column or
@@ -52,25 +76,21 @@ function buildSplit(
   from: number,
   to: number,
   kmNumber: number,
+  runningGain: Float64Array,
+  runningLoss: Float64Array,
 ): KmSplit {
   const { dist, elapsedSec, grade } = s
-  const ele = track.points.ele
   const hr = track.points.hr
 
   const distance = dist[to] - dist[from]
   const time = elapsedSec ? elapsedSec[to] - elapsedSec[from] : undefined
   const pace = time !== undefined && distance > 0 ? time / (distance / 1000) : undefined
 
-  let ascent = 0
-  let descent = 0
-  if (ele) {
-    for (let i = from + 1; i <= to; i++) {
-      if (!Number.isFinite(ele[i]) || !Number.isFinite(ele[i - 1])) continue
-      const diff = ele[i] - ele[i - 1]
-      if (diff > 2) ascent += diff
-      else if (diff < -2) descent += Math.abs(diff)
-    }
-  }
+  // Prefix difference over the whole-track running totals -- see this
+  // file's header comment. Empty arrays (no elevation column) -> zero,
+  // matching the old `if (ele)` guard's behaviour.
+  const ascent = runningGain.length > 0 ? runningGain[to] - runningGain[from] : 0
+  const descent = runningLoss.length > 0 ? runningLoss[to] - runningLoss[from] : 0
 
   let avgHR: number | undefined
   if (hr) {
@@ -122,10 +142,25 @@ function buildSplit(
  * `PointSeries` is derived and GAP is left out of the result (`gap` is
  * always `undefined` in that case), which is what standalone unit tests
  * exercise unless they explicitly want GAP figures too.
+ *
+ * `statsOptions` (threshold + smoothing window) is forwarded to
+ * `buildRunningGain`/`buildRunningLoss` so per-split ascent/descent uses the
+ * exact same hysteresis settings as the whole-track total feeding the score
+ * -- see file comment. Defaults match `core/stats/segments.ts`'s own
+ * defaults when omitted, which is what standalone unit tests exercise.
  */
-export function computeKmSplits(track: Track, series?: PointSeries, gapResult?: TrackGap): KmSplit[] {
+export function computeKmSplits(
+  track: Track,
+  series?: PointSeries,
+  gapResult?: TrackGap,
+  statsOptions: StatsOptions = {},
+): KmSplit[] {
   const s = series ?? derivePointSeries(track)
   if (s.n < 2) return []
+
+  const threshold = statsOptions.threshold ?? DEFAULT_THRESHOLD
+  const smoothWindow = statsOptions.smoothWindow ?? DEFAULT_SMOOTH_WINDOW
+  const { gain: runningGain, loss: runningLoss } = buildRunningGainLoss(track.points.ele, threshold, smoothWindow)
 
   const splits: KmSplit[] = []
   let splitStart = 0
@@ -133,7 +168,7 @@ export function computeKmSplits(track: Track, series?: PointSeries, gapResult?: 
 
   for (let i = 1; i < s.n; i++) {
     if (s.dist[i] >= nextKmMark || i === s.n - 1) {
-      splits.push(buildSplit(track, s, gapResult, splitStart, i, splits.length + 1))
+      splits.push(buildSplit(track, s, gapResult, splitStart, i, splits.length + 1, runningGain, runningLoss))
       splitStart = i
       nextKmMark += KM_MARK_M
     }

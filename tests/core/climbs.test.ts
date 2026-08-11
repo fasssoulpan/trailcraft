@@ -109,4 +109,60 @@ describe('computeGradeSegments', () => {
     const segments = computeGradeSegments(t)
     expect(segments[0].avgHR).toBeUndefined()
   })
+
+  // P2 Q2 commit 1: per-segment ascent/descent switched from the reference's
+  // own raw diff-sum to a prefix difference over P0's threshold-hysteresis
+  // running totals (core/stats/runningStats.ts#buildRunningGain/
+  // buildRunningLoss), honouring the same statsOptions as the whole-track
+  // ascent feeding the score. See climbs.ts's header comment for the full
+  // rationale and the path-dependence subtlety.
+  it('per-segment ascent/descent sum to the whole-track total from core/stats/elevation.ts#computeGainLoss (prefix-difference additivity)', async () => {
+    const { smoothElevation, computeGainLoss } = await import('../../src/core/stats/elevation')
+    // Same fixture as the "detects two uphill climbs" test above: every run
+    // is 20 points, well above MIN_SEGMENT_POINTS(10), so no segment gets
+    // dropped for being too short and the returned segments cover the whole
+    // track with no gaps -- required for an exact sum-to-total comparison (a
+    // track with short, dropped transitional segments would legitimately NOT
+    // sum to the total, since those points contribute to neither segment).
+    const climb = (i: number) => 10 * i
+    const ele: number[] = []
+    for (let i = 0; i < 20; i++) ele.push(100 + climb(i))
+    const peak1 = ele[ele.length - 1]
+    for (let i = 0; i < 20; i++) ele.push(peak1 - climb(i))
+    const valley = ele[ele.length - 1]
+    for (let i = 0; i < 20; i++) ele.push(valley + climb(i))
+    const peak2 = ele[ele.length - 1]
+    for (let i = 0; i < 20; i++) ele.push(peak2)
+
+    const t = track({ n: 80, ele })
+    const segments = computeGradeSegments(t)
+
+    const totalAscent = segments.reduce((s, g) => s + g.ascent, 0)
+    const totalDescent = segments.reduce((s, g) => s + g.descent, 0)
+
+    const smoothed = smoothElevation(Float32Array.from(ele), 5)
+    const expected = computeGainLoss(smoothed, 5)
+
+    // Per-segment rounding (Math.round in buildSegment) means the sum of 4
+    // segments can differ from the unrounded whole-track total by a few
+    // metres, not exactly zero.
+    expect(totalAscent).toBeCloseTo(expected.gain, -1)
+    expect(totalDescent).toBeCloseTo(expected.loss, -1)
+  })
+
+  it('honours statsOptions threshold: a looser threshold accumulates at least as much ascent as a stricter one', () => {
+    const n = 60
+    // Noisy-but-climbing profile: +6/-3 alternating on top of a steady climb,
+    // so different thresholds plausibly disagree on how much of the jitter
+    // counts.
+    const ele = Array.from({ length: n }, (_, i) => 100 + i * 2 + (i % 2 === 0 ? 6 : -3))
+    const t = track({ n, ele })
+
+    const loose = computeGradeSegments(t, undefined, { threshold: 2, smoothWindow: 1 })
+    const strict = computeGradeSegments(t, undefined, { threshold: 20, smoothWindow: 1 })
+
+    const looseAscent = loose.reduce((s, g) => s + g.ascent, 0)
+    const strictAscent = strict.reduce((s, g) => s + g.ascent, 0)
+    expect(looseAscent).toBeGreaterThan(strictAscent)
+  })
 })
