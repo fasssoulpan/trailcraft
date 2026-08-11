@@ -39,6 +39,20 @@ export default defineConfig({
       })),
     }),
   ],
+  // MapLibre GL creates its tile-parsing worker from a blob built out of its
+  // own bundled source. Letting Vite's dependency optimizer (esbuild)
+  // pre-bundle maplibre-gl breaks that blob: the worker starts but never
+  // answers, so GeoJSON sources never finish parsing into tiles. Raster
+  // basemaps still paint (they need no worker) and DOM markers still show,
+  // so the only visible symptom is that track polylines never draw and
+  // `map.isStyleLoaded()` stays false forever -- which is exactly what was
+  // observed in the browser (dev badge verdict "GeoJSON 源未完成解析",
+  // source.loaded() === false with 4000 valid coordinates in the source).
+  // Excluding it from pre-bundling makes Vite serve the package's own ESM
+  // build untouched, keeping the worker blob intact.
+  optimizeDeps: {
+    exclude: ['maplibre-gl'],
+  },
   define: {
     // Read by src/cesium/viewer.ts (see the ambient declaration in
     // src/vite-env.d.ts). Same base path in dev and build: vite-plugin-

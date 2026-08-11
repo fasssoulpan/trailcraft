@@ -123,7 +123,17 @@ export function MapView() {
     // "my track isn't drawing" needlessly hard. Stripped from production
     // builds by the `import.meta.env.DEV` guard.
     if (import.meta.env.DEV) {
-      ;(window as unknown as { __trailcraftMap?: unknown }).__trailcraftMap = map
+      const w = window as unknown as { __trailcraftMap?: unknown; __trailcraftMapErrors?: string[] }
+      w.__trailcraftMap = map
+      w.__trailcraftMapErrors = []
+      // MapLibre reports source/worker/tile failures through its own 'error'
+      // event rather than by throwing, so they are invisible to a plain
+      // try/catch and easy to miss in a busy console. Collect them for the
+      // dev badge (see src/ui/MapDebugBadge.tsx).
+      map.on('error', (e: { error?: { message?: string }; sourceId?: string }) => {
+        const msg = `${e.sourceId ? `[${e.sourceId}] ` : ''}${e.error?.message ?? 'unknown'}`
+        w.__trailcraftMapErrors?.push(msg)
+      })
     }
 
     // Gate on the 'style.load' event, NOT 'load'. They sound

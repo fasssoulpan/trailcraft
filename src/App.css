@@ -971,3 +971,26 @@
   margin-bottom: 4px;
   color: #ffd166;
 }
+
+.map-debug-badge__verdict {
+  margin-bottom: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(255, 209, 102, 0.16);
+  color: #ffd166;
+  font-weight: 700;
+}
+
+.map-debug-badge__actions {
+  margin-top: 6px;
+  pointer-events: auto;
+}
+.map-debug-badge__actions button {
+  padding: 2px 8px;
+  border: 1px solid #ffd166;
+  border-radius: 4px;
+  background: transparent;
+  color: #ffd166;
+  font: inherit;
+  cursor: pointer;
+}
