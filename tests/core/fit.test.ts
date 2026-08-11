@@ -52,4 +52,12 @@ describe('recordsToTrack', () => {
     const t = recordsToTrack(records, 'MyRoute.fit')
     expect(t.meta.name).toBe('MyRoute')
   })
+
+  it('sets meta.creator when passed, leaves it undefined when omitted', () => {
+    const records = [
+      { position_lat: 39.99, position_long: 116.19, timestamp: new Date('2024-09-12T08:05:40Z') },
+    ]
+    expect(recordsToTrack(records, 'a.fit', 'COROS VERTIX 2S').meta.creator).toBe('COROS VERTIX 2S')
+    expect(recordsToTrack(records, 'a.fit').meta.creator).toBeUndefined()
+  })
 })

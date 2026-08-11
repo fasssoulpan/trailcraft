@@ -91,6 +91,17 @@ describe('importFile', () => {
     expect(waypoints).toEqual([{ name: 'CP1-1km', lon: 116.15, lat: 39.92, ele: 10 }])
   })
 
+  it('a COROS-marked KML auto-detects wgs84/high through the full import pipeline (no manual CRS prompt needed)', async () => {
+    const kml = `<?xml version="1.0"?>
+<kml><Document><Placemark><name>x</name>
+ <COROS link="https://www.coros.com"/>
+ <LineString><coordinates>116.1,39.9,0 116.2,39.95,0 116.3,40.0,0</coordinates></LineString>
+</Placemark></Document></kml>`
+    const { detect } = await importFile('untitled.kml', kml, {})
+    expect(detect.crs).toBe('wgs84')
+    expect(detect.confidence).toBe('high')
+  })
+
   it('CRS conversion applies identically to waypoints and track (forced gcj02)', async () => {
     const kml = `<?xml version="1.0"?>
 <kml><Folder>

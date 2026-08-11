@@ -16,7 +16,7 @@ interface FitRecord {
   heart_rate?: number
 }
 
-export function recordsToTrack(records: FitRecord[], fileName: string): Track {
+export function recordsToTrack(records: FitRecord[], fileName: string, creator?: string): Track {
   const lon: number[] = []
   const lat: number[] = []
   const ele: number[] = []
@@ -36,8 +36,23 @@ export function recordsToTrack(records: FitRecord[], fileName: string): Track {
   if (lon.length === 0) throw new Error(`FIT 无轨迹点: ${fileName}`)
   return createTrack(
     { lon, lat, ele: hasEle ? ele : undefined, time: hasTime ? time : undefined, hr: hasHr ? hr : undefined },
-    { name: fileName.replace(/\.fit$/i, ''), format: 'fit', fileName },
+    { name: fileName.replace(/\.fit$/i, ''), format: 'fit', fileName, creator },
   )
+}
+
+/**
+ * FIT has no top-level "creator" the way GPX/KML do -- the closest
+ * equivalent is the `file_id` message's `product_name` (e.g. "COROS VERTIX
+ * 2S") or, failing that, its `manufacturer` enum (e.g. "coros"). Prefer
+ * `product_name`: it's the more informative string and, like GPX's own
+ * `creator="COROS Wearables"`, still contains the device-brand substring
+ * crs/detect.ts's WGS84_PAT already matches -- so surfacing it through
+ * TrackMeta.creator is enough to get real device FIT exports recognised as
+ * WGS-84/high-confidence without teaching detectCrs anything FIT-specific.
+ */
+function creatorFromFileId(fileIds: { manufacturer?: string; product_name?: string }[] | undefined): string | undefined {
+  const id = fileIds?.[0]
+  return id?.product_name ?? id?.manufacturer
 }
 
 export function parseFit(buf: ArrayBuffer, fileName: string): Promise<Track> {
@@ -47,7 +62,8 @@ export function parseFit(buf: ArrayBuffer, fileName: string): Promise<Track> {
       if (err) return reject(new Error(err))
       if (!data) return reject(new Error(`FIT 解析失败: ${fileName}`))
       try {
-        resolve(recordsToTrack((data.records ?? []) as unknown as FitRecord[], fileName))
+        const creator = creatorFromFileId(data.file_ids)
+        resolve(recordsToTrack((data.records ?? []) as unknown as FitRecord[], fileName, creator))
       } catch (e) {
         reject(e instanceof Error ? e : new Error(String(e)))
       }

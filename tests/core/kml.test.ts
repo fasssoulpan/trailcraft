@@ -5,6 +5,7 @@ import { parseKml, parseKmlWaypoints } from '../../src/core/parsers/kml'
 import { parseFit } from '../../src/core/parsers/fit'
 import { checkpointsFromWaypoints } from '../../src/core/pipeline/checkpointImport'
 import { computeCumDist } from '../../src/core/geo/distance'
+import { detectCrs } from '../../src/core/crs/detect'
 
 const lineKml = `<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>线路</name><LineString><coordinates>
  116.19,39.99,116
@@ -102,6 +103,35 @@ describe('parseKml', () => {
     // If the CP2 point (lon 50) had leaked in, this would be ~4000km instead of ~2.8km.
     const totalDeg = Math.abs(r.points.lon[2] - r.points.lon[0]) + Math.abs(r.points.lat[2] - r.points.lat[0])
     expect(totalDeg).toBeLessThan(1)
+  })
+})
+
+describe('parseKml COROS device-export detection', () => {
+  const withCoros = `<?xml version="1.0"?><kml><Document><Placemark><name>x</name>
+   <type>running</type><COROS link="https://www.coros.com"/>
+   <LineString><coordinates>116.19,39.99,116 116.20,39.995,120</coordinates></LineString>
+  </Placemark></Document></kml>`
+
+  it('sets meta.creator when a <COROS> marker is present', () => {
+    const r = parseKml(withCoros, 'a.kml')
+    expect(r.meta.creator).toBeDefined()
+  })
+
+  it('via detectCrs, a COROS-marked KML with no other signal is recognised as wgs84/high', () => {
+    const r = parseKml(withCoros, 'no-signal-filename.kml')
+    const d = detectCrs({ creator: r.meta.creator, fileName: 'no-signal-filename.kml' }, {})
+    expect(d.crs).toBe('wgs84')
+    expect(d.confidence).toBe('high')
+  })
+
+  it('leaves meta.creator undefined when there is no <COROS> marker', () => {
+    expect(parseKml(lineKml, 'a.kml').meta.creator).toBeUndefined()
+  })
+
+  it('a KML with no device signal and a neutral filename still detects as unknown confidence', () => {
+    const r = parseKml(lineKml, 'track.kml')
+    const d = detectCrs({ creator: r.meta.creator, fileName: 'track.kml' }, {})
+    expect(d.confidence).toBe('unknown')
   })
 })
 
@@ -213,5 +243,24 @@ describe.skipIf(!existsSync(suppDir))('parseKml real data (崇礼172.8km race KM
     const t2 = await parseFit(bufFrom(fit2), 'b.fit')
     expect(t1.points.lon.length).toBeGreaterThan(0)
     expect(t2.points.lon.length).toBeGreaterThan(0)
+  })
+
+  it('real 崇礼 KML and both real FIT recordings are all detected as wgs84/high (device exports, no manual CRS prompt needed)', async () => {
+    const kmlTrack = parseKml(chongliKml, '崇礼.kml')
+    expect(detectCrs({ creator: kmlTrack.meta.creator, fileName: '崇礼.kml' }, {})).toMatchObject({
+      crs: 'wgs84',
+      confidence: 'high',
+    })
+
+    const bufFrom = (b: Buffer) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
+    for (const f of ['张家口市_越野跑20260710080013.fit', '张家口市_越野跑20260725084217.fit']) {
+      const fit = readFileSync(join(suppDir, f))
+      const t = await parseFit(bufFrom(fit), f)
+      expect(t.meta.creator).toBeDefined()
+      expect(detectCrs({ creator: t.meta.creator, fileName: f }, {})).toMatchObject({
+        crs: 'wgs84',
+        confidence: 'high',
+      })
+    }
   })
 })

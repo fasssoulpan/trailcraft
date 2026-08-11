@@ -78,6 +78,13 @@ export function parseKml(xml: string, fileName: string): Track {
 
   if (lon.length === 0) throw new Error(`KML 无轨迹点: ${fileName}`)
 
+  // COROS 手表导出的 KML 没有 GPX 那样的顶层 creator 属性,但带一个自定义的
+  // `<COROS link="https://www.coros.com"/>` 元素——这是一个明确的设备导出
+  // 标志。映射成 meta.creator 后,直接复用 crs/detect.ts 里已有的、针对
+  // creator 文本的设备签名匹配(WGS84_PAT 已经认识 "coros"),不需要再教
+  // detectCrs 认识 KML 的私有标签、也不削弱它对无信号文件的保守默认值。
+  const creator = /<COROS\b/.test(xml) ? 'COROS' : undefined
+
   return createTrack(
     {
       lon,
@@ -85,7 +92,7 @@ export function parseKml(xml: string, fileName: string): Track {
       ele: hasEle ? ele : undefined,
       time: hasTime ? time : undefined,
     },
-    { name: name ?? fileName, format: 'kml', fileName },
+    { name: name ?? fileName, format: 'kml', fileName, creator },
   )
 }
 
