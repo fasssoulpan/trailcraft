@@ -994,3 +994,29 @@
   font: inherit;
   cursor: pointer;
 }
+
+.map-debug-badge__toggle {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 209, 102, 0.5);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 209, 102, 0.85);
+  font-size: 11px;
+  cursor: pointer;
+}
+.map-debug-badge__close {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 209, 102, 0.5);
+  border-radius: 3px;
+  background: transparent;
+  color: #ffd166;
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  pointer-events: auto;
+}

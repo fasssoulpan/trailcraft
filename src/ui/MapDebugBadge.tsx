@@ -158,11 +158,23 @@ async function runWorkerProbe(setResult: (s: string) => void) {
 export function MapDebugBadge() {
   const [info, setInfo] = useState<MapDebugInfo | undefined>(undefined)
   const [probe, setProbe] = useState<string>('')
+  // Collapsed by default: this covers a good part of the map, and it is only
+  // wanted when something is actually wrong.
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
+    if (!open) return
     const id = window.setInterval(() => setInfo(readMapDebugInfo()), 1000)
     return () => window.clearInterval(id)
-  }, [])
+  }, [open])
+
+  if (!open) {
+    return (
+      <button type="button" className="map-debug-badge__toggle" onClick={() => setOpen(true)}>
+        地图诊断
+      </button>
+    )
+  }
 
   if (!info) {
     return (
@@ -193,7 +205,12 @@ export function MapDebugBadge() {
 
   return (
     <div className="map-debug-badge">
-      <strong>地图诊断</strong>
+      <strong>
+        地图诊断
+        <button type="button" className="map-debug-badge__close" onClick={() => setOpen(false)}>
+          收起
+        </button>
+      </strong>
       <div className="map-debug-badge__verdict">{verdict}</div>
       <div>
         图层 {hasLayer ? '有' : '无'} · 点数 {coords} · 渲染要素 {rendered}
