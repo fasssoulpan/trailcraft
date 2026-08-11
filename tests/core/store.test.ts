@@ -161,6 +161,36 @@ describe('appStore', () => {
     expect(useAppStore.getState().hover).toBeUndefined()
   })
 
+  describe('setTrackKindOverride', () => {
+    it('sets Track.meta.kindOverride on the target track only', () => {
+      const t1 = makeTrack('a.gpx')
+      const t2 = makeTrack('b.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().addTrack(t2)
+      useAppStore.getState().setTrackKindOverride(t1.id, 'recorded')
+      const s = useAppStore.getState()
+      expect(s.tracks.find((t) => t.id === t1.id)!.meta.kindOverride).toBe('recorded')
+      expect(s.tracks.find((t) => t.id === t2.id)!.meta.kindOverride).toBeUndefined()
+    })
+
+    it('clears the override when called with undefined', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      useAppStore.getState().setTrackKindOverride(t1.id, 'planned')
+      expect(useAppStore.getState().tracks[0].meta.kindOverride).toBe('planned')
+      useAppStore.getState().setTrackKindOverride(t1.id, undefined)
+      expect(useAppStore.getState().tracks[0].meta.kindOverride).toBeUndefined()
+    })
+
+    it('does not push an undo entry (same category as updateTrackStyle -- always re-toggleable, no need for Ctrl+Z)', () => {
+      const t1 = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t1)
+      const before = useAppStore.getState().canUndo
+      useAppStore.getState().setTrackKindOverride(t1.id, 'uncertain')
+      expect(useAppStore.getState().canUndo).toBe(before)
+    })
+  })
+
   describe('locate requests', () => {
     it('requestLocate records the track id', () => {
       useAppStore.getState().requestLocate('trk_x')

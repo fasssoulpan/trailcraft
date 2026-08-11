@@ -139,6 +139,43 @@ describe('serializeProject / deserializeProject', () => {
     expect(tracks[0].meta.lineWidth).toBeUndefined()
   })
 
+  it('round-trip preserves a manual track-kind override (Track.meta.kindOverride, P2 §3.1)', () => {
+    // kindOverride round-trips "for free" through project.ts because
+    // trackToFeature/featureToTrack pass the whole meta object through
+    // without an explicit field list (see TrackMeta.kindOverride's own doc
+    // comment) -- same mechanism color/lineWidth already rely on above.
+    const t = createTrack(
+      { lon: [116.1, 116.2], lat: [39.9, 39.91] },
+      { name: '手动覆盖轨迹', format: 'gpx', fileName: 'd.gpx', kindOverride: 'recorded' },
+      'wgs84',
+    )
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    expect(tracks[0].meta.kindOverride).toBe('recorded')
+  })
+
+  it('a track with no override round-trips with kindOverride still undefined (not resurrected as a default)', () => {
+    const t = trackWithoutEle() // never sets kindOverride
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    expect(tracks[0].meta.kindOverride).toBeUndefined()
+  })
+
+  it('a project saved before kindOverride existed in the schema loads without the field rather than crashing', () => {
+    // Simulates a genuinely pre-P2 project file, not just "this track never
+    // set it" (the previous test) -- the key itself is absent from the
+    // serialized meta object, the way a file written before this milestone
+    // would actually look, rather than merely holding an undefined value.
+    const t = trackWithEle()
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const raw = JSON.parse(JSON.stringify(p))
+    delete raw.features[0].properties.meta.kindOverride
+    expect(() => deserializeProject(raw)).not.toThrow()
+    const { tracks } = deserializeProject(raw)
+    expect(tracks).toHaveLength(1)
+    expect(tracks[0].meta.kindOverride).toBeUndefined()
+  })
+
   it('multiple tracks and multiple cps round-trip independently, each cp keeping its own trackId', () => {
     const t1 = trackWithEle()
     const t2 = trackWithoutEle()

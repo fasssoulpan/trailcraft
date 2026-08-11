@@ -207,6 +207,45 @@
   align-self: flex-start;
 }
 
+/* 实跑/规划判别徽章 + 手动覆盖下拉(P2 §3.1,里程碑 Q1)。三态用三种色相
+ * 区分,uncertain 额外加粗——判别为 uncertain 会挡住 Q3 的表现分功能,必须
+ * 比另外两态更抓眼球,提示用户去手动选一个。 */
+.track-list__kind-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.track-list__kind-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.track-list__kind-badge--recorded {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.track-list__kind-badge--planned {
+  background: rgba(96, 165, 250, 0.15);
+  color: #2563eb;
+}
+
+.track-list__kind-badge--uncertain {
+  background: rgba(248, 113, 113, 0.2);
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.track-list__kind-select {
+  font-size: 12px;
+}
+
 .toolbox-panel {
   display: flex;
   flex-direction: column;

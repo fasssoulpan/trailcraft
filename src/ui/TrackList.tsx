@@ -1,7 +1,10 @@
 import { useAppStore } from '../state/appStore'
 import { DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
+import { getTrackKind, resolveTrackKind, TRACK_KIND_LABEL, type TrackKind } from '../core/perf/trackKind'
 
 const CRS_LABEL: Record<string, string> = { wgs84: 'WGS-84', gcj02: 'GCJ-02', bd09: 'BD-09' }
+
+const TRACK_KIND_OPTIONS: TrackKind[] = ['recorded', 'planned', 'uncertain']
 
 const MIN_LINE_WIDTH = 1
 const MAX_LINE_WIDTH = 10
@@ -13,6 +16,7 @@ export function TrackList() {
   const removeTrack = useAppStore((s) => s.removeTrack)
   const updateTrackStyle = useAppStore((s) => s.updateTrackStyle)
   const requestLocate = useAppStore((s) => s.requestLocate)
+  const setTrackKindOverride = useAppStore((s) => s.setTrackKindOverride)
 
   if (tracks.length === 0) {
     return <p className="track-list track-list--empty">尚未导入轨迹</p>
@@ -22,6 +26,12 @@ export function TrackList() {
     <ul className="track-list">
       {tracks.map((t) => {
         const km = (t.points.cumDist?.[t.points.cumDist.length - 1] ?? 0) / 1000
+        // 判别结果驱动 P2 §3.1 的界面分支(里程碑 Q1)——resolveTrackKind 在
+        // 有手动覆盖时返回覆盖值,否则返回(记忆化的)自动判别结果;下拉框
+        // 的"自动"选项永远显示自动判别本身会给出什么,方便用户在手动覆盖后
+        // 仍能看到算法的判断、决定要不要改回去。
+        const resolved = resolveTrackKind(t)
+        const autoKind = getTrackKind(t).kind
         return (
           <li
             key={t.id}
@@ -65,6 +75,36 @@ export function TrackList() {
                   className="track-list__width-input"
                 />
               </label>
+            </span>
+            {/* 实跑/规划/待确认判别徽章 + 手动覆盖下拉。title 放判别依据的中文
+                说明(reason),用户不同意判定结果时至少能看懂为什么——见
+                core/perf/trackKind.ts 的 TrackKindResult.reason 文档注释。
+                uncertain 会挡住 Q3 的表现分功能,靠 --uncertain 徽章样式(见
+                App.css)加粗变红,提醒用户去手动选一个。 */}
+            <span
+              className="track-list__kind-row"
+              onClick={(e) => e.stopPropagation()}
+              title={resolved.reason}
+            >
+              <span className={`track-list__kind-badge track-list__kind-badge--${resolved.kind}`}>
+                {TRACK_KIND_LABEL[resolved.kind]}
+              </span>
+              <select
+                className="track-list__kind-select"
+                value={t.meta.kindOverride ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setTrackKindOverride(t.id, v === '' ? undefined : (v as TrackKind))
+                }}
+                title="手动指定实跑/规划判别结果，选“自动”可撤销覆盖"
+              >
+                <option value="">自动（{TRACK_KIND_LABEL[autoKind]}）</option>
+                {TRACK_KIND_OPTIONS.map((k) => (
+                  <option key={k} value={k}>
+                    {TRACK_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
             </span>
             <span className="track-list__actions" onClick={(e) => e.stopPropagation()}>
               <button

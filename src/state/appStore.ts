@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { newId, type Crs, type Track } from '../core/model/track'
+import type { TrackKind } from '../core/perf/trackKind'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
 import { checkpointsFromWaypoints } from '../core/pipeline/checkpointImport'
@@ -158,6 +159,17 @@ interface AppState {
   addImportedCheckpoints(track: Track, waypoints: KmlWaypoint[]): void
   removeTrack(id: string): void
   updateTrackStyle(id: string, patch: { color?: string; lineWidth?: number }): void
+  /**
+   * 手动覆盖(或清除覆盖,传 `undefined`)某条轨迹的实跑/规划判别结果——
+   * P2 §3.1(里程碑 Q1)"误判时用户可手动覆盖"的验收点。写入
+   * `Track.meta.kindOverride`(该字段的文档注释解释了为什么放在 meta 上:
+   * 免费获得 `core/model/project.ts` 的持久化,不用碰 project.ts 一行代码),
+   * 和 `updateTrackStyle` 同一类操作——都是"随时可再改回去"的属性调整,不
+   * 走撤销栈(不 `history.push`);解析出"最终该显示哪个判别结果"的逻辑
+   * 不在这里,由 `core/perf/trackKind.ts` 的 `resolveTrackKind` 统一做,这里
+   * 只管把用户的选择写进 Track。
+   */
+  setTrackKindOverride(id: string, kind: TrackKind | undefined): void
   setActive(id: string): void
   setHover(h?: HoverState): void
   /**
@@ -342,6 +354,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateTrackStyle: (id, patch) =>
     set((s) => ({
       tracks: s.tracks.map((t) => (t.id === id ? { ...t, meta: { ...t.meta, ...patch } } : t)),
+    })),
+  setTrackKindOverride: (id, kind) =>
+    set((s) => ({
+      tracks: s.tracks.map((t) => (t.id === id ? { ...t, meta: { ...t.meta, kindOverride: kind } } : t)),
     })),
   removeTrack: (id) => {
     const s = get()

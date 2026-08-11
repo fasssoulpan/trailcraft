@@ -31,6 +31,25 @@ export interface TrackMeta {
    */
   color?: string
   lineWidth?: number
+  /**
+   * 用户对 `core/perf/trackKind.ts` 自动判别结果(实跑/规划/待确认)的手动
+   * 覆盖(P2 §3.1,里程碑 Q1)。放在 meta 上而不是新开一个顶层字段/store
+   * 侧的 Record<trackId, ...>,理由和 color/lineWidth 完全一致:
+   * `core/model/project.ts` 的 `trackToFeature`/`featureToTrack` 已经把整个
+   * `meta` 对象原样塞进/读出工程文件的 `properties.meta`——加这个字段不需要
+   * 再碰 project.ts 一行代码就自动获得持久化,旧工程文件(没有这个字段)
+   * 反序列化时这里自然是 `undefined`,不会抛错(与 color/lineWidth 对旧
+   * 工程文件的兼容方式相同)。
+   *
+   * 这里刻意不从 `core/perf/trackKind.ts` import `TrackKind` 类型,而是重复
+   * 写一遍同样的字面量联合——和 `state/appStore.ts` 里 `FlythroughCameraMode`
+   * 的处理理由相同:那个类型所在的模块 import 了 `Track`,反过来这里再 import
+   * 它就会形成类型层面的循环依赖,重复一行字面量联合比冒这个险更便宜。
+   *
+   * 值为 `undefined` 表示"没有手动覆盖,以自动判别结果为准"——见
+   * `core/perf/trackKind.ts` 的 `resolveTrackKind`。
+   */
+  kindOverride?: 'recorded' | 'planned' | 'uncertain'
 }
 
 export interface Track {
