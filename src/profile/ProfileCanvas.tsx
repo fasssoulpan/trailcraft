@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../state/appStore'
 import type { Track } from '../core/model/track'
-import { gradientAt, GRADIENT_WINDOW } from '../core/stats/runningStats'
-import { buildProfileData, indexToX, xToIndex, nearestSamplePos, MAX_PROFILE_POINTS, type ProfileData } from './profileRender'
+import { getHudTrackStats, computeHudReadout, formatHoverParts, type HudTrackStats } from '../ui/hudStats'
+import { indexToX, xToIndex } from './profileRender'
 
-const MAX_POINTS = MAX_PROFILE_POINTS
 const PADDING = { top: 12, right: 16, bottom: 24, left: 48 }
 
 function pickDisplayTrack(tracks: Track[], activeTrackId: string | undefined): Track | undefined {
@@ -43,7 +42,7 @@ function draw(
   cssWidth: number,
   cssHeight: number,
   track: Track | undefined,
-  profile: ProfileData | undefined,
+  stats: HudTrackStats | undefined,
   hoverIndex: number | undefined,
 ): void {
   const dpr = window.devicePixelRatio || 1
@@ -62,7 +61,7 @@ function draw(
   const borderColor = rootStyle.getPropertyValue('--border').trim() || '#e5e4e7'
   const accentColor = rootStyle.getPropertyValue('--accent').trim() || '#aa3bff'
 
-  if (!track || !profile) {
+  if (!track || !stats || !stats.profile) {
     ctx.fillStyle = textColor
     ctx.font = '13px system-ui, sans-serif'
     ctx.textAlign = 'center'
@@ -74,6 +73,7 @@ function draw(
     )
     return
   }
+  const profile = stats.profile
 
   const plotX = PADDING.left
   const plotY = PADDING.top
@@ -189,15 +189,12 @@ function draw(
     ctx.lineTo(x, plotY + plotH)
     ctx.stroke()
 
-    const pos = nearestSamplePos(profile.idx, hoverIndex)
-    const dKm = profile.dist[pos] / 1000
-    const ele = profile.ele[pos]
-    const grad = gradientAt(profile.ele, profile.dist, pos, GRADIENT_WINDOW)
-
-    const parts = [`${dKm.toFixed(2)}km`]
-    parts.push(Number.isFinite(ele) ? `${Math.round(ele)}m` : '—')
-    parts.push(grad != null ? `${grad >= 0 ? '+' : ''}${grad.toFixed(1)}%` : '—')
-    const label = parts.join('  ·  ')
+    // Same HudReadout (mileage/elevation/ascent/gradient) computeHudReadout
+    // feeds the flythrough HUD and the map's hover popup -- see this file's
+    // own import comment and hudStats.ts#formatHoverParts's doc comment for
+    // why this is the single source of truth those three places share.
+    const readout = computeHudReadout(track, stats, hoverIndex)
+    const label = formatHoverParts(readout).join(' · ')
 
     ctx.font = '12px system-ui, sans-serif'
     const textW = ctx.measureText(label).width
@@ -228,9 +225,17 @@ export function ProfileCanvas() {
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const hover = useAppStore((s) => s.hover)
   const setHover = useAppStore((s) => s.setHover)
+  const statsOptions = useAppStore((s) => s.statsOptions)
 
   const track = useMemo(() => pickDisplayTrack(tracks, activeTrackId), [tracks, activeTrackId])
-  const profile = useMemo(() => (track ? buildProfileData(track, MAX_POINTS) : undefined), [track])
+  // Same cached (Track, statsOptions) -> HudTrackStats the flythrough HUD and
+  // the map's hover popup read from (src/ui/hudStats.ts) -- this is also
+  // where `profile` (below) now comes from, rather than a second
+  // `buildProfileData` call, so the chart and the hover readout are built
+  // from literally the same decimated arrays the other two hover-linked
+  // views use.
+  const stats = useMemo(() => (track ? getHudTrackStats(track, statsOptions) : undefined), [track, statsOptions])
+  const profile = stats?.profile
 
   const hoverIndex = hover && track && hover.trackId === track.id ? hover.index : undefined
 
@@ -239,6 +244,8 @@ export function ProfileCanvas() {
   // render — same pattern MapView uses for its map-level listeners.
   const trackRef = useRef(track)
   trackRef.current = track
+  const statsRef = useRef(stats)
+  statsRef.current = stats
   const profileRef = useRef(profile)
   profileRef.current = profile
   const setHoverRef = useRef(setHover)
@@ -249,7 +256,7 @@ export function ProfileCanvas() {
     if (!canvas) return
     const { width, height } = sizeRef.current
     if (width <= 0 || height <= 0) return
-    draw(canvas, width, height, trackRef.current, profileRef.current, hoverIndex)
+    draw(canvas, width, height, trackRef.current, statsRef.current, hoverIndex)
   }
   const redrawRef = useRef(redraw)
   redrawRef.current = redraw
@@ -257,7 +264,7 @@ export function ProfileCanvas() {
   // Redraw whenever the data to display or the hover cursor changes.
   useEffect(() => {
     redrawRef.current()
-  }, [track, profile, hoverIndex])
+  }, [track, stats, hoverIndex])
 
   // Size the canvas to its container and redraw on resize.
   useEffect(() => {

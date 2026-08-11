@@ -9,12 +9,14 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useAppStore, type HoverState } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import { ALL_RASTER_SOURCE_IDS, OSM_STYLE, styleSpecForBasemap } from './basemapStyle'
+import { hoverReadoutLabel } from '../ui/hudStats'
 import {
   findNearestOnTrack,
   locateTrack,
   pixelsToMeters,
   syncCpMarkers,
   syncHoverMarker,
+  syncHoverReadout,
   syncTrackLayers,
   tryPendingFit,
   HOVER_GRAB_PX,
@@ -61,6 +63,7 @@ export function MapView() {
   const locateRequest = useAppStore((s) => s.locateRequest)
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
   const planBasemapStyle = useAppStore((s) => s.planBasemapStyle)
+  const statsOptions = useAppStore((s) => s.statsOptions)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
   // CheckPoint.trackId is the source of truth for which track a CP belongs
@@ -86,6 +89,8 @@ export function MapView() {
   hoverRef.current = hover
   const setHoverRef = useRef(setHover)
   setHoverRef.current = setHover
+  const statsOptionsRef = useRef(statsOptions)
+  statsOptionsRef.current = statsOptions
   const activeTrackRef = useRef(activeTrack)
   activeTrackRef.current = activeTrack
   const cpsRef = useRef(cps)
@@ -171,6 +176,12 @@ export function MapView() {
       loadedRef.current = true
       syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id, { skipFit: !isInitial })
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
+      syncHoverReadout(
+        map,
+        tracksRef.current,
+        hoverRef.current,
+        hoverReadoutLabel(tracksRef.current, hoverRef.current, statsOptionsRef.current),
+      )
       syncCpMarkers(map, activeTrackRef.current, cpsRef.current)
     }
     map.on('style.load', handleStyleLoad)
@@ -331,14 +342,19 @@ export function MapView() {
     syncTrackLayers(map, tracks, activeTrackId)
   }, [tracks, activeTrackId])
 
-  // Re-sync the hover marker whenever hover state changes. Same gate as the
-  // track-sync effect above, and for the same reason.
+  // Re-sync the hover marker (and its readout popup) whenever hover state
+  // changes. Same gate as the track-sync effect above, and for the same
+  // reason. `statsOptions` is in the dep array too -- a mid-session
+  // recalibration (segment table's threshold slider) must update the
+  // popup's ascent figure even though `hover` itself didn't change, exactly
+  // like `ProfileCanvas.tsx`'s own hover readout does via its `stats` dep.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     if (!loadedRef.current) return
     syncHoverMarker(map, tracks, hover)
-  }, [tracks, hover])
+    syncHoverReadout(map, tracks, hover, hoverReadoutLabel(tracks, hover, statsOptions))
+  }, [tracks, hover, statsOptions])
 
   // Re-sync CP markers whenever the CP list, the active track, or the
   // track's own data changes (e.g. a toolbox op replacing the active track

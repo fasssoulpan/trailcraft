@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { createTrack, type Track } from '../../src/core/model/track'
 import { computeCumDist } from '../../src/core/geo/distance'
-import { getHudTrackStats, computeHudReadout, formatHudStats, type HudReadout } from '../../src/ui/hudStats'
+import {
+  getHudTrackStats,
+  computeHudReadout,
+  formatHudStats,
+  formatHoverParts,
+  hoverReadoutLabel,
+  type HudReadout,
+} from '../../src/ui/hudStats'
 import { buildProfileData } from '../../src/profile/profileRender'
 import { computeGainLoss, smoothElevation } from '../../src/core/stats/elevation'
 
@@ -169,5 +176,81 @@ describe('formatHudStats', () => {
   it('returns entries in a stable key order: mileage, ele, ascent, gradient[, hr]', () => {
     const entries = formatHudStats(FULL_READOUT, true)
     expect(entries.map((e) => e.key)).toEqual(['mileage', 'ele', 'ascent', 'gradient', 'hr'])
+  })
+})
+
+// formatHoverParts is the shared text-formatting layer both
+// ProfileCanvas.tsx's hover box (canvas) and trackLayer.ts's map hover popup
+// read from -- see that function's own doc comment for why it's a sibling to
+// formatHudStats rather than a reuse of it.
+describe('formatHoverParts', () => {
+  const FULL_READOUT: HudReadout = {
+    mileageKm: 5.964,
+    elevationM: 660,
+    ascentM: 772,
+    gradientPct: 11.2,
+    heartRateBpm: 140,
+  }
+
+  it('formats distance/elevation/ascent/gradient into a 4-part array in that order', () => {
+    expect(formatHoverParts(FULL_READOUT)).toEqual(['5.96km', '660m', '↑772m', '+11.2%'])
+  })
+
+  it('rounds elevation and ascent to the nearest metre, gradient to one decimal with an explicit sign', () => {
+    const parts = formatHoverParts({ ...FULL_READOUT, elevationM: 274.6, ascentM: 244.5, gradientPct: -7.59 })
+    expect(parts[1]).toBe('275m')
+    expect(parts[2]).toBe('↑245m')
+    expect(parts[3]).toBe('-7.6%')
+  })
+
+  it('never omits heart rate by crashing -- HudReadout may carry it, formatHoverParts simply ignores it', () => {
+    expect(() => formatHoverParts(FULL_READOUT)).not.toThrow()
+    expect(formatHoverParts(FULL_READOUT).join(' ')).not.toContain('140')
+  })
+
+  it('shows the "--" placeholder for elevation/ascent/gradient when a track has no elevation column, never a fabricated 0', () => {
+    const noEle: HudReadout = {
+      mileageKm: 2.5,
+      elevationM: undefined,
+      ascentM: undefined,
+      gradientPct: undefined,
+      heartRateBpm: undefined,
+    }
+    const parts = formatHoverParts(noEle)
+    expect(parts[0]).toBe('2.50km')
+    expect(parts[1]).toBe('--')
+    expect(parts[2]).toBe('--')
+    expect(parts[3]).toBe('--')
+    // Specifically not a fabricated ascent of "↑0m" or a gradient of "0.0%".
+    expect(parts.join(' ')).not.toMatch(/↑0m|0\.0%/)
+  })
+})
+
+describe('hoverReadoutLabel', () => {
+  it('returns undefined when nothing is hovered', () => {
+    const t = makeTrack()
+    expect(hoverReadoutLabel([t], undefined, { threshold: 5, smoothWindow: 5 })).toBeUndefined()
+  })
+
+  it('returns undefined when the hovered trackId is not in tracks (e.g. a stale hover after a delete)', () => {
+    const t = makeTrack()
+    expect(
+      hoverReadoutLabel([t], { trackId: 'missing', index: 0 }, { threshold: 5, smoothWindow: 5 }),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for a track with no elevation column, matching the profile hover box being hidden too', () => {
+    const t = makeTrack({ noEle: true })
+    expect(
+      hoverReadoutLabel([t], { trackId: t.id, index: 3 }, { threshold: 5, smoothWindow: 5 }),
+    ).toBeUndefined()
+  })
+
+  it('produces the same joined line formatHoverParts(computeHudReadout(...)) would, for the same track/index/options', () => {
+    const t = makeTrack({ ele: [100, 110, 120, 130, 140, 150, 160, 170, 180, 190] })
+    const opts = { threshold: 5, smoothWindow: 1 }
+    const stats = getHudTrackStats(t, opts)
+    const expected = formatHoverParts(computeHudReadout(t, stats, 5)).join(' · ')
+    expect(hoverReadoutLabel([t], { trackId: t.id, index: 5 }, opts)).toBe(expected)
   })
 })

@@ -429,6 +429,47 @@
   background: var(--accent-bg);
 }
 
+/* 2D plan-mode map hover readout (trackLayer.ts#syncHoverReadout) -- a
+ * MapLibre Popup anchored to the hover marker, showing the same distance /
+ * elevation / ascent / gradient line ProfileCanvas.tsx draws at its own
+ * hover cursor (src/ui/hudStats.ts#formatHoverParts). Same dark-chrome +
+ * text-shadow treatment as .hud-overlay below, deliberately NOT tied to the
+ * app's --bg/--text theme vars: this sits on top of the map's own basemap
+ * imagery (the light OSM plan view, or the dark/busy Esri satellite view),
+ * not the app chrome, so it needs to stay legible against either one on its
+ * own rather than following the app's light/dark theme.
+ *
+ * pointer-events: none is required on both the outer popup and its inner
+ * content box -- MapLibre's own popup CSS already sets it on the outer
+ * `.maplibregl-popup` wrapper, but re-enables `pointer-events: auto` on
+ * `.maplibregl-popup-content` (so a popup's close button/links stay
+ * clickable in the general case). Without overriding that here, this
+ * popup's DOM would sit on top of the map canvas at the exact point the
+ * cursor is likely to be and swallow the `mousemove` events MapView.tsx's
+ * own hover-detection listener depends on, making hover flicker on/off as
+ * the cursor crosses the popup. */
+.hover-readout-popup {
+  pointer-events: none;
+}
+
+.hover-readout-popup .maplibregl-popup-content {
+  pointer-events: none;
+  padding: 4px 9px;
+  background: rgba(11, 12, 16, 0.82);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.hover-readout-popup .maplibregl-popup-tip {
+  display: none;
+}
+
 .map-cp-form {
   display: flex;
   flex-direction: column;

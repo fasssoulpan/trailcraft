@@ -18,6 +18,11 @@
  */
 import type { Track } from '../core/model/track'
 import type { StatsOptions } from '../core/stats/segments'
+// Type-only -- see this module's file comment and `formatHoverParts`'s doc
+// comment below for why `hoverReadoutLabel` (also below) needs `HoverState`
+// but does not create a runtime dependency on appStore.ts (which does not,
+// in turn, import anything from this module -- no cycle either way).
+import type { HoverState } from '../state/appStore'
 import { buildRunningGainLoss, gradientAt, GRADIENT_WINDOW } from '../core/stats/runningStats'
 import { buildProfileData, nearestSamplePos, type ProfileData } from '../profile/profileRender'
 
@@ -208,4 +213,74 @@ export function formatHudStats(readout: HudReadout, hasHr: boolean): HudStatEntr
     })
   }
   return entries
+}
+
+// ---- 2D plan-mode hover readout (map + profile) --------------------------
+
+/**
+ * Compact single-line hover-readout parts -- distance, elevation, cumulative
+ * ascent, gradient, in that order -- for the 2D plan mode's synchronised
+ * hover readouts: `ProfileCanvas.tsx` draws them onto its canvas readout box,
+ * and `trackLayer.ts#syncHoverReadout`'s map popup renders the identical
+ * joined string. Both sides call this from the SAME `HudReadout` (produced
+ * by `computeHudReadout` off the SAME cached `getHudTrackStats`), so the two
+ * ends of the hover link can only ever show identical figures -- this
+ * function's only job is turning those already-agreed-upon numbers into
+ * text, exactly once.
+ *
+ * Deliberately a SIBLING to `formatHudStats`, not a reuse of it:
+ * `formatHudStats` returns a label/value/unit triple per stat, shaped for a
+ * DOM/canvas *grid* (the flythrough HUD, the video compositor) and always
+ * includes heart rate. This is a single compact line with no per-entry
+ * labels (space is tight -- a canvas box over the profile, a map popup next
+ * to a pin) and no heart rate (2D plan mode has no HR display anywhere else
+ * to stay consistent with). Reusing `formatHudStats` here would mean
+ * building its label/value/unit entries and then immediately throwing the
+ * label/unit halves away -- more code than this small dedicated formatter,
+ * for a shape that doesn't fit the caller.
+ *
+ * Ascent gets a `↑` prefix instead of a label/unit pair, both to keep the
+ * line short and to visually distinguish it from the elevation figure right
+ * next to it. Missing data (no elevation column, or not enough finite
+ * samples around this point for `gradientAt` -- see that function's doc
+ * comment) renders as the same `--` placeholder `formatHudStats` uses, never
+ * a fabricated `0`.
+ */
+export function formatHoverParts(readout: HudReadout): string[] {
+  const distance = `${readout.mileageKm.toFixed(2)}km`
+  const elevation = readout.elevationM !== undefined ? `${Math.round(readout.elevationM)}m` : HUD_PLACEHOLDER
+  const ascent = readout.ascentM !== undefined ? `↑${Math.round(readout.ascentM)}m` : HUD_PLACEHOLDER
+  const gradient =
+    readout.gradientPct !== undefined
+      ? `${readout.gradientPct >= 0 ? '+' : ''}${readout.gradientPct.toFixed(1)}%`
+      : HUD_PLACEHOLDER
+  return [distance, elevation, ascent, gradient]
+}
+
+/**
+ * Distance/elevation/ascent/gradient hover-readout LINE (the joined
+ * `formatHoverParts` string) for a given `HoverState` against the current
+ * `tracks`/`statsOptions` -- the "index → values" lookup `MapView.tsx`'s
+ * hover-marker popup (`trackLayer.ts#syncHoverReadout`) calls on every hover
+ * change, so it and `ProfileCanvas.tsx`'s own hover box are both one call
+ * away from the exact same cached stats.
+ *
+ * Returns `undefined` (no popup) when there's nothing hovered, the hovered
+ * track has since been removed from `tracks`, or the track has no elevation
+ * column at all -- that last case matches `ProfileCanvas.tsx`'s own
+ * behaviour of showing "该轨迹没有海拔数据" instead of a hover box, so the map
+ * popup never shows a readout the profile view has nothing on screen to
+ * agree with.
+ */
+export function hoverReadoutLabel(
+  tracks: Track[],
+  hover: HoverState | undefined,
+  statsOptions: StatsOptions,
+): string | undefined {
+  if (!hover) return undefined
+  const track = tracks.find((t) => t.id === hover.trackId)
+  if (!track) return undefined
+  const stats = getHudTrackStats(track, statsOptions)
+  if (!stats.profile) return undefined
+  return formatHoverParts(computeHudReadout(track, stats, hover.index)).join(' · ')
 }

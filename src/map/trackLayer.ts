@@ -1,4 +1,4 @@
-import { GeoJSONSource, LngLatBounds, Marker, type Map as MapLibreMap } from 'maplibre-gl'
+import { GeoJSONSource, LngLatBounds, Marker, Popup, type Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature, LineString } from 'geojson'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
@@ -418,6 +418,77 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
     hoverMarkers.set(map, marker)
   } else {
     marker.setLngLat([lon, lat])
+  }
+}
+
+// One popup instance per map, mirroring hoverMarkers above -- so repeated
+// hover updates move/restyle the same popup instead of leaking a fresh one
+// per event, and a track switch or unmount can't leave a stale popup glued
+// to the map.
+const hoverPopups = new WeakMap<MapLibreMap, Popup>()
+
+/**
+ * Shows/updates/removes the small text readout anchored at the hover
+ * marker's position -- distance/elevation/ascent/gradient, pre-formatted by
+ * the caller via `ui/hudStats.ts#formatHoverParts` (this function only owns
+ * the MapLibre `Popup` lifecycle, mirroring `syncHoverMarker`'s own split:
+ * that one owns the pin, this one owns the label next to it). `label`
+ * undefined (no hover, or the hovered track has no elevation data to show)
+ * removes the popup, same as `hover` undefined does for the marker.
+ *
+ * A `Popup` (not a hand-rolled absolutely-positioned `<div>`) was picked
+ * because it already does exactly what's needed here -- world-anchored
+ * positioning that tracks pan/zoom for free -- and is the library's own
+ * idiom for "a label next to a point" (see maplibre-gl's own "Display a
+ * popup on hover" example). `closeButton`/`closeOnClick` are both off since
+ * this isn't a dismissible UI element, just a readout that follows the
+ * marker.
+ *
+ * Must not steal the map's own hover detection: `MapView.tsx`'s `mousemove`
+ * listener is bound on the map/canvas, and a popup's DOM sits visually on
+ * top of it at the exact point the cursor is likely to be. MapLibre's own
+ * popup CSS already sets `pointer-events: none` on the outer `.maplibregl-
+ * popup` wrapper, but re-enables `pointer-events: auto` on `.maplibregl-
+ * popup-content` (so a popup's close button / links stay clickable in the
+ * general case) -- see `App.css`'s `.hover-readout-popup` rule, which turns
+ * that back off for this specific popup (targeted via `className` below),
+ * since this content is never meant to be interacted with.
+ */
+export function syncHoverReadout(map: MapLibreMap, tracks: Track[], hover?: HoverState, label?: string): void {
+  if (!hover || !label) {
+    const existing = hoverPopups.get(map)
+    if (existing) {
+      existing.remove()
+      hoverPopups.delete(map)
+    }
+    return
+  }
+
+  const track = tracks.find((t) => t.id === hover.trackId)
+  if (!track) return
+  const lon = track.points.lon[hover.index]
+  const lat = track.points.lat[hover.index]
+  if (lon === undefined || lat === undefined) return
+
+  let popup = hoverPopups.get(map)
+  if (!popup) {
+    // Same setLngLat()-before-addTo() ordering as the Marker above --
+    // Popup.addTo() also unconditionally positions itself off `_lngLat` and
+    // throws if it isn't set yet.
+    popup = new Popup({
+      closeButton: false,
+      closeOnClick: false,
+      anchor: 'top',
+      offset: 16,
+      className: 'hover-readout-popup',
+    })
+      .setLngLat([lon, lat])
+      .setText(label)
+      .addTo(map)
+    hoverPopups.set(map, popup)
+  } else {
+    popup.setLngLat([lon, lat])
+    popup.setText(label)
   }
 }
 
