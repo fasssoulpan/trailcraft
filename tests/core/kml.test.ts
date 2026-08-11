@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseKml } from '../../src/core/parsers/kml'
+import { parseFit } from '../../src/core/parsers/fit'
 
 const lineKml = `<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>线路</name><LineString><coordinates>
  116.19,39.99,116
@@ -27,6 +30,27 @@ const twoLineStringsKml = `<?xml version="1.0"?><kml><Document><Placemark><name>
 
 const emptyKml = `<?xml version="1.0"?><kml><Document><Placemark><name>空</name><LineString><coordinates>
 </coordinates></LineString></Placemark></Document></kml>`
+
+// Mirrors the real 崇礼 KML's shape: everything wrapped in a <Folder>, one
+// <Placemark><LineString> for the track, plus several sibling
+// <Placemark><Point> checkpoints -- the exact structure that made the old
+// document-global <coordinates> regex append stray jump-points onto the
+// track polyline.
+const folderWithPointsKml = `<?xml version="1.0"?>
+<kml><Folder>
+ <Placemark><name>Track</name><LineString><coordinates>
+  116.00,39.90,1000 116.01,39.91,1010 116.02,39.92,1020
+ </coordinates></LineString></Placemark>
+ <Folder>
+  <Placemark><name>CP1起点-0km</name><Point><coordinates>116.00,39.90,1000</coordinates></Point></Placemark>
+  <Placemark><name>CP2中间-5km</name><Point><coordinates>50.00,10.00,1234</coordinates></Point></Placemark>
+ </Folder>
+ <Folder>
+  <name>Laps</name>
+  <Placemark><name>Start</name><Point><coordinates>116.00,39.90,1000</coordinates></Point></Placemark>
+  <Placemark><name>End</name><Point><coordinates>116.02,39.92,1020</coordinates></Point></Placemark>
+ </Folder>
+</Folder></kml>`
 
 describe('parseKml', () => {
   it('parses LineString coordinates lon,lat,ele', () => {
@@ -64,5 +88,59 @@ describe('parseKml', () => {
 
   it('throws on zero coordinates', () => {
     expect(() => parseKml(emptyKml, 'empty.kml')).toThrow()
+  })
+
+  it('excludes <Point> placemark coordinates (Folder-wrapped, CP + Start/End siblings) from the track', () => {
+    const r = parseKml(folderWithPointsKml, 'folder.kml')
+    // Only the 3 LineString vertices -- none of the 4 sibling Point placemarks
+    // (2 named CPs at wildly different coordinates + Start/End) leaked in.
+    expect(r.points.lon.length).toBe(3)
+    expect(Array.from(r.points.lon)).toEqual([116.00, 116.01, 116.02])
+    expect(Array.from(r.points.lat)).toEqual([39.90, 39.91, 39.92])
+    // If the CP2 point (lon 50) had leaked in, this would be ~4000km instead of ~2.8km.
+    const totalDeg = Math.abs(r.points.lon[2] - r.points.lon[0]) + Math.abs(r.points.lat[2] - r.points.lat[0])
+    expect(totalDeg).toBeLessThan(1)
+  })
+})
+
+const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
+const suppDir = join(dataDir, '补充测试轨迹数据')
+
+describe.skipIf(!existsSync(suppDir))('parseKml real data (崇礼172.8km race KML)', () => {
+  const chongliKml = readFileSync(join(suppDir, '路线-崇礼_172_8km-7944m20260706090026.kml'), 'utf-8')
+  const siLingKml = readFileSync(join(suppDir, '路线-四灵反穿20260811095617.kml'), 'utf-8')
+
+  it('parses ~38,509 track points, distance 172.7km ±1km (official 172.8km) with the stray CP points excluded', () => {
+    const r = parseKml(chongliKml, '崇礼.kml')
+    expect(r.points.lon.length).toBeGreaterThan(38000)
+    expect(r.points.lon.length).toBeLessThan(39000)
+
+    let distM = 0
+    for (let i = 1; i < r.points.lon.length; i++) {
+      const dLat = (r.points.lat[i] - r.points.lat[i - 1]) * (Math.PI / 180)
+      const dLon = (r.points.lon[i] - r.points.lon[i - 1]) * (Math.PI / 180)
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(r.points.lat[i - 1] * (Math.PI / 180)) * Math.cos(r.points.lat[i] * (Math.PI / 180)) * Math.sin(dLon / 2) ** 2
+      distM += 2 * 6371008.8 * Math.asin(Math.sqrt(a))
+    }
+    const distKm = distM / 1000
+    expect(distKm).toBeGreaterThan(171.7)
+    expect(distKm).toBeLessThan(173.7)
+  })
+
+  it('parses the 四灵反穿 KML (1 LineString, no checkpoints) without error', () => {
+    const r = parseKml(siLingKml, '四灵.kml')
+    expect(r.points.lon.length).toBeGreaterThan(0)
+  })
+
+  it('both new real COROS FIT recordings parse', async () => {
+    const fit1 = readFileSync(join(suppDir, '张家口市_越野跑20260710080013.fit'))
+    const fit2 = readFileSync(join(suppDir, '张家口市_越野跑20260725084217.fit'))
+    const bufFrom = (b: Buffer) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
+    const t1 = await parseFit(bufFrom(fit1), 'a.fit')
+    const t2 = await parseFit(bufFrom(fit2), 'b.fit')
+    expect(t1.points.lon.length).toBeGreaterThan(0)
+    expect(t2.points.lon.length).toBeGreaterThan(0)
   })
 })
