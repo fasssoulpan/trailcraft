@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.scripts.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode -- matches how `vite-node` (this project's runner for
+       scripts/, see package.json / README) itself resolves relative
+       imports, i.e. extensionless `.ts` specifiers straight into `src/`
+       resolve correctly here too, unlike tsconfig.node.json's `nodenext`
+       (used for vite.config.ts, which is loaded by real Node ESM and
+       therefore does need explicit extensions). */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting -- same strictness as tsconfig.app.json; scripts/ imports
+       straight from src/core and should be held to the same bar. */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["scripts"]
+}
