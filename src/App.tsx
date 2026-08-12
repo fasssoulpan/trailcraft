@@ -8,6 +8,7 @@ import { TrackList } from './ui/TrackList'
 import { ToolboxPanel } from './ui/ToolboxPanel'
 import { CpPanel } from './ui/CpPanel'
 import { PacePanel } from './ui/PacePanel'
+import { PerformancePanel } from './ui/PerformancePanel'
 import { SegmentTable } from './ui/SegmentTable'
 import { ProjectToolbar } from './ui/ProjectToolbar'
 import { ProfileCanvas } from './profile/ProfileCanvas'
@@ -124,6 +125,7 @@ function App() {
         <ToolboxPanel />
         <CpPanel />
         <PacePanel />
+        <PerformancePanel />
       </aside>
       <Splitter
         orientation="vertical"
