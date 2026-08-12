@@ -13,9 +13,9 @@
  * `scoring_v4.js` itself, not in `elevation.js`/`gap.js`/etc.).
  *
  * PI = min(1000, round(C * (kme_v2 / hours)^K * (kme_v2 / KME_REF)^M * envFactor))
- *   C = 126.2   calibration constant (see "P2 Q2 commit 3" below)
- *   K = 0.683   speed exponent
- *   M = 0.295   length-normalisation exponent (see below)
+ *   C = 102.2   calibration constant (see "P2 Q2 commit 4" below)
+ *   K = 0.709   speed exponent
+ *   M = 0.142   length-normalisation exponent (see below)
  *   kme_v2 = dist_km + ascent_m/100 + descent_m/150
  *   KME_REF = 270 (UTMB's classic ~270 km-effort figure -- see calibration.ts;
  *     mathematically a pure labelling convention here, see "P2 Q2 commit 3"
@@ -115,38 +115,98 @@
  * relabelling of C (C·REF^-M is the only quantity that matters), so there
  * was no fit-affecting reason to change it; 270 stays for continuity with
  * the widely-cited "UTMB's ~270 km-effort" reference point. Re-run the
- * script if more calibration rows are added later.
+ * script if more calibration rows are added later. Superseded by commit 4
+ * below.
  *
- * ── LEVELS recalibration (P2 Q2 commit 3) ──────────────────────────────────
- * Thresholds re-derived from scratch against the refitted model (commit 2's
- * 650/500/380/200 don't carry over unchanged -- the elite floor moved).
+ * ── P2 Q2 commit 4: bounding M by endurance physiology (this fix) ──────────
+ * Commit 3's M=0.295 (with K=0.683) implies M/K=0.432 -- i.e. holding PI
+ * constant, the model expects a runner to be ~63% slower over 10x the
+ * km-effort. There is no physiological support for a decay that steep.
+ * Riegel's endurance model (`t ∝ d^r`), the standard empirical reference for
+ * how finishing pace decays with distance, gives r≈1.06 for road running and
+ * r≈1.10-1.20 for ultra-trail (13%-37% slower over 10x distance). In this
+ * model's own terms M/K = r-1 (setting PI equal across two efforts and
+ * solving for the implied pace ratio reduces exactly to Riegel's form), so
+ * the physiologically-admissible region is M/K ∈ [0.10, 0.20] -- commit 3's
+ * unconstrained 2-anchor solve landed more than 2x past the top of that
+ * band. Concretely, this under-scored real short-but-strong efforts: a
+ * 13.87km/781m D+/790m D- run in 1h29m (18.1 km-effort/h, a genuinely strong
+ * pace) scored only 464 (良好) under commit 3.
+ *
+ * Why bound M/K by Riegel instead of fitting all 3 parameters freely again:
+ * the calibration table still has exactly ONE row with a genuinely
+ * independently-published `expectedScore` (the flat anchor, 366) -- every
+ * other row is a real result with no independently-published PI to fit
+ * against (P2 §5: never fabricate one). With 1 numeric anchor and 3 free
+ * parameters, an unconstrained fit is curve-fitting to whatever structural
+ * assumptions get built into the penalty function -- commit 3's own header
+ * documents exactly this failure mode for a blind 2-D penalty search.
+ * Riegel's exponent is an empirical result independent of this table's own
+ * confidence caveats -- the strongest constraint on the shape of the
+ * distance/pace tradeoff actually available -- so this commit uses it as a
+ * hard bound on the search space rather than another row to weight in.
+ *
+ * `scripts/calibrate-perf.ts`'s `fit` mode sweeps M/K over [0.10, 0.20],
+ * solves K exactly so 2025 UTMB men lands at a candidate ceiling T (the flat
+ * anchor eliminates C from that one equation), solves C from the flat
+ * anchor, and searches (M/K, T) for the combination clearing every existing
+ * structural gate (no winner-like row within a safety margin of 1000, the
+ * 崇礼168 category-winner spread check, the real 13.9km/167.7km
+ * monotonicity check) that maximises OCC/Walmsley's score -- i.e. directly
+ * targets the brief's named short-end defect subject to staying inside the
+ * physiologically admissible band. See that file's header for the full
+ * method and for one specific, load-bearing finding: 崇礼168 70km's
+ * (low-confidence, proportionally-ESTIMATED ascent) implied pace is
+ * mathematically incompatible with staying under UTMB men for ANY M/K in
+ * the Riegel band, which is why the safety ceiling this commit lands on
+ * (~808 for UTMB men) sits meaningfully below the ~960 commit 3 achieved --
+ * not a search bug, but the honest cost of holding "never hit 1000" and the
+ * physiological bound simultaneously against that specific low-confidence
+ * row. UTMB men (2025's real winner) still lands solidly 精英级 with real
+ * headroom below the cap.
+ *
+ * Fitted 2026-08 against the same calibration rows as commit 3 (see that
+ * commit's note above); M/K landed at exactly 0.20, the Riegel band's own
+ * upper (steepest-decay) bound -- the "deep ultra-trail" end of the
+ * documented r≈1.10-1.20 range, which the search converges to precisely
+ * because a steeper decay is what best reconciles fixing the short end with
+ * keeping 崇礼168 70km capped. Re-run `npx vite-node scripts/calibrate-perf.ts
+ * fit` to reproduce.
+ *
+ * ── LEVELS recalibration (P2 Q2 commit 4) ───────────────────────────────────
+ * Thresholds re-derived from scratch against the refitted model (commit 3's
+ * 680/500/380/200 don't carry over unchanged -- the elite ceiling moved from
+ * ~960 to ~808, see above).
  *
  * Two anchors, both real, both still holding with real headroom:
  *  1. The reference's own flat anchor (92km/186m D+, 12.75h) scores ~366
- *     under the refit and is explicitly labelled 中等 in the reference's own
- *     header comment -- 良好's threshold must stay above 366 or this
- *     specific, explicitly-documented case gets silently relabelled.
+ *     under the refit (unchanged -- it's the numeric fit's own target) and
+ *     is explicitly labelled 中等 in the reference's own header comment --
+ *     良好's threshold must stay above 366 or this specific,
+ *     explicitly-documented case gets silently relabelled.
  *  2. Every one of the 2026 崇礼168 category winners AND every 2025 UTMB-
  *     week international winner should qualify as 精英级 -- real national-
- *     to-world-class champions. Their scores under the refit range from 703
- *     (崇礼50km, the floor -- an estimated/low-confidence row) up to 960
- *     (UTMB men and 崇礼70km, both pinned to the safety ceiling).
- * 精英级 moves to 680 (round number, ~3% below the 703 floor, same margin
- * convention as commit 2). 优秀/良好/中等 keep 500/380/200 unchanged -- they
- * still correctly place the flat anchor (366, 中等) and give TrailCraft's 12
- * real recordings a sensible 入门-through-精英级 spread (see the milestone
- * report). One side effect worth naming: because 精英级's floor rose (672 ->
- * 703) while M fell (0.38 -> 0.295, reducing the boost long-but-recreational
- * efforts got from raw km-effort alone), a few of TrailCraft's own longer
- * real recordings that were marginally 精英级 under commit 2 (e.g. the
- * 404km recording, 782 -> 645) now land in 优秀 instead -- an expected
- * consequence of fixing the short end, not a regression; the recording that
- * anchored 精英级's ORIGINAL floor requirement (620崇礼68, 167.7km) stays
- * comfortably 精英级 under the refit (803 -> 740, still well above 680).
+ *     to-world-class champions. Their scores under the refit range from 647
+ *     (2025 TDS women, Careth Arnold -- the floor) up to 954 (崇礼168 70km,
+ *     an estimated/low-confidence row -- see commit 4's note above on why
+ *     this row runs high without being force-capped to UTMB men).
+ * 精英级 moves to 620 (round number, ~4% below the 647 floor, same margin
+ * convention as prior commits). 优秀/良好/中等 keep 500/380/200 unchanged --
+ * they still correctly place the flat anchor (366, 中等) and give
+ * TrailCraft's 12 real recordings a sensible 入门-through-精英级 spread (2
+ * 精英级, 5 优秀, 4 良好, 1 中等 as of the 2026-08 refit -- see the milestone
+ * report). One side effect worth naming: because the overall ceiling
+ * compressed (UTMB men 808 vs commit 3's 960), most real recordings' scores
+ * drift down somewhat even though the short end specifically got a boost --
+ * e.g. the 北京市 recording (169km) moves from 良好 (443) to 中等 (363),
+ * while TrailCraft's own 620崇礼68 recording (167.7km, the recording that
+ * anchored 精英级's original floor requirement back in commit 2) still
+ * clears the new, lower 精英级 floor (629, just above 620) -- consistent
+ * with, not a regression of, that original requirement.
  *
  *   Level  | Threshold | Reference's stated meaning (still the intent)
  *   -------|----------:|------------------------------------------------
- *   精英级 |       680 | 职业/国家级精英，大赛冠军/领奖台级
+ *   精英级 |       620 | 职业/国家级精英，大赛冠军/领奖台级
  *   优秀   |       500 | 竞技业余（UTMB 资格线以上，区域赛前 20%）
  *   良好   |       380 | 经验丰富的越野/超马跑者（可完成 50km 山地赛）
  *   中等   |       200 | 能完赛超马的普通跑者
@@ -168,10 +228,10 @@ import { computeKmSplits, type KmSplit } from './splits'
 const DEFAULT_THRESHOLD = 5
 const DEFAULT_SMOOTH_WINDOW = 5
 
-// ── Power-law model parameters (P2 Q2 commit 3 refit -- see header) ───────
-const SPI_C = 126.2
-const SPI_K = 0.683
-const SPI_M = 0.295
+// ── Power-law model parameters (P2 Q2 commit 4 refit -- see header) ───────
+const SPI_C = 102.2
+const SPI_K = 0.709
+const SPI_M = 0.142
 // UTMB's classic ~270 km-effort (170km + 10000m D+ / 100, the widely-cited
 // v1 figure with no descent term) -- a recognisable "this is elite ultra
 // scale" reference point. Intentionally duplicated from calibration.ts's
@@ -186,7 +246,7 @@ export type PerformanceLevel = '精英级' | '优秀' | '良好' | '中等' | '�
  * (every 2026 崇礼168 AND 2025 UTMB-week category winner qualifies as
  * 精英级) and how the other three were derived from it. */
 const LEVELS: { threshold: number; label: PerformanceLevel }[] = [
-  { threshold: 680, label: '精英级' },
+  { threshold: 620, label: '精英级' },
   { threshold: 500, label: '优秀' },
   { threshold: 380, label: '良好' },
   { threshold: 200, label: '中等' },

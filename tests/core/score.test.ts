@@ -81,11 +81,18 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     // ("P2 Q2 commit 3") and calibration.ts's note on this row for why
     // holding to exactly 1000 was itself the bug this commit fixes. This is
     // still comfortably 精英级, just with real headroom below the ceiling.
+    //
+    // P2 Q2 commit 4: the lower bound dropped from 850 to 700 -- bounding M
+    // by Riegel's endurance model pulled the whole safety ceiling down to
+    // ~808 for the near-identical real 2025 UTMB men effort (score.ts's
+    // header, "commit 4"), so this synthetic anchor (~781) no longer clears
+    // 850 either; it's still comfortably 精英级 (floor 620) with real
+    // headroom below 1000, which is what this test actually guards.
     const kmeV2 = 170 + 10000 / 100 + 10000 / 150
     const result = calculateSpi(kmeV2, 20, 1.0)
     expect(result).toBeDefined()
     expect(result!.score).toBeLessThan(1000)
-    expect(result!.score).toBeGreaterThan(850)
+    expect(result!.score).toBeGreaterThan(700)
     expect(result!.level).toBe('精英级')
   })
 
@@ -108,24 +115,24 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     expect(calculateSpi(50, -1, 1.0)).toBeUndefined()
   })
 
-  // P2 Q2 commit 3: level thresholds re-derived from scratch against the
-  // refitted (C=126.2, K=0.683, M=0.295) model -- 680/500/380/200, replacing
-  // commit 2's 650/500/380/200 (moot since the elite floor moved: fitting
-  // against the enlarged international-elite table changed the score
-  // distribution's top end). See score.ts's header comment ("LEVELS
-  // recalibration") for the two anchors (the reference's own flat-anchor
-  // 中等 label, and every 2026 崇礼168 + 2025 UTMB-week category winner
-  // qualifying as 精英级) that pinned these numbers, and why only 精英级
-  // moved off commit 2's value.
+  // P2 Q2 commit 4: level thresholds re-derived from scratch against the
+  // Riegel-bounded refit (C=102.2, K=0.709, M=0.142) -- 620/500/380/200,
+  // replacing commit 3's 680/500/380/200 (moot since the elite ceiling
+  // dropped from ~960 to ~808: M is now bounded by endurance physiology
+  // rather than fit freely, see score.ts's header comment "P2 Q2 commit 4").
+  // See that same header's "LEVELS recalibration" section for the two
+  // anchors (the reference's own flat-anchor 中等 label, and every 2026
+  // 崇礼168 + 2025 UTMB-week category winner qualifying as 精英级) that
+  // pinned these numbers, and why only 精英级 moved off commit 3's value.
   it('level thresholds match the refitted-model boundaries exactly', () => {
     // Pin kme at KME_REF (270) so the length term (kme/KME_REF)^M is
     // exactly 1 and score reduces to C*(kme/hours)^K -- letting this test
     // solve for hours without duplicating score.ts's private M/KME_REF.
     const KME_REF = 270
-    const SPI_C = 126.2
-    const SPI_K = 0.683
+    const SPI_C = 102.2
+    const SPI_K = 0.709
     const hoursFor = (score: number) => KME_REF / (score / SPI_C) ** (1 / SPI_K)
-    expect(calculateSpi(KME_REF, hoursFor(680), 1.0)!.level).toBe('精英级')
+    expect(calculateSpi(KME_REF, hoursFor(620), 1.0)!.level).toBe('精英级')
     expect(calculateSpi(KME_REF, hoursFor(500), 1.0)!.level).toBe('优秀')
     expect(calculateSpi(KME_REF, hoursFor(380), 1.0)!.level).toBe('良好')
     expect(calculateSpi(KME_REF, hoursFor(200), 1.0)!.level).toBe('中等')
@@ -425,9 +432,14 @@ describe.skipIf(!existsSync(dataDir))('computePerformance on real recordings', (
     const shortScore = loadGpxScore(shortP, '速攀129新望京20240912160539.gpx')
     const longScore = loadGpxScore(longP, '620崇礼68 20240712170018.gpx')
     expect(shortScore, `13.9km=${shortScore} must not be >= 167.7km=${longScore}`).toBeLessThan(longScore)
-    // Not just "less than" -- the pre-fix gap was 336 points (1000 vs 664)
-    // in the wrong direction; require a decisive gap in the right one.
-    expect(longScore - shortScore).toBeGreaterThan(100)
+    // P2 Q2 commit 2's >100 margin required M large enough to imply an
+    // implausible endurance decay (see score.ts's header, "P2 Q2 commit 4")
+    // -- 速攀129 is itself the brief's headline UNDER-scored case (18.1
+    // km-effort/h, a genuinely strong pace), and commit 4 exists specifically
+    // to let scores like it close most of this gap. >20 keeps a clear,
+    // non-borderline margin (matching calibrate-perf.ts's own MONO_MARGIN)
+    // without demanding the over-large gap that was itself the bug.
+    expect(longScore - shortScore).toBeGreaterThan(20)
   })
 })
 

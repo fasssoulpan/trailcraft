@@ -1,6 +1,6 @@
 /**
  * Calibration / fitting harness for the performance-score power-law model
- * (P2 Q2 commits 1-2). Run with `npx vite-node scripts/calibrate-perf.ts`.
+ * (P2 Q2 commits 1-3). Run with `npx vite-node scripts/calibrate-perf.ts`.
  *
  * Two modes:
  *   `report` (default) -- evaluate the CURRENT shipped model (`score.ts`'s
@@ -17,65 +17,101 @@
  *     at runtime (P2 Q2 brief: "Implement the fit in the script, not in the
  *     shipped code").
  *
- * ── Fitting method (P2 Q2 commit 3 revision) ───────────────────────────────
- * The model has 3 free parameters (C, K, M). As of this commit, the
- * calibration table has only ONE row with a genuinely independently-
- * published `expectedScore` -- the reference's own flat anchor (366). The
- * other former numeric anchor, the reference's synthetic "mountain anchor"
- * (170km/10000m, 20h -> stated 1000), had its `expectedScore` deliberately
- * REMOVED this commit: real 2025 UTMB winner data lands almost exactly on
- * that same effort level and, per explicit product instruction
- * (「到不了1000 极端情况不考虑」), must NOT hit the cap -- keeping "exactly
- * 1000" as a hard numeric fit target would directly fight the fix this
- * commit makes. See calibration.ts's header for the full reasoning.
+ * ── Fitting method (P2 Q2 commit 4 revision -- current) ────────────────────
+ * Commit 3's method solved (K, M) freely from 2 pinned rows (2025 UTMB men
+ * and 崇礼168 70km both landing exactly at a searched ceiling T). That
+ * produced M=0.295, K=0.683 -- i.e. M/K=0.432, meaning the model expected a
+ * runner to be ~63% slower over 10x the km-effort to score the same. There
+ * is no physiological support for that: Riegel's endurance model (`t ∝
+ * d^r`), the standard empirical reference for how finishing pace decays with
+ * distance, puts road running at r≈1.06 and ultra-trail literature at
+ * r≈1.10-1.20 (13%-37% slower over 10x distance). In this model's terms,
+ * M/K = r-1, so the physiologically-plausible region is M/K ∈ [0.10, 0.20]
+ * -- commit 3's free 2-anchor solve landed M/K more than 2x past the top of
+ * that band, which is why real short-but-strong efforts (a 13.87km/781m D+/
+ * 790m D- run in 1h29m, 18.1 km-effort/h) were scoring in the "良好" band
+ * instead of reflecting the genuinely strong pace behind them.
  *
- * One published point can't determine two unknowns (C, K), and an early
- * version of this commit tried a blind 2-D structural-penalty search over
- * (K, M) (weighting every international row's shortfall from a [900, 960]
- * band quadratically) -- it kept converging back to roughly commit 2's own
- * (K, M), because the quadratic penalty is dominated by whichever row is
- * FARTHEST from the band, and that's 2025 TDS women (Careth Arnold, the
- * slowest pace of the 5 confident international rows): pushing K up to help
- * OCC/Puppi's fast-short profile pushes her shortfall up even more, so the
- * search kept retreating to a low-K region that barely helps the short end
- * at all -- the exact opposite of this commit's job. TDS women isn't a data
- * problem (her time is real, precise to the second); a pure power law
- * genuinely cannot place both her (slow pace, huge kme) and OCC/Puppi (fast
- * pace, small kme) in a 60-point-wide band while ALSO respecting the flat
- * anchor and never capping -- see the milestone report for the 2-equation
- * proof. So this commit does not try to force every international row into
- * band; per the brief ("use that as the objective rather than inventing
- * per-athlete exact scores"), the band is a DIRECTIONAL target, and the
- * headline, explicitly-named defect (OCC/Walmsley and 崇礼50/杨春龙 being
- * under-scored) gets priority over squeezing every row into a tight range.
+ * Why bound M/K instead of just fitting it freely again: the calibration
+ * table still has only ONE row with a genuinely independently-published
+ * `expectedScore` (the flat anchor, 366) -- every other row (崇礼168,
+ * 2025 UTMB-week) is a real result but has NO independently-published PI to
+ * fit against (P2 §5: never fabricate one). With 1 numeric anchor and 3 free
+ * parameters (C, K, M), an unconstrained fit is just curve-fitting to
+ * whichever structural assumptions get baked into the penalty function --
+ * commit 3's own header documents this failure mode (a blind 2-D penalty
+ * search over (K, M) kept sliding back toward the wrong region because
+ * 2025 TDS women's shortfall dominated the quadratic penalty). Riegel's
+ * exponent is the strongest constraint actually available on the shape of
+ * the distance/pace tradeoff -- an empirical result independent of this
+ * table's confidence caveats -- so this commit uses it as a hard bound on
+ * the search space rather than another row to weight into a penalty.
  *
  * The method actually used:
- *   1. Fix a candidate safety ceiling T.
- *   2. Solve (K, M) EXACTLY so that BOTH of the two most cap-adjacent real
- *      rows -- 2025 UTMB men (Tom Evans; the single largest total km-effort
- *      in the table) and 崇礼168 70km (张火话; the single highest implied
- *      pace in the table, an estimated/low-confidence row) -- land at
- *      exactly T. Two equations, two unknowns, closed-form (see `solveKM`).
- *      These are deliberately the two rows most likely to threaten the cap
- *      from opposite mechanisms (huge kme vs huge pace), so pinning both to
- *      the same safe ceiling is a direct, interpretable way to guarantee
- *      real headroom for the whole table, not just the numeric anchor.
+ *   1. Fix a candidate M/K ratio r ∈ [MK_MIN, MK_MAX] (the Riegel-plausible
+ *      band) and a candidate safety ceiling T.
+ *   2. Solve K EXACTLY so that 2025 UTMB men (Tom Evans; the single largest
+ *      total km-effort in the table, and per explicit product instruction
+ *      「到不了1000 极端情况不考虑」 the row that must land comfortably under
+ *      the cap) lands at exactly T, using the flat anchor to eliminate C
+ *      from that one equation (see `solveK`) -- M = r*K follows directly.
+ *      Unlike commit 3, 崇礼168 70km is no longer force-pinned to the same T
+ *      (that was needed to determine 2 free unknowns; bounding M/K removes
+ *      the need for a second pinned equation) -- it now only has to clear
+ *      the same structural gates as every other winner-like row.
  *   3. Solve C EXACTLY from the sole `expectedScore` row (the flat anchor)
  *      for that (K, M) -- trivial weighted-mean-of-one in log space, kept
  *      general so it still works if more genuinely-published rows are added
  *      later (P2 Q2 brief: "weighting rows by confidence").
- *   4. T itself is chosen by a 1-D search (`pickT`) over the T values that
- *      satisfy every HARD structural constraint (see `hardConstraintsOk`:
- *      cap safety with real margin on every 崇礼168/international row, the
- *      13.9km/167.7km monotonicity + recreational-band checks, the 崇礼168
- *      spread check) -- among those, pick the T that maximises OCC/
- *      Walmsley's score, i.e. directly optimise for the brief's named
- *      short-end defect subject to never re-breaking the cap.
- * This is a similar shape to commit 2's method (2 real constraints solve 2
- * unknowns exactly, 1 remaining degree of freedom chosen structurally) but
- * uses a same-ceiling PAIR instead of a single M-search, because with only 1
- * genuinely-published numeric anchor left, (K, M) together are the ones
- * that need pinning down, not just M.
+ *   4. Among every (r, T) pair that satisfies every HARD structural
+ *      constraint (see `hardConstraintsOk`: every winner-like row other than
+ *      the pinned UTMB anchor must stay under a cap-safety margin, the
+ *      崇礼168 category-winner spread check, and the real 13.9km/167.7km
+ *      monotonicity check), pick the pair that maximises OCC/Walmsley's
+ *      score (P2 Q2's other explicitly-named under-scored elite short
+ *      effort), i.e. directly optimise for the brief's named short-end
+ *      defect subject to staying inside the physiologically admissible band
+ *      and never re-breaking the cap.
+ * This is a similar shape to commit 3's method (pin real rows, solve the
+ * rest exactly, pick the remaining freedom by a structural search) but
+ * replaces "solve M freely from a second pinned row" with "bound M/K by
+ * Riegel and search within that band" -- the band, not a second real-world
+ * pin, is what makes the short end of the fit defensible now.
+ *
+ * One documented tension this surfaced: commit 3 force-pinned 崇礼168 70km
+ * (张火话) to the SAME ceiling as UTMB men specifically because, taken at
+ * face value, its numbers (123.6 km-effort in 4.53h, 27.3 km-effort/h) imply
+ * a PACE ~55% higher than the UTMB men's winning pace on only 36% of the
+ * total km-effort -- for ANY K>0, that combination out-scores UTMB men
+ * whenever M/K < ~0.43 (provably so: the score ratio between two rows
+ * collapses to [pace_ratio * kme_ratio^r]^K, independent of K's actual
+ * value, so once the bracketed base exceeds 1 no K can fix it). Since 0.43
+ * is entirely outside the Riegel band [0.10, 0.20], this row will *always*
+ * out-score UTMB men under a physiologically-bounded M -- exact-pinning it
+ * to the same ceiling as commit 3 did is no longer possible without
+ * violating the physiological bound. This row is explicitly flagged 'low'
+ * confidence with an unsourced, proportionally-estimated ascent figure (P2
+ * §5: not sourced, not GPS-measured) -- entirely plausible the true ascent
+ * is higher than the naive proportional estimate (short categories often
+ * front-load a race's steepest terrain rather than spreading it evenly), in
+ * which case the true implied pace is milder than these numbers suggest.
+ * Rather than force-fit the whole model around one low-confidence estimate,
+ * this commit keeps 崇礼70 subject only to the same cap-safety margin as
+ * every other winner-like row (never allowed to approach 1000) and drops
+ * the additional "must not exceed UTMB" requirement for it specifically --
+ * documented here, and in the milestone report, rather than silently
+ * dropped.
+ *
+ * Practical consequence worth naming explicitly: even with that relaxation,
+ * 崇礼70's cap-safety margin AND the 崇礼168 spread check both still tighten
+ * as T rises (崇礼70 is also the largest contributor to the category spread,
+ * being the fastest-implied-pace row) -- so the highest T that clears every
+ * gate settles well below the "~960, rather than drifting" aspiration named
+ * in the brief (T lands in the 800s, not the 900s). This is the honest
+ * consequence of holding both "never hit 1000" and the Riegel bound
+ * simultaneously against a table that includes this specific estimated row
+ * -- not a search bug. UTMB men still lands solidly 精英级 with real
+ * headroom below 1000; see the milestone report for the exact figure.
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -271,53 +307,82 @@ function solveC(rows: CalibrationRow[], K: number, M: number): number | undefine
 }
 
 // ---------------------------------------------------------------------------
-// (K, M) solve for a candidate safety ceiling T: pins BOTH 2025 UTMB men
-// (Tom Evans -- the largest total km-effort in the table) and 崇礼168 70km
-// (张火话 -- the highest implied pace in the table) to exactly T. Two linear
-// equations in (K, M) once everything is expressed in log space relative to
-// the flat anchor -- see the file header for why these two specific rows.
+// K solve for a candidate M/K ratio r and safety ceiling T: pins 2025 UTMB
+// men (Tom Evans -- the largest total km-effort in the table, and the row
+// the product instruction most directly targets: "must not reach 1000") to
+// exactly T, with M constrained to r*K throughout -- one linear equation in
+// K once everything is expressed in log space relative to the flat anchor
+// and M is substituted out. 崇礼168 70km (commit 3's second pinned row) is
+// deliberately NOT pinned here -- bounding M/K removes the need for a
+// second real-world pin to fully determine (K, M); it now only has to clear
+// the same structural gates as every other winner-like row (see
+// `hardConstraintsOk`).
 // ---------------------------------------------------------------------------
 
 const flatAnchorRow = CALIBRATION_TABLE.find((r) => r.expectedScore !== undefined)!
 const utmbMenRow = CALIBRATION_TABLE.find((r) => r.label.includes('Tom Evans'))!
-const chongli70Row = CALIBRATION_TABLE.find((r) => r.label.includes('张火话'))!
 
-function solveKM(T: number): { K: number; M: number } {
+// Riegel's endurance model (t ∝ d^r) is the standard empirical reference for
+// how finishing pace decays with distance: r≈1.06 for road running, r≈
+// 1.10-1.20 for ultra-trail (steeper decay -- terrain/vert compound fatigue
+// beyond flat-road endurance loss). In this model, M/K = r-1 (see score.ts's
+// header for the derivation), so [0.10, 0.20] is the ultra-trail-plausible
+// band for M/K -- not a number tuned to make any one row "feel right", but
+// the physiological bound documented in this file's header.
+const MK_MIN = 0.10
+const MK_MAX = 0.20
+const MK_STEP = 0.002 // ~50 samples across the band; fine enough that the OCC-maximising choice below isn't step-size-limited
+
+function solveK(T: number, r: number): number {
   const kmeA = kmeV2(flatAnchorRow), speedA = kmeA / flatAnchorRow.hours
   const kmeU = kmeV2(utmbMenRow), speedU = kmeU / utmbMenRow.hours
-  const kme7 = kmeV2(chongli70Row), speed7 = kme7 / chongli70Row.hours
-
   const lnT = Math.log(T / flatAnchorRow.expectedScore!)
-  // lnT = K*ln(speedU/speedA) + M*ln(kmeU/kmeA)   (UTMB men lands at T)
-  // lnT = K*ln(speed7/speedA) + M*ln(kme7/kmeA)    (崇礼70 lands at T)
-  const a1 = Math.log(speedU / speedA), a2 = Math.log(kmeU / kmeA)
-  const b1 = Math.log(speed7 / speedA), b2 = Math.log(kme7 / kmeA)
-  const det = a1 * b2 - a2 * b1
-  const K = (lnT * (b2 - a2)) / det
-  const M = (lnT * (a1 - b1)) / det
-  return { K, M }
+  // lnT = K*ln(speedU/speedA) + M*ln(kmeU/kmeA), with M = r*K:
+  // lnT = K*[ln(speedU/speedA) + r*ln(kmeU/kmeA)]
+  const denom = Math.log(speedU / speedA) + r * Math.log(kmeU / kmeA)
+  return lnT / denom
 }
 
 // ---------------------------------------------------------------------------
-// Hard structural constraints a candidate T must satisfy to be usable at
-// all (see file header for why these are HARD gates rather than a weighted
-// penalty -- a quadratic-penalty search over the international band was
-// tried first and demonstrably converged to the wrong region because 2025
-// TDS women's persistent shortfall dominated it). `T_MAX` bounds the search
-// from above (real headroom below 1000, and stays inside the brief's
-// ~900-960 aspirational band); `pickT` then searches downward from there
-// for the highest T that clears every gate, which -- since a higher T
-// directly means a higher K, and OCC/Walmsley's edge is almost entirely
-// pace-driven -- also maximises OCC's score, i.e. directly targets the
-// brief's named short-end defect (OCC, 崇礼50) without the band-penalty's
-// failure mode.
+// Hard structural constraints a candidate (r, T) pair must satisfy to be
+// usable at all (see file header for why these are HARD gates rather than a
+// weighted penalty -- a quadratic-penalty search over the international
+// band was tried in commit 3 and demonstrably converged to the wrong region
+// because 2025 TDS women's persistent shortfall dominated it). `T_MAX`
+// bounds the search from above (real headroom below 1000, and stays inside
+// the brief's ~900-960 aspirational band); `fitParams` searches (r, T) for
+// the combination that clears every gate AND maximises OCC/Walmsley's
+// score, i.e. directly targets the brief's named short-end defect (OCC,
+// 崇礼50, and TrailCraft's own 速攀129 recording) without the band-penalty's
+// failure mode, subject to staying inside the Riegel-plausible M/K band.
+//
+// CAP_SAFETY_MARGIN (985, a fixed number just below 1000) applies to every
+// winner-like row except the pinned UTMB-men anchor -- including 崇礼168
+// 70km, which commit 3 instead force-pinned exactly to T. See the file
+// header ("One documented tension...") for why an exact "must not exceed
+// UTMB" requirement is mathematically impossible for that specific row
+// under a Riegel-bounded M: its low-confidence, estimated ascent implies a
+// pace/kme combination that out-scores UTMB men for every M/K below ~0.43,
+// far outside the [0.10, 0.20] admissible band. The category-winner
+// non-inversion the brief asks to keep is enforced WITHIN 崇礼168 itself via
+// the spread check below, which is the check the P2 Q2 brief's own
+// structural checks (`printStructuralChecks`) actually name.
 // ---------------------------------------------------------------------------
 
 const T_MAX = 960 // upper search bound for the safety ceiling -- top of the brief's assumed elite band, itself well under the hard 1000 cap
-const CAP_SAFETY_MARGIN = 970 // every OTHER winner-like row (not the two pinned to T) must stay under this
-const SPREAD_MAX = 300 // generous max-min band across 崇礼168 category winners -- looser than commit 2's 220 because commit 2's own table only had 2 numeric anchors to pin the whole curve; this commit has 1, so more spread is the honest cost of also fixing the short end (see report)
-const MONO_MARGIN = 150 // 167.7km real recording should beat the 13.9km one by at least this
-const RECREATIONAL_MAX = 520 // upper sanity bound for the 13.9km real recording -- must stay recreational-band, not drift toward elite territory
+const CAP_SAFETY_MARGIN = 985 // every OTHER winner-like row (not the one pinned to T) must stay under this -- real headroom below 1000, restored from commit 3 now that 崇礼168 70km is no longer force-pinned to T either
+const SPREAD_MAX = 300 // generous max-min band across 崇礼168 category winners -- looser than commit 2's 220 because the table has only 1 numeric anchor to pin the whole curve; more spread is the honest cost of also fixing the short end (see report)
+// 167.7km real recording should beat the 13.9km one by at least this. Commit
+// 3's value (150) is unreachable ANYWHERE inside the Riegel band [0.10,
+// 0.20] -- measured margin peaks at ~50-56 points at the band's own upper
+// edge (r=0.20, where M/K best preserves long-effort dominance) and goes
+// NEGATIVE (an actual inversion) below r~0.16, because the whole point of
+// this refit is to let the 13.9km recording's genuinely strong pace (18.1
+// km-effort/h) close most of that gap -- a 150-point margin would only be
+// achievable by keeping M large again, i.e. re-introducing the bug this
+// commit fixes. 30 keeps a clear, non-borderline separation while staying
+// inside what the physiologically-bounded model can actually produce.
+const MONO_MARGIN = 30
 
 // Calibration-table rows have no elevation PROFILE (only scalar
 // distance/ascent/descent), so there's no honest way to compute their
@@ -340,7 +405,7 @@ function winnerRows(): CalibrationRow[] {
 
 function hardConstraintsOk(p: Params, real: RealRecording[]): boolean {
   for (const row of winnerRows()) {
-    if (row === utmbMenRow || row === chongli70Row) continue // pinned to T by construction
+    if (row === utmbMenRow) continue // pinned to T by construction, T <= T_MAX well under the margin below
     const raw = rawScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, p)
     if (raw > CAP_SAFETY_MARGIN) return false
   }
@@ -356,36 +421,43 @@ function hardConstraintsOk(p: Params, real: RealRecording[]): boolean {
   if (short && long) {
     const scoreShort = Math.min(rawScore(short.kmeV2, short.hours, short.envFactor, p), 1000)
     const scoreLong = Math.min(rawScore(long.kmeV2, long.hours, long.envFactor, p), 1000)
+    // Monotonicity only -- P2 Q2 commit 3's fixed RECREATIONAL_MAX=520 was
+    // itself calibrated under the M=0.295/0.38 regime being replaced here,
+    // and this exact 13.9km recording (速攀129, 18.1 km-effort/h) is the
+    // brief's own headline under-scored case, not one that should be capped
+    // back down by a leftover constant -- the monotonicity margin below is
+    // the constraint the brief actually asks to keep ("a short recreational
+    // effort does not outscore a long elite one"), not a specific ceiling.
     if (scoreLong - scoreShort < MONO_MARGIN) return false
-    if (scoreShort > RECREATIONAL_MAX) return false
   }
 
   return true
 }
 
-function fitParams(real: RealRecording[]): { M: number; K: number; C: number; T: number } {
+function fitParams(real: RealRecording[]): { M: number; K: number; C: number; T: number; r: number } {
   const occRow = CALIBRATION_TABLE.find((r) => r.label.includes('Jim Walmsley'))!
-  let best: { T: number; K: number; M: number; C: number; occScore: number } | undefined
+  let best: { T: number; K: number; M: number; C: number; r: number; occScore: number } | undefined
 
-  for (let T = T_MAX; T >= 800; T -= 1) {
-    const { K, M } = solveKM(T)
-    const C = solveC(CALIBRATION_TABLE, K, M)
-    if (C === undefined) continue
-    const p: Params = { C, K, M }
-    if (!hardConstraintsOk(p, real)) continue
-    const occScore = rawScore(kmeV2(occRow), occRow.hours, CALIBRATION_ROW_ENV_FACTOR, p)
-    if (!best || occScore > best.occScore) best = { T, K, M, C, occScore }
-    break // T descends from T_MAX, and a higher T -> higher K -> higher OCC
-    // score in this parameterisation (verified empirically -- see the
-    // milestone report), so the FIRST T that clears every gate is also the
-    // OCC-maximising one; the loop still walks downward from T_MAX rather
-    // than assuming this so a future calibration-table change that breaks
-    // the monotonicity gets a correct (if slower) answer, not a silent bug
-    // -- remove the `break` to fall back to an exhaustive scan.
+  // Brute-force 2-D search over (T, r=M/K): unlike commit 3's single-M
+  // solve, a smaller r monotonically helps some rows and hurts others in
+  // ways not verified analytically here, so this scans the full admissible
+  // grid rather than assuming a shortcut and stopping early.
+  for (let T = T_MAX; T >= 600; T -= 1) {
+    for (let r = MK_MIN; r <= MK_MAX + 1e-9; r += MK_STEP) {
+      const K = solveK(T, r)
+      if (!(K > 0)) continue
+      const M = r * K
+      const C = solveC(CALIBRATION_TABLE, K, M)
+      if (C === undefined) continue
+      const p: Params = { C, K, M }
+      if (!hardConstraintsOk(p, real)) continue
+      const occScore = rawScore(kmeV2(occRow), occRow.hours, CALIBRATION_ROW_ENV_FACTOR, p)
+      if (!best || occScore > best.occScore) best = { T, K, M, C, r, occScore }
+    }
   }
 
-  if (!best) throw new Error('fit failed: no T in range satisfied every hard constraint (check calibration table / real recordings)')
-  return { M: best.M, K: best.K, C: best.C, T: best.T }
+  if (!best) throw new Error('fit failed: no (r, T) in range satisfied every hard constraint (check calibration table / real recordings)')
+  return { M: best.M, K: best.K, C: best.C, T: best.T, r: best.r }
 }
 
 // ---------------------------------------------------------------------------
@@ -496,11 +568,12 @@ async function main() {
 
   if (mode === 'fit') {
     console.log('== Fitting C, K, M against the calibration table ==')
-    console.log('(K, M solved exactly for a candidate ceiling T so that BOTH 2025 UTMB men and 崇礼168 70km land')
-    console.log(' at T; C then solved exactly from the flat anchor; T searched downward from 960 for the highest')
-    console.log(' value clearing every hard cap/monotonicity/recreational-band gate -- see file header for why.)')
-    const { M, C, K, T } = fitParams(real)
-    console.log(`\nfitted: C=${C.toFixed(4)}  K=${K.toFixed(4)}  M=${M.toFixed(4)}  (KME_REF=${UTMB_KME_REF_V1}, T=${T})`)
+    console.log(`(M/K=r-1 swept over the Riegel-plausible band [${MK_MIN}, ${MK_MAX}]; K solved exactly for each (r, T)`)
+    console.log(' so 2025 UTMB men lands at T; C then solved exactly from the flat anchor; (r, T) chosen from every')
+    console.log(' combination clearing every hard cap/inversion/spread/monotonicity gate by maximising OCC/Walmsley\'s')
+    console.log(' score -- see file header for why.)')
+    const { M, C, K, T, r } = fitParams(real)
+    console.log(`\nfitted: C=${C.toFixed(4)}  K=${K.toFixed(4)}  M=${M.toFixed(4)}  (KME_REF=${UTMB_KME_REF_V1}, T=${T}, M/K=${r.toFixed(4)}, Riegel r=${(1 + r).toFixed(4)})`)
 
     const params: Params = { C, K, M }
     const score = (row: CalibrationRow) => cappedScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, params)
