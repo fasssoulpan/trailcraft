@@ -237,7 +237,6 @@ export class FlythroughEngine {
   private readonly idx: Uint32Array
   private readonly trackEle?: Float32Array
   private readonly hasElevationColumn: boolean
-  private readonly baseSpeedMps: number
   private readonly onProgress?: (info: FlythroughProgressInfo) => void
 
   /** True when the source track had no recorded timestamps at all and
@@ -246,6 +245,16 @@ export class FlythroughEngine {
    * estimate, not the recorded pace. */
   readonly syntheticTimeline: boolean
   readonly totalMileageM: number
+  /** This track's own "1x" pace (m/s, see `cameraPath.ts#averageSpeedMps`) --
+   * public for the same reason `totalMileageM` is: P2's deterministic
+   * frame-by-frame renderer (`frameSchedule.ts#FrameScheduleConfig.speedMps`)
+   * needs the exact metres-per-second-of-virtual-time this engine's own
+   * `speedToMileageDelta` calls would use, multiplied by `getSpeed()`'s
+   * current multiplier -- reading it here keeps that one number defined in
+   * exactly one place instead of re-deriving it from `totalMileageM` divided
+   * by `FlythroughProgressInfo.baseDurationSeconds` (which is only ever
+   * available a tick late, via the `onProgress` callback). */
+  readonly baseSpeedMps: number
 
   private playing = false
   private speedMultiplier = DEFAULT_SPEED

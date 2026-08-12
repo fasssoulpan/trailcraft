@@ -51,20 +51,32 @@
  * wants with the flag; the recorder's assertion always wins within one
  * animation frame. Restored to `true` (mirroring `FlythroughEngine.pause()`'s
  * own convention) exactly once, when the `MediaRecorder` actually stops.
+ *
+ * ---- P2 Q4 update: this is now the FALLBACK path, not the only path ----
+ * `cesium/frameExport.ts` (P2 §3.4, milestone Q4) is the new primary export
+ * pipeline: a deterministic, frame-rate-decoupled frame-by-frame renderer
+ * producing H.264 MP4 via WebCodecs. This module's real-time
+ * `MediaRecorder`-based capture is kept, unmodified in behaviour, as the
+ * runtime fallback `frameExport.ts` uses when WebCodecs/H.264 isn't
+ * available (see that module's own capability probe) -- so the file
+ * comment above (the whole "预览级" explanation) is still accurate, just
+ * scoped to "when this path is the one actually running" rather than "the
+ * only path that exists". The HUD/checkpoint-card/radar latching logic that
+ * used to live inline in `startRecording` below now lives in
+ * `captureOverlaySnapshot.ts`, shared with `deterministicRenderer.ts` so the
+ * two capture paths can never silently draw different overlay content for
+ * the same mileage.
  */
 import type { Viewer } from 'cesium'
 import type { FlythroughEngine, FlythroughProgressInfo } from './flythrough'
-import { projectRadarCenter } from './radarProjection'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
 import type { StatsOptions } from '../core/stats/segments'
-import { getHudTrackStats, computeHudReadout, formatHudStats, type HudStatEntry } from '../ui/hudStats'
-import { pickApproachingCheckpoint, buildCheckpointCardData, type CheckpointCardData } from '../ui/checkpointApproach'
-import { chooseRadarRings, type RadarRingSet } from '../overlay/radarMath'
-import { buildRadarTargets, type RadarTargetSet } from '../overlay/radarTargets'
 import { computeCaptureLayout } from '../overlay/captureLayout'
 import { drawHudEntries, drawCheckpointCard, drawRadarCapture } from '../overlay/captureDraw'
 import { FrameCompositor } from '../overlay/frameCompositor'
+import { createOverlaySnapshotLatch } from './captureOverlaySnapshot'
+import { sanitizeFilenameStem, filenameTimestamp, triggerBlobDownload } from './triggerBlobDownload'
 
 export type RecorderStatus = 'recording' | 'saving' | 'idle'
 
@@ -75,10 +87,6 @@ export const RECORDING_HEIGHT = 1080
 const RECORDING_FPS = 30
 const RECORDING_BITRATE_BPS = 8_000_000
 const DATA_CHUNK_INTERVAL_MS = 200
-/** Matches RadarOverlay.tsx's own RADIUS_MARGIN_PX (reserves room for ring
- * distance labels drawn just outside their own ring), scaled to the
- * recording resolution the same way every other capture constant is. */
-const RADAR_LABEL_MARGIN_PX = 24
 
 const MIME_CANDIDATES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
 
@@ -175,16 +183,13 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
   const width = options.width ?? RECORDING_WIDTH
   const height = options.height ?? RECORDING_HEIGHT
   const layout = computeCaptureLayout(width, height)
-  const hasHr = track.points.hr !== undefined
 
-  // Latest per-frame overlay content -- written by onProgress below, read
-  // by the compositor's drawOverlays callback. Same imperative-snapshot
-  // discipline HudOverlay.tsx/CheckpointCard.tsx/RadarOverlay.tsx use for
-  // their own 60Hz updates via refs; there's no React component here to
-  // hold a ref, so these are just closure-local variables instead.
-  let hudEntries: HudStatEntry[] = []
-  let checkpointCard: CheckpointCardData | undefined
-  let radar: { ringSet: RadarRingSet; headingRad: number; metersPerPixel: number; targetSet: RadarTargetSet } | undefined
+  // Latest per-frame overlay content -- written by the latch's onProgress
+  // (called from this handle's own onProgress below), read by the
+  // compositor's drawOverlays callback. See `captureOverlaySnapshot.ts`'s
+  // own doc comment for why this logic is shared with the deterministic
+  // renderer rather than living here as before.
+  const overlayLatch = createOverlaySnapshotLatch({ viewer, track, cps, statsOptions, radarEnabled: options.radarEnabled, layout })
 
   let compositor: FrameCompositor
   try {
@@ -196,6 +201,7 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
         // Re-asserted every frame -- see this module's file comment on why
         // this must not be a one-time assignment at start().
         if (!viewer.isDestroyed()) viewer.scene.requestRenderMode = false
+        const { hudEntries, checkpointCard, radar } = overlayLatch.snapshot
         if (hudEntries.length > 0) drawHudEntries(ctx, hudEntries, layout.hud)
         if (checkpointCard) drawCheckpointCard(ctx, checkpointCard, layout.checkpointCard)
         if (radar) {
@@ -228,20 +234,8 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
     options.onStateChange('saving')
 
     const blob = new Blob(chunks, { type: mimeType })
-    const url = URL.createObjectURL(blob)
-    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-    const safeName = track.meta.name.replace(/[\\/:*?"<>|]/g, '_') || 'flythrough'
-    const filename = `${safeName}-${ts}.webm`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    // Delayed release, not immediate -- gives the browser's own download
-    // handling time to actually read the blob before its URL is revoked
-    // (matches the reference implementation's own 3s delay).
-    setTimeout(() => URL.revokeObjectURL(url), 3000)
+    const filename = `${sanitizeFilenameStem(track.meta.name, 'flythrough')}-${filenameTimestamp()}.webm`
+    triggerBlobDownload(blob, filename)
 
     options.onStateChange('idle')
   }
@@ -270,34 +264,7 @@ export function startRecording(options: StartRecordingOptions): RecorderHandle |
   function onProgress(info: FlythroughProgressInfo): void {
     if (stopped) return
 
-    const stats = getHudTrackStats(track, statsOptions)
-    hudEntries = formatHudStats(computeHudReadout(track, stats, info.pointIndex), hasHr)
-
-    const approachingCp = pickApproachingCheckpoint(cps, track, info.mileageM)
-    checkpointCard = approachingCp ? buildCheckpointCardData(approachingCp, track) : undefined
-
-    if (options.radarEnabled) {
-      const projection = projectRadarCenter(viewer)
-      const maxRadiusPx = layout.radar.scopeSize / 2 - RADAR_LABEL_MARGIN_PX * layout.scale
-      radar =
-        projection && maxRadiusPx > 0
-          ? {
-              ringSet: chooseRadarRings(projection.metersPerPixel, maxRadiusPx),
-              headingRad: projection.headingRad,
-              metersPerPixel: projection.metersPerPixel,
-              // Reuses `stats.gain` computed just above for the HUD's own
-              // ascent figure -- same track, same statsOptions, so this is
-              // the one already-cached array (see hudStats.ts's WeakMap),
-              // not a second O(track length) pass. See radarTargets.ts's
-              // file comment for why the pure target-building function
-              // takes the prefix array as a plain argument instead of
-              // computing it itself.
-              targetSet: buildRadarTargets(track, cps, info.pointIndex, projection.headingRad, stats.gain),
-            }
-          : undefined
-    } else {
-      radar = undefined
-    }
+    overlayLatch.onProgress(info)
 
     // Auto-stop once the flythrough has actually finished. flythrough.ts's
     // handleTick flips isPlaying false exactly once, at the instant mileage
