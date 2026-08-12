@@ -873,8 +873,27 @@
 }
 
 .fly-controls__record-hint {
+  margin: 0;
   font-size: 12px;
   color: #d1d5db;
+}
+
+/* Export progress bar (ui/FlyControls.tsx, P2 §3.4 milestone Q4) -- only
+ * rendered while the deterministic renderer's prefetch/rendering phases are
+ * in progress (both report a meaningful index/total; the fallback's
+ * MediaRecorder path and the encoder-finalize/save phases don't have a
+ * frame count to show progress against). */
+.fly-controls__export-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.fly-controls__export-progress-bar {
+  height: 100%;
+  background: #38bdf8;
+  transition: width 0.15s linear;
 }
 
 /* Composable overlay layer (ui/FlyOverlayLayer.tsx), milestone N4 -- covers

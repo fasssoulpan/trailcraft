@@ -16,6 +16,7 @@
     "fit-file-parser": "^4.1.0",
     "idb": "^8.0.3",
     "maplibre-gl": "^6.1.0",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.14"

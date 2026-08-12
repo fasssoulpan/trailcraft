@@ -1,5 +1,10 @@
 import type { CameraMode, FlythroughProgressInfo } from '../cesium/flythrough'
-import type { RecorderStatus } from '../cesium/recorder'
+import {
+  EXPORT_RESOLUTIONS,
+  type ExportProgressInfo,
+  type ExportMode,
+  type ExportResolutionKey,
+} from '../cesium/exportResolutions'
 import { useAppStore } from '../state/appStore'
 
 // Only ever referenced as a type here -- erased entirely at compile time,
@@ -49,33 +54,51 @@ export interface FlyControlsProps {
   progress?: FlythroughProgressInfo
   onTogglePlay: () => void
   onSeek: (progress: number) => void
-  /** Video recording (P1 §2.1 交付物 8, milestone N5) -- state/handlers all
-   * owned by `FlyView.tsx` (it holds the `viewer`/`engine`/`track` a
-   * recording is tied to), forwarded here the same way playback's own
-   * `progress`/`onTogglePlay`/`onSeek` are. */
-  recordingStatus: RecorderStatus
-  /** The codec `MediaRecorder.isTypeSupported` picked (VP9 > VP8 > generic
-   * webm) -- `undefined` until a recording has actually started once. */
-  recordingCodec?: string
-  /** Set when starting failed (unsupported browser, no 2D canvas context,
-   * ...) -- cleared automatically on the next successful start. */
-  recordingError?: string
-  onStartRecording: () => void
-  onStopRecording: () => void
+  /** Video export (P1 §2.1 交付物 8 milestone N5; deterministic pipeline P2
+   * §3.4 milestone Q4) -- state/handlers all owned by `FlyView.tsx` (it
+   * holds the `viewer`/`engine`/`track` an export is tied to), forwarded
+   * here the same way playback's own `progress`/`onTogglePlay`/`onSeek`
+   * are. `undefined` whenever no export is currently running. */
+  exportProgress?: ExportProgressInfo
+  /** Which pipeline actually ran, once `frameExport.ts`'s async capability
+   * probe resolves -- `undefined` until then (or before any export has ever
+   * been started). See `PHASE_LABEL`/the record-row hint below for how this
+   * drives the honest-labelling requirement. */
+  exportMode?: ExportMode
+  /** Short human-readable detail for `exportMode` (e.g. "H.264 MP4 · 4K ·
+   * 30fps", or the fallback's reason for not using WebCodecs). */
+  exportModeDetail?: string
+  /** Set when starting or running the export failed -- cleared automatically
+   * on the next successful start. */
+  exportError?: string
+  exportResolutionKey: ExportResolutionKey
+  onExportResolutionChange: (key: ExportResolutionKey) => void
+  onStartExport: () => void
+  onCancelExport: () => void
 }
 
 function formatKm(mileageM: number): string {
   return (mileageM / 1000).toFixed(2)
 }
 
-/** Short display name for the codec `recorder.ts#pickMimeType` chose --
- * mirrors the brief's "report which codec was chosen" without the UI having
- * to know the exact mime-type string syntax. */
-function codecLabel(mimeType: string | undefined): string | undefined {
-  if (!mimeType) return undefined
-  if (mimeType.includes('vp9')) return 'VP9'
-  if (mimeType.includes('vp8')) return 'VP8'
-  return 'WebM'
+const EXPORT_PHASE_LABEL: Record<ExportProgressInfo['phase'], string> = {
+  probing: '正在检测编码能力…',
+  prefetching: '预取瓦片中',
+  rendering: '渲染帧',
+  finalizing: '正在合成 MP4…',
+  saving: '正在保存…',
+  idle: '',
+}
+
+/** "预取瓦片中 12/48" / "渲染帧 342/18000" -- the two phases that carry a
+ * meaningful `index`/`total`; the others are a fixed label with no counter
+ * (`total` is reported as `0` for those, see `frameExport.ts`). */
+function formatExportPhase(info: ExportProgressInfo): string {
+  const label = EXPORT_PHASE_LABEL[info.phase]
+  if (info.total > 0 && (info.phase === 'prefetching' || info.phase === 'rendering')) {
+    return `${label} ${info.index}/${info.total}`
+  }
+  return label
 }
 
 /**
@@ -99,11 +122,14 @@ export function FlyControls({
   progress,
   onTogglePlay,
   onSeek,
-  recordingStatus,
-  recordingCodec,
-  recordingError,
-  onStartRecording,
-  onStopRecording,
+  exportProgress,
+  exportMode,
+  exportModeDetail,
+  exportError,
+  exportResolutionKey,
+  onExportResolutionChange,
+  onStartExport,
+  onCancelExport,
 }: FlyControlsProps) {
   const speed = useAppStore((s) => s.flythroughSpeed)
   const setSpeed = useAppStore((s) => s.setFlythroughSpeed)
@@ -173,27 +199,50 @@ export function FlyControls({
       </div>
 
       <div className="fly-controls__row fly-controls__row--record">
+        <div className="fly-controls__group" role="group" aria-label="导出分辨率">
+          {(Object.keys(EXPORT_RESOLUTIONS) as ExportResolutionKey[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={key === exportResolutionKey ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
+              disabled={exportProgress !== undefined}
+              onClick={() => onExportResolutionChange(key)}
+            >
+              {EXPORT_RESOLUTIONS[key].label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
-          className={
-            recordingStatus === 'recording' ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'
-          }
-          disabled={recordingStatus === 'saving'}
-          onClick={recordingStatus === 'recording' ? onStopRecording : onStartRecording}
+          className={exportProgress !== undefined ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
+          onClick={exportProgress !== undefined ? onCancelExport : onStartExport}
         >
-          {recordingStatus === 'recording' ? '停止录制' : recordingStatus === 'saving' ? '生成中…' : '录制视频'}
+          {exportProgress !== undefined ? '取消导出' : '导出视频'}
         </button>
-        {/* 预览级标注 (P1 §1.4/R4): 实时 MediaRecorder 录屏会丢帧且分辨率受限,
-            与 P2 的确定性逐帧渲染管线不是同一质量水平 -- 这行文字必须一直可见,
-            不只是录制中才出现,用户不应该把这次录制误当作最终画质上限。 */}
-        <span className="fly-controls__record-hint">
-          预览级 1080p 实时录屏
-          {recordingStatus === 'recording' && '（录制中…）'}
-          {recordingStatus === 'saving' && '（正在生成视频…）'}
-          {recordingStatus === 'idle' && recordingCodec && `（上次编码：${codecLabel(recordingCodec)}）`}
-        </span>
       </div>
-      {recordingError && <p className="fly-controls__hint fly-controls__hint--error">{recordingError}</p>}
+      {/* 诚实标注 (P2 §3.4): 确定性渲染管线运行时标注为确定性 MP4 导出；
+          若 WebCodecs 不可用而降级为 P1 的实时 MediaRecorder 录屏，则必须
+          继续显示"预览级"，不得把降级结果误标为确定性成片 -- 这行文字必须
+          一直可见，不只是导出中才出现，用户不应该把上一次的结果误认成当前
+          将要发生的事。 */}
+      <p className="fly-controls__record-hint">
+        {exportProgress !== undefined
+          ? formatExportPhase(exportProgress)
+          : exportMode === 'deterministic'
+            ? `确定性逐帧渲染 · ${exportModeDetail}`
+            : exportMode === 'fallback'
+              ? `预览级实时录屏（WebCodecs 不可用：${exportModeDetail}）`
+              : '支持确定性 H.264 MP4 导出（1080p / 4K）；浏览器不支持 WebCodecs 时自动降级为预览级实时录屏'}
+      </p>
+      {exportProgress !== undefined && (exportProgress.phase === 'prefetching' || exportProgress.phase === 'rendering') && exportProgress.total > 0 && (
+        <div className="fly-controls__export-progress" role="progressbar" aria-valuemin={0} aria-valuemax={exportProgress.total} aria-valuenow={exportProgress.index}>
+          <div
+            className="fly-controls__export-progress-bar"
+            style={{ width: `${Math.min(100, (exportProgress.index / exportProgress.total) * 100)}%` }}
+          />
+        </div>
+      )}
+      {exportError && <p className="fly-controls__hint fly-controls__hint--error">{exportError}</p>}
 
       {syntheticTimeline && (
         <p className="fly-controls__hint">该轨迹没有记录的时间戳，巡游时长为按里程估算，非实际用时</p>
