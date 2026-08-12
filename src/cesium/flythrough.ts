@@ -53,9 +53,11 @@ import {
 
 export type CameraMode = 'follow' | 'orbit' | 'free'
 
-export const MIN_SPEED = 1
-export const MAX_SPEED = 20
-const DEFAULT_SPEED = 1
+// Re-exported from speedOptions.ts so the engine's bounds and the UI's ladder
+// cannot drift apart -- they did once, with the UI offering 500x while this
+// clamped to 20x, making the four fastest buttons no-ops.
+export { MIN_SPEED, MAX_SPEED, DEFAULT_SPEED } from './speedOptions'
+import { clampSpeed, DEFAULT_SPEED } from './speedOptions'
 
 // Fallback "1x" pace (m/s) when a track's own average pace can't be derived
 // (zero/degenerate duration) -- same value as trackGeometry.ts's
@@ -371,7 +373,7 @@ export class FlythroughEngine {
   }
 
   setSpeed(multiplier: number): void {
-    this.speedMultiplier = Math.min(MAX_SPEED, Math.max(MIN_SPEED, multiplier))
+    this.speedMultiplier = clampSpeed(multiplier)
   }
 
   setCameraMode(mode: CameraMode): void {

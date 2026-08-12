@@ -13,14 +13,10 @@ import { useAppStore } from '../state/appStore'
 // Cesium-touching modules themselves; see FlyView.tsx's own
 // TrackEntitiesModule/CpEntitiesModule comment for the same pattern).
 
-// 1x is the track's own recorded pace (see cameraPath.ts#averageSpeedMps), so
-// playback duration is recorded-duration / multiplier. That makes the useful
-// range enormously track-dependent: a 14 km outing replays in ~5 min at 20x,
-// while a 172 km race route (19 h of synthesized time) still needs ~57 min at
-// the same multiplier. Hence the ladder runs well past 20x, and the estimated
-// playback duration is shown alongside so the right choice is obvious rather
-// than something you discover by waiting.
-const SPEED_OPTIONS = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+// Shared with the engine so the ladder and its clamp cannot diverge -- see
+// speedOptions.ts. (Cesium-free module, so this import does not drag the 3D
+// engine into the main bundle.)
+import { SPEED_OPTIONS } from '../cesium/speedOptions'
 
 /** "1小时02分" / "4分30秒" / "45秒" -- estimated wall-clock playback time. */
 function formatPlaybackDuration(seconds: number): string {
