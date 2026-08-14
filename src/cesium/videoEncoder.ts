@@ -48,6 +48,58 @@
  */
 import { Muxer, StreamTarget } from 'mp4-muxer'
 
+/** One `StreamTarget#onData` write: the bytes, and the offset the muxer
+ * wants them at. Exported for the assembly function's own tests. */
+export interface MuxerChunk {
+  position: number
+  data: Uint8Array
+}
+
+/**
+ * Assembles the muxer's writes into the final file, honouring each chunk's
+ * byte offset rather than assuming call order equals file order.
+ *
+ * With `fastStart: 'fragmented'` the writes are append-only in practice, so
+ * the fast path here is a plain in-order concatenation. The slow path exists
+ * because `mp4-muxer` explicitly reserves the right to rewrite an earlier
+ * offset, and a blind append in that case yields a file that looks fine at
+ * first and then breaks -- exactly the failure mode its own one-arg-`onData`
+ * warning is about.
+ *
+ * Pure and Blob-free so it can be unit-tested in Node; the caller wraps the
+ * result in a `Blob`.
+ */
+export function assembleMuxerChunks(chunks: MuxerChunk[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0)
+
+  let inOrder = true
+  let expected = 0
+  let end = 0
+  for (const c of chunks) {
+    if (c.position !== expected) inOrder = false
+    expected = c.position + c.data.length
+    end = Math.max(end, c.position + c.data.length)
+  }
+
+  const out = new Uint8Array(end)
+  if (inOrder) {
+    let at = 0
+    for (const c of chunks) {
+      out.set(c.data, at)
+      at += c.data.length
+    }
+    return out
+  }
+  // Out-of-order/overlapping writes: later writes win at any given offset,
+  // which is what "patch a box already emitted" means.
+  for (const c of chunks) out.set(c.data, c.position)
+  return out
+}
+
+function assembleMp4Blob(chunks: MuxerChunk[]): Blob {
+  return new Blob([assembleMuxerChunks(chunks) as unknown as BlobPart], { type: 'video/mp4' })
+}
+
 /** Descending list of AVC (H.264) profile/level codec strings, richest to
  * safest -- tried in order via `VideoEncoder.isConfigSupported` so the
  * result is the best this browser/hardware actually supports, never an
@@ -158,7 +210,20 @@ export class Mp4Encoder {
   private readonly encoder: VideoEncoder
   private readonly fps: number
   private readonly keyframeInterval: number
-  private readonly chunks: Uint8Array[] = []
+  /**
+   * Muxer output, each chunk kept with the byte offset the muxer asked for.
+   *
+   * The offset is not decoration: `mp4-muxer` warns outright that a one-arg
+   * `onData` "can lead to broken outputs", because it is free to write a
+   * chunk at an earlier offset to patch a box it already emitted. Appending
+   * blindly in call order would then silently produce a corrupt MP4 -- the
+   * kind of failure that plays for a few seconds and then falls apart, which
+   * is worse than an obvious error. `fastStart: 'fragmented'` makes writes
+   * append-only in practice, so in the normal case these arrive strictly in
+   * order and assembly is a plain concatenation; storing the offset costs
+   * nothing and keeps the output correct if that ever stops holding.
+   */
+  private readonly chunks: { position: number; data: Uint8Array }[] = []
   private erroredMessage: string | undefined
 
   constructor(opts: Mp4EncoderOptions) {
@@ -170,7 +235,11 @@ export class Mp4Encoder {
       // guarantee the `Uint8Array` handed to `onData` stays valid/unique
       // after the callback returns, and this module needs to own these
       // bytes until `finalize()` assembles them into a `Blob`.
-      onData: (data) => this.chunks.push(data.slice()),
+      // Both arguments are required: `position` is the byte offset the muxer
+      // wants this chunk written at. `.slice()` is a defensive copy --
+      // StreamTarget's docs don't guarantee the buffer stays valid after the
+      // callback returns, and this module owns these bytes until `finalize`.
+      onData: (data, position) => this.chunks.push({ position, data: data.slice() }),
       chunked: true,
     })
 
@@ -234,7 +303,7 @@ export class Mp4Encoder {
     await this.encoder.flush()
     this.encoder.close()
     this.muxer.finalize()
-    return new Blob(this.chunks as BlobPart[], { type: 'video/mp4' })
+    return assembleMp4Blob(this.chunks)
   }
 
   /** Best-effort teardown for a cancelled export -- tolerates the encoder
