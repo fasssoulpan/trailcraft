@@ -135,6 +135,21 @@ export function envCompensationNote(env: EnvCompensation): string {
   return `综合环境修正系数 ×${env.totalFactor.toFixed(3)} = ${altNote}；${heatNote}`
 }
 
+// ── Shared honesty disclosure (P2 §5, non-negotiable) ──────────────────────
+
+/**
+ * The score's disclosure text, shared verbatim between the real-track report
+ * (`PerformancePanel.tsx`'s 核心指标 section) and the track-free quick
+ * calculator (`QuickCalcPanel.tsx`) -- P2 §5 requires this be visible
+ * wherever the score is shown, and a calculator that types its own second
+ * copy is exactly how the two would drift apart over time. Never label the
+ * score "ITRA 积分" anywhere this string (or an equivalent) isn't shown.
+ */
+export const PERF_DISCLAIMER =
+  '「表现分(社区估算)」是基于爬升 / 配速 / 环境的社区反向推导模型,不是官方 ITRA 积分,' +
+  '标定依赖若干假设(精英参考区间取 900-960 分档而非公开的逐运动员官方成绩;部分赛事赛道数据为估算值),' +
+  '仅供个人训练参考,不代表任何官方认证结果。'
+
 // ── Entry-point availability decision (P2 §3.3, the whole point of Q1) ────
 
 export type PerfAvailabilityStatus = 'available' | 'planned' | 'uncertain'
