@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeCaptureLayout } from '../../src/overlay/captureLayout'
+import { computeCaptureLayout, isPortraitFrame, type CaptureLayout } from '../../src/overlay/captureLayout'
 
 describe('computeCaptureLayout', () => {
   it('returns scale 1 at the reference resolution (1280x800)', () => {
@@ -76,5 +76,146 @@ describe('computeCaptureLayout', () => {
     expect(layout.hud.scale).toBe(layout.scale)
     expect(layout.checkpointCard.scale).toBe(layout.scale)
     expect(layout.radar.scale).toBe(layout.scale)
+  })
+})
+
+describe('isPortraitFrame', () => {
+  it('is true only for a genuinely taller-than-wide frame', () => {
+    expect(isPortraitFrame(1080, 1920)).toBe(true)
+    expect(isPortraitFrame(1080, 1440)).toBe(true)
+    expect(isPortraitFrame(1920, 1080)).toBe(false)
+    // Square is deliberately NOT portrait -- see captureLayout.ts's own doc
+    // comment on why 1:1 uses the landscape/corner treatment.
+    expect(isPortraitFrame(1080, 1080)).toBe(false)
+  })
+})
+
+// Bounding-box helpers for the overlap/on-canvas checks below. The HUD row's
+// own layout doesn't carry an entry count (drawHudEntries draws however
+// many `formatHudStats` produced, up to 5: mileage/elevation/ascent/
+// gradient/heart-rate), so these checks size it for that worst case.
+const MAX_HUD_ENTRIES = 5
+
+interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function hudRect(layout: CaptureLayout, entries = MAX_HUD_ENTRIES): Rect {
+  return {
+    x: layout.hud.x,
+    y: layout.hud.y,
+    width: entries * layout.hud.chipWidthPx + (entries - 1) * layout.hud.rowGapPx,
+    height: layout.hud.chipHeightPx,
+  }
+}
+
+function cardRect(layout: CaptureLayout): Rect {
+  return { x: layout.checkpointCard.x, y: layout.checkpointCard.y, width: layout.checkpointCard.width, height: layout.checkpointCard.height }
+}
+
+function radarRect(layout: CaptureLayout): Rect {
+  const right = layout.radar.readoutX + layout.radar.readoutWidth
+  return { x: layout.radar.x, y: layout.radar.y, width: right - layout.radar.x, height: layout.radar.scopeSize }
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+function expectOnCanvas(rect: Rect, canvasWidth: number, canvasHeight: number): void {
+  expect(rect.x).toBeGreaterThanOrEqual(0)
+  expect(rect.y).toBeGreaterThanOrEqual(0)
+  expect(rect.x + rect.width).toBeLessThanOrEqual(canvasWidth)
+  expect(rect.y + rect.height).toBeLessThanOrEqual(canvasHeight)
+}
+
+// The exact preset table `cesium/exportResolutions.ts#EXPORT_RESOLUTIONS`
+// ships (P2 §3.4 Q5) -- every one of these must produce three non-overlapping,
+// fully-on-canvas regions, per the milestone brief's explicit acceptance
+// criterion.
+const SUPPORTED_PRESETS: { name: string; width: number; height: number; orientation: 'landscape' | 'portrait' }[] = [
+  { name: '16:9 1080p', width: 1920, height: 1080, orientation: 'landscape' },
+  { name: '16:9 4K', width: 3840, height: 2160, orientation: 'landscape' },
+  { name: '9:16 1080p', width: 1080, height: 1920, orientation: 'portrait' },
+  { name: '1:1 1080p (square -- landscape/corner treatment)', width: 1080, height: 1080, orientation: 'landscape' },
+  { name: '3:4 1080p', width: 1080, height: 1440, orientation: 'portrait' },
+]
+
+describe('computeCaptureLayout at every supported export preset (P2 §3.4 Q5)', () => {
+  for (const preset of SUPPORTED_PRESETS) {
+    describe(preset.name, () => {
+      const layout = computeCaptureLayout(preset.width, preset.height)
+
+      it(`classifies as ${preset.orientation}`, () => {
+        expect(layout.orientation).toBe(preset.orientation)
+      })
+
+      it('keeps the HUD, checkpoint card and radar all fully on-canvas', () => {
+        expectOnCanvas(hudRect(layout), preset.width, preset.height)
+        expectOnCanvas(cardRect(layout), preset.width, preset.height)
+        expectOnCanvas(radarRect(layout), preset.width, preset.height)
+      })
+
+      it('never overlaps any pair of HUD / checkpoint card / radar', () => {
+        const hud = hudRect(layout)
+        const card = cardRect(layout)
+        const radar = radarRect(layout)
+        expect(overlaps(hud, card)).toBe(false)
+        expect(overlaps(hud, radar)).toBe(false)
+        expect(overlaps(card, radar)).toBe(false)
+      })
+    })
+  }
+})
+
+describe('portrait layout is independent, not a scaled/cropped landscape one (P2 §3.4 Q5)', () => {
+  it('gives the checkpoint card the full frame width, not a fixed corner-sized box', () => {
+    const portrait = computeCaptureLayout(1080, 1920)
+    const landscape = computeCaptureLayout(1920, 1080)
+    // Landscape's card is a small fixed-width corner box (well under half the
+    // frame); portrait's card spans nearly the whole width -- a genuinely
+    // different arrangement, not the same box just repositioned/rescaled.
+    expect(landscape.checkpointCard.width / 1920).toBeLessThan(0.2)
+    expect(portrait.checkpointCard.width / 1080).toBeGreaterThan(0.9)
+  })
+
+  it('stacks the checkpoint card directly below the HUD in portrait, unlike landscape where the two sit side by side', () => {
+    const portrait = computeCaptureLayout(1080, 1920)
+    const landscape = computeCaptureLayout(1920, 1080)
+    // Landscape: HUD (left) and card (right) occupy roughly the same y --
+    // they sit side by side, not stacked.
+    expect(Math.abs(landscape.hud.y - landscape.checkpointCard.y)).toBeLessThan(landscape.checkpointCard.height)
+    // Portrait: the card starts only once the HUD row has fully ended --
+    // the "full-width band, card below it" structural change this milestone
+    // requires, not merely a repositioned corner box.
+    expect(portrait.checkpointCard.y).toBeGreaterThan(portrait.hud.y + portrait.hud.chipHeightPx)
+  })
+
+  it('recentres the radar horizontally in portrait rather than pinning it to a corner', () => {
+    const portrait = computeCaptureLayout(1080, 1920)
+    const landscape = computeCaptureLayout(1920, 1080)
+    const portraitRadarCenterX = portrait.radar.x + (portrait.radar.readoutX + portrait.radar.readoutWidth - portrait.radar.x) / 2
+    // Landscape's radar box is right-aligned (its right edge tracks the
+    // margin, see the existing "right-aligned" test above) -- its centre
+    // sits well past the frame's own midpoint. Portrait's should sit close
+    // to the frame's horizontal centre instead.
+    expect(Math.abs(portraitRadarCenterX - 1080 / 2)).toBeLessThan(1080 * 0.05)
+    const landscapeRadarRight = landscape.radar.readoutX + landscape.radar.readoutWidth
+    expect(landscapeRadarRight).toBeCloseTo(1920 - 8 * landscape.scale, 6)
+  })
+
+  it('both portrait presets (9:16 and 3:4, same width) scale HUD/card identically, differing only in how much room the radar block below has', () => {
+    const tall = computeCaptureLayout(1080, 1920)
+    const short = computeCaptureLayout(1080, 1440)
+    expect(tall.hud.chipWidthPx).toBeCloseTo(short.hud.chipWidthPx, 6)
+    expect(tall.checkpointCard.width).toBeCloseTo(short.checkpointCard.width, 6)
+    // The shorter (3:4) frame leaves less vertical gap between the card and
+    // the radar block than the taller (9:16) one does.
+    const tallGap = tall.radar.y - (tall.checkpointCard.y + tall.checkpointCard.height)
+    const shortGap = short.radar.y - (short.checkpointCard.y + short.checkpointCard.height)
+    expect(shortGap).toBeLessThan(tallGap)
   })
 })

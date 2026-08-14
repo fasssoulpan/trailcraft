@@ -1,9 +1,10 @@
 /**
  * Pure layout maths for the video-recording compositor (P1 §2.1 交付物 8,
- * §6 R8, milestone N5) -- "given a target recording width/height, where on
- * that canvas does each overlay (HUD stat row, checkpoint card, distance
- * radar) go". No Canvas/Cesium/React import, so it's unit-testable exactly
- * like `overlay/radarMath.ts`'s ring ladder; `overlay/captureDraw.ts` is the
+ * §6 R8, milestone N5; extended to portrait/square targets by P2 §3.4
+ * milestone Q5) -- "given a target recording width/height, where on that
+ * canvas does each overlay (HUD stat row, checkpoint card, distance radar)
+ * go". No Canvas/Cesium/React import, so it's unit-testable exactly like
+ * `overlay/radarMath.ts`'s ring ladder; `overlay/captureDraw.ts` is the
  * untestable-in-Node half that actually paints these onto a
  * `CanvasRenderingContext2D` at the positions this module computes.
  *
@@ -17,22 +18,41 @@
  * 1920x1080 recording canvas would leave the overlays reading as tiny and
  * mis-proportioned in one direction or the other, exactly the failure mode
  * the milestone brief calls out explicitly. Instead, every constant below
- * is defined at a `BASE_WIDTH`x`BASE_HEIGHT` reference resolution (chosen to
- * match a typical on-screen `fly-view__container`, so the recorded video
- * *looks* like a scaled-up screenshot of what the user was seeing) and
- * uniformly scaled by `computeCaptureLayout` to whatever resolution is
- * actually being recorded.
+ * is defined at a reference resolution and uniformly scaled by
+ * `computeCaptureLayout` to whatever resolution is actually being recorded.
+ *
+ * ---- Landscape vs portrait: two INDEPENDENT layouts (P2 §3.4 Q5) ----
+ * 方案 V2.1 §5.5 is explicit: 「竖屏 9:16 使用独立排版模板(而非横屏裁切)」
+ * -- portrait must not be the landscape arrangement scaled or cropped into a
+ * tall frame. Concretely: the landscape layout below (HUD top-left,
+ * checkpoint card top-right, radar bottom-right) was designed and tuned
+ * against a WIDE reference box; naively reusing its numbers at, say,
+ * 1080x1920 would leave three small elements clinging to the top third of
+ * the frame with 1200+px of dead space below them, and a scaled-up version
+ * of the *same* corner arrangement doesn't fix that -- the frame's own
+ * proportions changed, not just its size. `computeCaptureLayout` below
+ * therefore dispatches on orientation (`isPortraitFrame`) to one of two
+ * genuinely separate functions with their own reference resolution and
+ * their own constants: `computeLandscapeLayout` (Q4's original, unchanged
+ * numbers, also used for the 1:1 square preset -- see that function's own
+ * doc comment for why) and `computePortraitLayout` (new: a full-width HUD
+ * band, a full-width checkpoint card directly below it, and the radar
+ * recentred near the bottom rather than pinned to a corner).
  */
 
-/** Reference resolution the pixel constants below were tuned at -- see this
- * module's file comment. Deliberately smaller than the 1080p recording
- * floor (`cesium/recorder.ts#RECORDING_WIDTH/HEIGHT`), so the common case is
+const MARGIN_PX = 8
+
+// ═══════════════════════════════════════════════════════════════════════
+// Landscape (and square) layout -- Q4's original numbers, unchanged.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Reference resolution the landscape pixel constants below were tuned at.
+ * Deliberately smaller than the 1080p recording floor
+ * (`cesium/recorder.ts#RECORDING_WIDTH/HEIGHT`), so the common case is
  * scaling UP, matching "record bigger than you're looking at" being the
  * normal case for this feature. */
-const BASE_WIDTH = 1280
-const BASE_HEIGHT = 800
-
-const MARGIN_PX = 8
+const LANDSCAPE_BASE_WIDTH = 1280
+const LANDSCAPE_BASE_HEIGHT = 800
 
 // HUD (App.css's .hud-overlay/.hud-overlay__stat): a row of stat chips
 // docked to the top-left corner.
@@ -113,33 +133,39 @@ export interface RadarCaptureLayout {
 }
 
 export interface CaptureLayout {
-  /** Uniform scale factor applied to every constant above, `1` at
-   * `BASE_WIDTH`x`BASE_HEIGHT`. Exposed at the top level too since a couple
-   * of draw-time decisions outside this module (e.g. how big a margin to
-   * leave inside the radar box for its own ring labels) need it directly. */
+  /** Uniform scale factor applied to every constant below, `1` at each
+   * layout's own reference resolution. Exposed at the top level too since a
+   * couple of draw-time decisions outside this module (e.g. how big a
+   * margin to leave inside the radar box for its own ring labels) need it
+   * directly. */
   scale: number
+  /** Which of the two independent layouts this is -- exposed so callers
+   * that want to make their own orientation-dependent choices (e.g. the
+   * compliance credits tail's card, P2 §3.4 Q5 commit 3) can reuse this
+   * module's own classification instead of re-deriving it from
+   * width/height. */
+  orientation: 'landscape' | 'portrait'
   hud: HudCaptureLayout
   checkpointCard: CheckpointCardCaptureLayout
   radar: RadarCaptureLayout
 }
 
 /**
- * Computes where each overlay goes on a `width`x`height` recording canvas.
- * `scale = min(width/BASE_WIDTH, height/BASE_HEIGHT)` -- the smaller of the
- * two ratios, so scaling up a portrait-ish or unusually narrow/short target
+ * The landscape arrangement: HUD top-left, checkpoint card top-right, radar
+ * bottom-right. `scale = min(width/BASE_WIDTH, height/BASE_HEIGHT)` -- the
+ * smaller of the two ratios, so scaling up an unusually narrow/short target
  * can never push an overlay past the opposite edge (the same
  * "letterbox-safe" reasoning `chooseRadarRings` uses `maxRadiusPx` for).
  *
- * Degenerate `width`/`height` (non-finite, zero, negative -- e.g. a canvas
- * whose size hasn't resolved yet) fall back to `BASE_WIDTH`/`BASE_HEIGHT`
- * (i.e. `scale = 1`) rather than propagating NaN/Infinity into every
- * downstream position, matching `radarMath.ts#chooseRadarRings`'s own
- * "always return something drawable" convention.
+ * Also used for the 1:1 square preset (P2 §3.4 Q5), not just genuine
+ * widescreen targets: at 1080x1080 this still comfortably fits three
+ * corner-docked, non-overlapping elements with real margin to spare (unlike
+ * a tall 9:16 frame, a square frame isn't narrow enough for the reference
+ * implementation's landscape numbers to feel cramped or misplaced) -- see
+ * this file's test suite for the actual measured regions at that preset.
  */
-export function computeCaptureLayout(width: number, height: number): CaptureLayout {
-  const safeWidth = Number.isFinite(width) && width > 0 ? width : BASE_WIDTH
-  const safeHeight = Number.isFinite(height) && height > 0 ? height : BASE_HEIGHT
-  const scale = Math.min(safeWidth / BASE_WIDTH, safeHeight / BASE_HEIGHT)
+function computeLandscapeLayout(safeWidth: number, safeHeight: number): CaptureLayout {
+  const scale = Math.min(safeWidth / LANDSCAPE_BASE_WIDTH, safeHeight / LANDSCAPE_BASE_HEIGHT)
 
   const margin = MARGIN_PX * scale
 
@@ -156,6 +182,7 @@ export function computeCaptureLayout(width: number, height: number): CaptureLayo
 
   return {
     scale,
+    orientation: 'landscape',
     hud: {
       x: margin,
       y: margin,
@@ -189,4 +216,148 @@ export function computeCaptureLayout(width: number, height: number): CaptureLayo
       scale,
     },
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Portrait layout (P2 §3.4 Q5) -- an independent template, not a scaled or
+// cropped landscape one. See this file's header comment.
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Every supported portrait preset (9:16 at 1080x1920, 3:4 at 1080x1440,
+ * see `cesium/exportResolutions.ts`) shares the same 1080px width, so this
+ * layout's reference/scale is WIDTH-only -- unlike the landscape layout's
+ * min(width-ratio, height-ratio), a portrait target's binding constraint
+ * for a full-width HUD band and card is how wide the frame is, and the
+ * radar block below is positioned directly from `safeHeight`, not from this
+ * scale, so extra height (9:16 vs 3:4) simply becomes more breathing room
+ * above the radar rather than distorting anything. */
+const PORTRAIT_BASE_WIDTH = 1080
+
+const PORTRAIT_MARGIN_PX = 24
+
+// HUD: a full-width row of stat chips docked to the very top -- wider
+// per-chip than the landscape layout's (150px at scale 1) since a portrait
+// frame has an entire 1080px-wide band to itself rather than sharing the
+// top edge with a checkpoint card.
+const PORTRAIT_HUD_CHIP_WIDTH_PX = 180
+const PORTRAIT_HUD_CHIP_PADDING_X_PX = 12
+const PORTRAIT_HUD_CHIP_PADDING_Y_PX = 10
+const PORTRAIT_HUD_ROW_GAP_PX = 10
+const PORTRAIT_HUD_LABEL_FONT_PX = 15
+const PORTRAIT_HUD_VALUE_FONT_PX = 21
+const PORTRAIT_HUD_UNIT_FONT_PX = 15
+
+// Checkpoint card: a full-width band directly below the HUD row (not a
+// small top-right corner box) -- there is no HUD/card top-right collision
+// to avoid here since the two are stacked, not side by side.
+const PORTRAIT_CARD_GAP_PX = 16
+const PORTRAIT_CARD_HEIGHT_PX = 120
+const PORTRAIT_CARD_PADDING_X_PX = 20
+const PORTRAIT_CARD_PADDING_Y_PX = 16
+const PORTRAIT_CARD_KIND_FONT_PX = 15
+const PORTRAIT_CARD_NAME_FONT_PX = 22
+const PORTRAIT_CARD_META_FONT_PX = 17
+
+// Distance radar: recentred near the bottom of the frame (not a corner --
+// a portrait frame's bottom edge is as wide as the frame itself, so
+// centring reads better than pinning to either side) with the scope and its
+// next-checkpoint readout still side by side, same box shape as landscape's
+// (see `RadarCaptureLayout`'s own doc comment), just repositioned.
+const PORTRAIT_RADAR_SCOPE_SIZE_PX = 260
+const PORTRAIT_RADAR_GAP_PX = 16
+const PORTRAIT_RADAR_READOUT_WIDTH_PX = 260
+const PORTRAIT_RADAR_BOTTOM_PX = 220
+
+function computePortraitLayout(safeWidth: number, safeHeight: number): CaptureLayout {
+  const scale = safeWidth / PORTRAIT_BASE_WIDTH
+  const margin = PORTRAIT_MARGIN_PX * scale
+
+  const chipWidthPx = PORTRAIT_HUD_CHIP_WIDTH_PX * scale
+  const chipHeightPx = (PORTRAIT_HUD_VALUE_FONT_PX + PORTRAIT_HUD_CHIP_PADDING_Y_PX * 2) * scale
+  const hudY = margin
+  const hudBottom = hudY + chipHeightPx
+
+  const cardWidth = safeWidth - margin * 2
+  const cardHeight = PORTRAIT_CARD_HEIGHT_PX * scale
+  const cardY = hudBottom + PORTRAIT_CARD_GAP_PX * scale
+  const cardBottom = cardY + cardHeight
+
+  const scopeSize = PORTRAIT_RADAR_SCOPE_SIZE_PX * scale
+  const radarGap = PORTRAIT_RADAR_GAP_PX * scale
+  const readoutWidth = PORTRAIT_RADAR_READOUT_WIDTH_PX * scale
+  const radarBoxWidth = scopeSize + radarGap + readoutWidth
+  // Bottom-anchored, but never allowed to climb back up into the card above
+  // it -- a defensive clamp (irrelevant for the two shipped portrait
+  // presets, both of which clear it with real margin, see this file's test
+  // suite) rather than a bound this layout is normally expected to hit.
+  const radarY = Math.max(cardBottom + PORTRAIT_CARD_GAP_PX * scale, safeHeight - PORTRAIT_RADAR_BOTTOM_PX * scale - scopeSize)
+
+  return {
+    scale,
+    orientation: 'portrait',
+    hud: {
+      x: margin,
+      y: hudY,
+      chipWidthPx,
+      chipHeightPx,
+      chipPaddingXPx: PORTRAIT_HUD_CHIP_PADDING_X_PX * scale,
+      rowGapPx: PORTRAIT_HUD_ROW_GAP_PX * scale,
+      labelFontPx: PORTRAIT_HUD_LABEL_FONT_PX * scale,
+      valueFontPx: PORTRAIT_HUD_VALUE_FONT_PX * scale,
+      unitFontPx: PORTRAIT_HUD_UNIT_FONT_PX * scale,
+      scale,
+    },
+    checkpointCard: {
+      x: margin,
+      y: cardY,
+      width: cardWidth,
+      height: cardHeight,
+      paddingXPx: PORTRAIT_CARD_PADDING_X_PX * scale,
+      paddingYPx: PORTRAIT_CARD_PADDING_Y_PX * scale,
+      kindFontPx: PORTRAIT_CARD_KIND_FONT_PX * scale,
+      nameFontPx: PORTRAIT_CARD_NAME_FONT_PX * scale,
+      metaFontPx: PORTRAIT_CARD_META_FONT_PX * scale,
+      scale,
+    },
+    radar: {
+      x: (safeWidth - radarBoxWidth) / 2,
+      y: radarY,
+      scopeSize,
+      readoutX: (safeWidth - radarBoxWidth) / 2 + scopeSize + radarGap,
+      readoutWidth,
+      scale,
+    },
+  }
+}
+
+/** `true` for a genuinely taller-than-wide frame -- the 9:16 and 3:4
+ * presets. `false` (landscape) for width >= height, which deliberately
+ * includes the 1:1 square preset (see `computeLandscapeLayout`'s own doc
+ * comment for why square uses the landscape/corner treatment). Exported so
+ * other modules that want the same orientation split (e.g. the compliance
+ * credits tail, P2 §3.4 Q5 commit 3) don't re-derive it independently. */
+export function isPortraitFrame(width: number, height: number): boolean {
+  return height > width
+}
+
+/**
+ * Computes where each overlay goes on a `width`x`height` recording canvas,
+ * dispatching to `computeLandscapeLayout` or `computePortraitLayout` (see
+ * this file's header comment for why these are two independent templates,
+ * not one scaled between orientations).
+ *
+ * Degenerate `width`/`height` (non-finite, zero, negative -- e.g. a canvas
+ * whose size hasn't resolved yet) fall back to a safe landscape default
+ * (`LANDSCAPE_BASE_WIDTH`x`LANDSCAPE_BASE_HEIGHT`, i.e. `scale = 1`) rather
+ * than propagating NaN/Infinity into every downstream position, matching
+ * `radarMath.ts#chooseRadarRings`'s own "always return something drawable"
+ * convention.
+ */
+export function computeCaptureLayout(width: number, height: number): CaptureLayout {
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : LANDSCAPE_BASE_WIDTH
+  const safeHeight = Number.isFinite(height) && height > 0 ? height : LANDSCAPE_BASE_HEIGHT
+
+  return isPortraitFrame(safeWidth, safeHeight)
+    ? computePortraitLayout(safeWidth, safeHeight)
+    : computeLandscapeLayout(safeWidth, safeHeight)
 }
