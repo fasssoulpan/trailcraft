@@ -166,7 +166,7 @@ export function FlyView() {
   const [exportMode, setExportMode] = useState<ExportMode | undefined>(undefined)
   const [exportModeDetail, setExportModeDetail] = useState<string | undefined>(undefined)
   const [exportError, setExportError] = useState<string | undefined>(undefined)
-  const [exportResolutionKey, setExportResolutionKey] = useState<ExportResolutionKey>('1080p')
+  const [exportResolutionKey, setExportResolutionKey] = useState<ExportResolutionKey>('16:9-1080p')
 
   // High-frequency playback telemetry (progress/mileage/point index),
   // pushed by the engine's onProgress callback -- up to once per rendered

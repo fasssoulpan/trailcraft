@@ -1,9 +1,13 @@
 import type { CameraMode, FlythroughProgressInfo } from '../cesium/flythrough'
 import {
   EXPORT_RESOLUTIONS,
+  EXPORT_ASPECT_RATIO_ORDER,
+  EXPORT_ASPECT_RATIO_LABELS,
+  resolutionKeysForRatio,
   type ExportProgressInfo,
   type ExportMode,
   type ExportResolutionKey,
+  type ExportAspectRatioKey,
 } from '../cesium/exportResolutions'
 import { useAppStore } from '../state/appStore'
 
@@ -144,6 +148,14 @@ export function FlyControls({
   const progressValue = progress?.progress ?? 0
   const mileageM = progress?.mileageM ?? 0
 
+  // A ratio selector alongside the existing resolution choice (rather than
+  // eight flat resolution buttons) -- both derived from the single
+  // `exportResolutionKey` prop so FlyView.tsx still only has one export
+  // setting to hold state for. See `EXPORT_RESOLUTIONS`'s own doc comment
+  // for why 16:9 is the only ratio with more than one resolution.
+  const exportRatio: ExportAspectRatioKey = EXPORT_RESOLUTIONS[exportResolutionKey].ratio
+  const ratioResolutionKeys = resolutionKeysForRatio(exportRatio)
+
   return (
     <div className="fly-controls">
       <div className="fly-controls__row fly-controls__row--transport">
@@ -195,19 +207,38 @@ export function FlyControls({
       </div>
 
       <div className="fly-controls__row fly-controls__row--record">
-        <div className="fly-controls__group" role="group" aria-label="导出分辨率">
-          {(Object.keys(EXPORT_RESOLUTIONS) as ExportResolutionKey[]).map((key) => (
+        <div className="fly-controls__group" role="group" aria-label="导出画幅">
+          {EXPORT_ASPECT_RATIO_ORDER.map((ratio) => (
             <button
-              key={key}
+              key={ratio}
               type="button"
-              className={key === exportResolutionKey ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
+              className={ratio === exportRatio ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
               disabled={exportProgress !== undefined}
-              onClick={() => onExportResolutionChange(key)}
+              onClick={() => onExportResolutionChange(resolutionKeysForRatio(ratio)[0])}
             >
-              {EXPORT_RESOLUTIONS[key].label}
+              {EXPORT_ASPECT_RATIO_LABELS[ratio]}
             </button>
           ))}
         </div>
+        {/* Only shown when the current ratio actually offers a choice (only
+            16:9 does, 1080p/4K carried over from Q4) -- the other three
+            ratios have exactly one resolution each, so a row with a single,
+            permanently-active chip would just be noise. */}
+        {ratioResolutionKeys.length > 1 && (
+          <div className="fly-controls__group" role="group" aria-label="导出分辨率">
+            {ratioResolutionKeys.map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={key === exportResolutionKey ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
+                disabled={exportProgress !== undefined}
+                onClick={() => onExportResolutionChange(key)}
+              >
+                {EXPORT_RESOLUTIONS[key].label}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           className={exportProgress !== undefined ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}

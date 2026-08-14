@@ -74,7 +74,85 @@
  * with very sharp terrain/imagery detail changes between two prefetch
  * samples can still hit the per-frame timeout later), not a guarantee that
  * every tile is resident before frame 0.
+ *
+ * ---- Rendering at the target aspect ratio (P2 §3.4, milestone Q5) ----
+ * Before Q5, this module captured whatever the on-screen `viewer.canvas`
+ * happened to be sized to (the `fly-view__container`'s actual box, normally
+ * close to the browser window's own aspect ratio) and let `compositeFrame`'s
+ * `drawImage(source, 0, 0, width, height)` stretch that into the requested
+ * `width`x`height` -- unnoticeable for 16:9 exports on a roughly-16:9
+ * window, but exactly the "rendered 16:9 and cropped/stretched" failure mode
+ * the Q5 brief calls out for the new portrait/square ratios. The fix is to
+ * make Cesium itself render at `width`x`height` (so the captured pixels
+ * already have the right aspect ratio and `drawImage` above is a lossless
+ * 1:1 blit, not a distortion), by driving `viewer.canvas`'s OWN size rather
+ * than reading it as a fixed given:
+ *
+ * Verified against the installed `cesium@1.144.0` build
+ * (`node_modules/cesium/Build/CesiumUnminified/Cesium.js`, not assumed from
+ * memory): `CesiumWidget`'s internal `configureCanvasSize`/
+ * `configureCameraFrustum` derive the drawing-buffer size AND
+ * `camera.frustum.aspectRatio` from `canvas.clientWidth`/`clientHeight`
+ * (times a pixel ratio that resolves to exactly `1` here, since `viewer.ts`
+ * never sets `useBrowserRecommendedResolution: false` or a
+ * `resolutionScale`) -- and `Viewer.prototype.resize`, which calls
+ * `cesiumWidget.resize()` unconditionally, is wired to `scene.postUpdate`,
+ * which always fires before `scene.postRender` in every render cycle. So
+ * simply overriding the canvas's own CSS box size once, before the first
+ * `waitForRenderedFrame` call, is sufficient: the very first `postUpdate`
+ * this triggers reconfigures both `canvas.width`/`height` (the actual
+ * drawing buffer -- what `compositeFrame` reads) and the frustum's aspect
+ * ratio to match, with no separate manual frustum math needed here.
+ *
+ * `applyExportCanvasSize`/`restoreExportCanvasSize` below do this by taking
+ * the canvas out of normal document flow (`position: absolute`) and sizing
+ * it to the exact target CSS pixel dimensions -- which can exceed the
+ * on-screen container (e.g. a 3840x2160 export inside a much smaller browser
+ * window). This deliberately does NOT reflow the surrounding app layout:
+ * Cesium's own `CesiumWidget.css` already gives the canvas's parent
+ * (`.cesium-widget`) `overflow: hidden` + `position: relative`, so an
+ * absolutely-positioned, oversized canvas is simply clipped to whatever
+ * portion is visible on screen -- the FULL drawing buffer still renders at
+ * the requested resolution regardless of how much of it is visible, which is
+ * exactly what gets captured via `viewer.canvas` below (a canvas element's
+ * pixel content is not affected by CSS clipping). The original inline style
+ * is restored (not just cleared) once the export ends, for any reason
+ * (completed, cancelled, or thrown), so playback returns to filling its
+ * container exactly as before.
  */
+interface CanvasStyleSnapshot {
+  position: string
+  top: string
+  left: string
+  width: string
+  height: string
+}
+
+function snapshotCanvasStyle(canvas: HTMLCanvasElement): CanvasStyleSnapshot {
+  return {
+    position: canvas.style.position,
+    top: canvas.style.top,
+    left: canvas.style.left,
+    width: canvas.style.width,
+    height: canvas.style.height,
+  }
+}
+
+function applyExportCanvasSize(canvas: HTMLCanvasElement, width: number, height: number): void {
+  canvas.style.position = 'absolute'
+  canvas.style.top = '0'
+  canvas.style.left = '0'
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
+}
+
+function restoreCanvasStyle(canvas: HTMLCanvasElement, snapshot: CanvasStyleSnapshot): void {
+  canvas.style.position = snapshot.position
+  canvas.style.top = snapshot.top
+  canvas.style.left = snapshot.left
+  canvas.style.width = snapshot.width
+  canvas.style.height = snapshot.height
+}
 import type { Viewer } from 'cesium'
 import type { FlythroughEngine } from './flythrough'
 import { computeCaptureLayout } from '../overlay/captureLayout'
@@ -211,41 +289,55 @@ export async function runDeterministicRender(options: DeterministicRenderOptions
   engine.pause()
   if (!viewer.isDestroyed()) viewer.scene.requestRenderMode = true
 
-  const scheduleConfig: FrameScheduleConfig = { totalMileageM: engine.totalMileageM, speedMps, fps }
+  // Force the LIVE Cesium canvas to the export's own target aspect ratio --
+  // see this module's file comment ("Rendering at the target aspect ratio")
+  // for why this alone (no manual frustum math) is sufficient, and why it
+  // never reflows the surrounding app layout. Snapshotted/restored around
+  // the whole render via try/finally below so every exit path (completed,
+  // cancelled, or thrown) leaves on-screen playback exactly as it was.
+  const liveCanvas = viewer.isDestroyed() ? undefined : viewer.canvas
+  const canvasStyleSnapshot = liveCanvas ? snapshotCanvasStyle(liveCanvas) : undefined
+  if (liveCanvas) applyExportCanvasSize(liveCanvas, width, height)
 
-  // ---- Prefetch --------------------------------------------------------
-  for (let i = 0; i <= PREFETCH_SAMPLE_COUNT; i++) {
+  try {
+    const scheduleConfig: FrameScheduleConfig = { totalMileageM: engine.totalMileageM, speedMps, fps }
+
+    // ---- Prefetch --------------------------------------------------------
+    for (let i = 0; i <= PREFETCH_SAMPLE_COUNT; i++) {
+      if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
+      const progress = PREFETCH_SAMPLE_COUNT > 0 ? i / PREFETCH_SAMPLE_COUNT : 0
+      engine.seek(progress)
+      await waitForRenderedFrame(viewer)
+      await waitForTilesReady(viewer, PREFETCH_TILE_TIMEOUT_MS)
+      onPhase('prefetching', i + 1, PREFETCH_SAMPLE_COUNT + 1)
+    }
+
     if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
-    const progress = PREFETCH_SAMPLE_COUNT > 0 ? i / PREFETCH_SAMPLE_COUNT : 0
-    engine.seek(progress)
-    await waitForRenderedFrame(viewer)
-    await waitForTilesReady(viewer, PREFETCH_TILE_TIMEOUT_MS)
-    onPhase('prefetching', i + 1, PREFETCH_SAMPLE_COUNT + 1)
+
+    // ---- Frame-by-frame capture -------------------------------------------
+    const frameCount = computeFrameCount(scheduleConfig)
+    engine.seek(0)
+
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
+
+      const mileageM = mileageForFrame(frameIndex, scheduleConfig)
+      const progress = scheduleConfig.totalMileageM > 0 ? mileageM / scheduleConfig.totalMileageM : 0
+      engine.seek(progress)
+
+      await waitForRenderedFrame(viewer)
+      await waitForTilesReady(viewer, TILE_READY_TIMEOUT_MS)
+
+      if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
+
+      compositeFrame(ctx, width, height, viewer.isDestroyed() ? undefined : viewer.canvas, drawOverlays)
+      await onFrame(canvas, frameIndex, frameCount)
+
+      onPhase('rendering', frameIndex + 1, frameCount)
+    }
+
+    return 'completed'
+  } finally {
+    if (liveCanvas && canvasStyleSnapshot && !viewer.isDestroyed()) restoreCanvasStyle(liveCanvas, canvasStyleSnapshot)
   }
-
-  if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
-
-  // ---- Frame-by-frame capture -------------------------------------------
-  const frameCount = computeFrameCount(scheduleConfig)
-  engine.seek(0)
-
-  for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
-    if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
-
-    const mileageM = mileageForFrame(frameIndex, scheduleConfig)
-    const progress = scheduleConfig.totalMileageM > 0 ? mileageM / scheduleConfig.totalMileageM : 0
-    engine.seek(progress)
-
-    await waitForRenderedFrame(viewer)
-    await waitForTilesReady(viewer, TILE_READY_TIMEOUT_MS)
-
-    if (isCancelled() || viewer.isDestroyed()) return 'cancelled'
-
-    compositeFrame(ctx, width, height, viewer.isDestroyed() ? undefined : viewer.canvas, drawOverlays)
-    await onFrame(canvas, frameIndex, frameCount)
-
-    onPhase('rendering', frameIndex + 1, frameCount)
-  }
-
-  return 'completed'
 }
