@@ -304,6 +304,17 @@ export function syncTrackLayers(
   })
   knownTrackIds.set(map, seen)
 
+  // Raise the active track above the others. MapLibre draws layers in the
+  // order they were added, so with several tracks loaded the active one can
+  // sit *underneath* a track imported after it -- it renders heavier and at
+  // full opacity, yet is still partly hidden wherever they overlap, which is
+  // exactly where you most need to tell them apart. `moveLayer` with no
+  // `beforeId` moves it to the top.
+  if (activeTrackId !== undefined) {
+    const activeLayerId = layerIdFor(activeTrackId)
+    if (map.getLayer(activeLayerId)) map.moveLayer(activeLayerId)
+  }
+
   if (opts?.skipFit) {
     // Not a genuine "track added" event -- see this function's own doc
     // comment on `opts.skipFit`. Explicitly drop any pending marker rather
