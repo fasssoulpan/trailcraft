@@ -933,9 +933,13 @@
 }
 
 /* Video recording row (ui/FlyControls.tsx, milestone N5) -- same chip/row
- * idiom as the transport/options rows above it. */
+ * idiom as the transport/options rows above it. Wraps (P2 §3.4 Q5) now that
+ * this row can hold up to three groups (ratio selector, resolution -- only
+ * for ratios offering more than one -- and the export button) side by side,
+ * same reasoning `--options` above already applies to its own two groups. */
 .fly-controls__row--record {
   justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .fly-controls__record-hint {
