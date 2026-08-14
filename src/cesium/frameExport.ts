@@ -23,13 +23,61 @@ import type { FlythroughEngine, FlythroughProgressInfo } from './flythrough'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
 import type { StatsOptions } from '../core/stats/segments'
+import type { ProviderReport } from './viewer'
+import type { BasemapStyle } from '../state/basemapPref'
 import { computeCaptureLayout } from '../overlay/captureLayout'
+import { composeExportCredits } from '../overlay/exportCredits'
+import { computeCreditsCardLayout } from '../overlay/creditsLayout'
+import { drawCreditsCard } from '../overlay/creditsDraw'
 import { createOverlaySnapshotLatch, type OverlaySnapshotLatch } from './captureOverlaySnapshot'
 import { runDeterministicRender } from './deterministicRenderer'
 import { probeH264Support, Mp4Encoder } from './videoEncoder'
 import { startRecording, checkRecordingSupport, type RecorderHandle } from './recorder'
 import { sanitizeFilenameStem, filenameTimestamp, triggerBlobDownload } from './triggerBlobDownload'
 import { EXPORT_FPS, type ExportResolution, type ExportProgressInfo, type ExportMode } from './exportResolutions'
+
+/** How many seconds of compliance credits tail (P2 §3.4 Q5 commit 3) to
+ * append after the main flythrough frames -- long enough to actually read at
+ * a glance, short enough not to feel like padding on a short clip. */
+const CREDITS_TAIL_SECONDS = 3
+
+/**
+ * Renders and encodes the compliance credits tail: `CREDITS_TAIL_SECONDS *
+ * fps` frames of the SAME static card (`overlay/creditsDraw.ts#
+ * drawCreditsCard`), continuing the encoder's frame-index sequence from
+ * wherever the main flythrough loop left off. Deliberately Cesium-free --
+ * unlike the main loop, this needs no `Viewer`/`FlythroughEngine` at all,
+ * just a plain offscreen 2D canvas, since the card's content is fixed for
+ * the whole tail (drawn identically every frame, which is also exactly what
+ * lets it compress to almost nothing extra in the H.264 stream).
+ */
+async function renderCreditsTail(opts: {
+  width: number
+  height: number
+  fps: number
+  credits: ReturnType<typeof composeExportCredits>
+  startFrameIndex: number
+  isCancelled: () => boolean
+  onFrame: (canvas: HTMLCanvasElement, frameIndex: number) => Promise<void>
+  onPhase: (index: number, total: number) => void
+}): Promise<'completed' | 'cancelled'> {
+  const canvas = document.createElement('canvas')
+  canvas.width = opts.width
+  canvas.height = opts.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('无法创建离屏画布（Canvas 2D 上下文不可用）')
+
+  const layout = computeCreditsCardLayout(opts.width, opts.height)
+  const totalFrames = Math.max(1, Math.round(CREDITS_TAIL_SECONDS * opts.fps))
+
+  for (let i = 0; i < totalFrames; i++) {
+    if (opts.isCancelled()) return 'cancelled'
+    drawCreditsCard(ctx, opts.width, opts.height, opts.credits, layout)
+    await opts.onFrame(canvas, opts.startFrameIndex + i)
+    opts.onPhase(i + 1, totalFrames)
+  }
+  return 'completed'
+}
 
 export { EXPORT_FPS, EXPORT_RESOLUTIONS, type ExportResolution, type ExportResolutionKey, type ExportPhase, type ExportProgressInfo, type ExportMode } from './exportResolutions'
 
@@ -41,6 +89,18 @@ export interface StartExportOptions {
   statsOptions: StatsOptions
   radarEnabled: boolean
   resolution: ExportResolution
+  /** Which terrain/imagery services `cesium/viewer.ts` actually selected --
+   * the compliance credits tail (P2 §3.4 Q5 commit 3) reads this rather than
+   * assuming Esri, so a MapTiler-backed session credits MapTiler and a
+   * degraded-to-flat-ellipsoid session says so honestly instead of crediting
+   * a terrain service that was never actually reached. */
+  providers: ProviderReport
+  /** Which of the two Cesium basemap styles is currently active -- see
+   * `overlay/exportCredits.ts`'s own doc comment for why the credits tail
+   * needs this IN ADDITION TO `providers`: the "plan" (二维平面图) style
+   * always shows the Esri street layer over a flat ellipsoid regardless of
+   * what `providers` reports for the satellite style. */
+  basemapStyle: BasemapStyle
   onProgress: (p: ExportProgressInfo) => void
   /** Fired at most once, as soon as the pipeline is actually known -- never
    * fires at all if the export is cancelled before the capability probe
@@ -114,6 +174,13 @@ export function startExport(options: StartExportOptions): ExportHandle {
     }
   }
 
+  // The MediaRecorder fallback does NOT get a compliance credits tail
+  // (P2 §3.4 Q5 commit 3): it's a real-time capture with no frame-index
+  // encoder to append onto (recorder.ts drives its own MediaRecorder
+  // directly from a live MediaStream, unlike Mp4Encoder's per-frame
+  // `encodeFrame`), and it is already, permanently labelled "预览级" in
+  // FlyControls -- P2's own plan frames the deterministic H.264 MP4 path as
+  // the actual "成片" (publishable output) this deliverable is about.
   function startFallback(): void {
     const support = checkRecordingSupport()
     if (!support.supported) {
@@ -147,7 +214,7 @@ export function startExport(options: StartExportOptions): ExportHandle {
   }
 
   async function runDeterministic(config: VideoEncoderConfig): Promise<void> {
-    const { viewer, engine, track, cps, statsOptions, radarEnabled, resolution } = options
+    const { viewer, engine, track, cps, statsOptions, radarEnabled, resolution, providers, basemapStyle } = options
     const layout = computeCaptureLayout(resolution.width, resolution.height)
     const latch = createOverlaySnapshotLatch({ viewer, track, cps, statsOptions, radarEnabled, layout })
     activeLatch = latch
@@ -161,6 +228,14 @@ export function startExport(options: StartExportOptions): ExportHandle {
     })
 
     const speedMps = engine.baseSpeedMps * engine.getSpeed()
+
+    // Tracks the last frame index the main loop actually encoded, so the
+    // credits tail below can continue the SAME monotonic sequence
+    // `Mp4Encoder#encodeFrame`'s presentation timestamps are derived from
+    // (frameIndex / fps) -- restarting from 0 would rewind the tail's
+    // timestamps to the middle of the flythrough instead of appending after
+    // it.
+    let lastFrameIndex = -1
 
     const result = await runDeterministicRender({
       viewer,
@@ -177,12 +252,34 @@ export function startExport(options: StartExportOptions): ExportHandle {
       // thousands of frames deep at that point).
       isCancelled: () => cancelled || encoder.failed,
       onPhase: (phase, index, total) => options.onProgress({ phase, index, total }),
-      onFrame: (canvas, frameIndex) => encoder.encodeFrame(canvas, frameIndex),
+      onFrame: (canvas, frameIndex) => {
+        lastFrameIndex = frameIndex
+        return encoder.encodeFrame(canvas, frameIndex)
+      },
     })
 
     activeLatch = undefined
 
     if (result === 'cancelled' || encoder.failed) {
+      encoder.cancel()
+      finish()
+      return
+    }
+
+    // ---- Compliance credits tail (P2 §3.4 Q5 commit 3) --------------------
+    const credits = composeExportCredits({ terrain: providers.terrain, imagery: providers.imagery, basemapStyle })
+    const creditsResult = await renderCreditsTail({
+      width: resolution.width,
+      height: resolution.height,
+      fps: EXPORT_FPS,
+      credits,
+      startFrameIndex: lastFrameIndex + 1,
+      isCancelled: () => cancelled || encoder.failed,
+      onFrame: (canvas, frameIndex) => encoder.encodeFrame(canvas, frameIndex),
+      onPhase: (index, total) => options.onProgress({ phase: 'credits', index, total }),
+    })
+
+    if (creditsResult === 'cancelled' || encoder.failed) {
       encoder.cancel()
       finish()
       return

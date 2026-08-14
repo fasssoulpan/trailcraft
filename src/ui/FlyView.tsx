@@ -524,6 +524,14 @@ export function FlyView() {
       statsOptions: useAppStore.getState().statsOptions,
       radarEnabled: radarEnabledRef.current,
       resolution: EXPORT_RESOLUTIONS[exportResolutionKey],
+      // Compliance credits tail (P2 §3.4 Q5 commit 3) -- `h.providers` is
+      // the SAME `ProviderReport` the corner badge below already renders
+      // (`state.providers`), read straight off the handle instead of from
+      // component state so this stays correct even if `state` hasn't
+      // re-rendered yet. `flyBasemapStyle` is read fresh at click time, the
+      // same one-shot-read convention `statsOptions` above already uses.
+      providers: h.providers,
+      basemapStyle: useAppStore.getState().flyBasemapStyle,
       onProgress: setExportProgress,
       onModeChosen: (mode, detail) => {
         setExportMode(mode)

@@ -85,17 +85,19 @@ const EXPORT_PHASE_LABEL: Record<ExportProgressInfo['phase'], string> = {
   probing: '正在检测编码能力…',
   prefetching: '预取瓦片中',
   rendering: '渲染帧',
+  credits: '生成署名片尾',
   finalizing: '正在合成 MP4…',
   saving: '正在保存…',
   idle: '',
 }
 
-/** "预取瓦片中 12/48" / "渲染帧 342/18000" -- the two phases that carry a
- * meaningful `index`/`total`; the others are a fixed label with no counter
- * (`total` is reported as `0` for those, see `frameExport.ts`). */
+/** "预取瓦片中 12/48" / "渲染帧 342/18000" / "生成署名片尾 45/90" -- the
+ * phases that carry a meaningful `index`/`total`; the others are a fixed
+ * label with no counter (`total` is reported as `0` for those, see
+ * `frameExport.ts`). */
 function formatExportPhase(info: ExportProgressInfo): string {
   const label = EXPORT_PHASE_LABEL[info.phase]
-  if (info.total > 0 && (info.phase === 'prefetching' || info.phase === 'rendering')) {
+  if (info.total > 0 && (info.phase === 'prefetching' || info.phase === 'rendering' || info.phase === 'credits')) {
     return `${label} ${info.index}/${info.total}`
   }
   return label

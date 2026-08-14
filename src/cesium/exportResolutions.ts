@@ -71,10 +71,14 @@ export function resolutionKeysForRatio(ratio: ExportAspectRatioKey): ExportResol
 /** `'probing'` -- running the WebCodecs capability probe. `'prefetching'`/
  * `'rendering'` -- the deterministic renderer's own two phases (or, for the
  * `MediaRecorder` fallback, `'rendering'` covers its entire real-time
- * capture since it has no separate prefetch step). `'finalizing'` -- the
- * encoder is flushing/muxing. `'saving'` -- handing the finished file to the
- * browser's download UI. `'idle'` -- no export in progress. */
-export type ExportPhase = 'probing' | 'prefetching' | 'rendering' | 'finalizing' | 'saving' | 'idle'
+ * capture since it has no separate prefetch step). `'credits'` -- the
+ * compliance credits tail (P2 §3.4 milestone Q5) is being rendered and
+ * encoded, after the main flythrough frames and before finalizing; only the
+ * deterministic pipeline produces this phase, see `frameExport.ts`'s own
+ * doc comment on why the `MediaRecorder` fallback does not. `'finalizing'`
+ * -- the encoder is flushing/muxing. `'saving'` -- handing the finished
+ * file to the browser's download UI. `'idle'` -- no export in progress. */
+export type ExportPhase = 'probing' | 'prefetching' | 'rendering' | 'credits' | 'finalizing' | 'saving' | 'idle'
 
 export interface ExportProgressInfo {
   phase: ExportPhase
