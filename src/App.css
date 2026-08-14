@@ -1472,3 +1472,99 @@
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* ── Quick calculator (速算模式) -- reuses .perf-modal/.perf-table/etc above,
+ * these are only the pieces specific to its preset picker and inputs. ── */
+
+.qc-entry-button {
+  align-self: flex-start;
+}
+
+.qc-preset-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.qc-preset-tab {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qc-preset-tab--active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.qc-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.qc-preset-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.qc-preset-item:hover {
+  border-color: var(--accent);
+}
+
+.qc-preset-item__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.qc-preset-item__spec {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.qc-field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.qc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.qc-field input[type='number'] {
+  width: 100px;
+}
+
+.qc-field--time {
+  flex: 1 1 auto;
+}
+
+.qc-time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qc-time-inputs input[type='number'] {
+  width: 60px;
+}

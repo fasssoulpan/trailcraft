@@ -14,7 +14,9 @@ import {
   significantClimbs,
   envCompensationNote,
   perfAvailability,
+  PERF_DISCLAIMER,
 } from './perfFormat'
+import { QuickCalcPanel } from './QuickCalcPanel'
 
 /**
  * 表现报告面板(P2 §3.3,里程碑 Q3)。一个可关闭的浮层/弹窗,由侧边栏按钮
@@ -49,6 +51,8 @@ export function PerformancePanel() {
       {open && activeTrack && (
         <PerformanceModal track={activeTrack} statsOptions={statsOptions} onClose={() => setOpen(false)} />
       )}
+
+      <QuickCalcPanel />
     </div>
   )
 }
@@ -126,11 +130,7 @@ function PerformanceReport({
     <>
       <section className="perf-modal__section">
         <h4 className="perf-modal__section-title">核心指标</h4>
-        <p className="perf-disclaimer">
-          「表现分(社区估算)」是基于爬升 / 配速 / 环境的社区反向推导模型,<strong>不是官方 ITRA 积分</strong>,
-          标定依赖若干假设(精英参考区间取 900-960 分档而非公开的逐运动员官方成绩;部分赛事赛道数据为估算值),
-          仅供个人训练参考,不代表任何官方认证结果。
-        </p>
+        <p className="perf-disclaimer">{PERF_DISCLAIMER}</p>
         <div className="perf-score">
           <span className="perf-score__value">{analysis.spiScore}</span>
           <span className="perf-score__level">{analysis.spiLevel}</span>
