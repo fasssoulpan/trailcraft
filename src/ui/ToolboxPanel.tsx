@@ -1,9 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { splitAt, joinTracks, reverseTrack, removeAnomalies, simplifyTrack } from '../core/toolbox/ops'
 import { totalVertexDistance } from '../core/toolbox/draw'
 import { formatKm } from './perfFormat'
 import { drawAvailableForMode } from './layerAvailability'
+import type { TerrainSource } from '../cesium/terrainSelection'
+
+type ElevationStatus = 'idle' | 'loading' | 'done' | 'error'
+
+const TERRAIN_SOURCE_LABEL: Record<TerrainSource, string> = {
+  maptiler: 'MapTiler 地形',
+  esri: 'Esri WorldElevation3D（约 30m 分辨率全球 DEM）',
+  ellipsoid: '无地形数据',
+}
 
 export function ToolboxPanel() {
   const tracks = useAppStore((s) => s.tracks)
@@ -24,13 +33,62 @@ export function ToolboxPanel() {
   const deleteDrawVertex = useAppStore((s) => s.deleteDrawVertex)
   const cancelDraw = useAppStore((s) => s.cancelDraw)
   const finishDraw = useAppStore((s) => s.finishDraw)
+  const setTrackElevation = useAppStore((s) => s.setTrackElevation)
 
   const [maxSpeed, setMaxSpeed] = useState(10)
   const [tolerance, setTolerance] = useState(5)
   const [message, setMessage] = useState<string | undefined>()
   const [joinSelection, setJoinSelection] = useState<Set<string>>(new Set())
+  const [elevationStatus, setElevationStatus] = useState<ElevationStatus>('idle')
+  const [elevationMessage, setElevationMessage] = useState<string | undefined>()
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
+
+  // A stale "已为 380/400 个点写入高程" message from a previous track must
+  // not linger once the user switches to a different one -- it would read
+  // as if it described the newly-selected track.
+  useEffect(() => {
+    setElevationStatus('idle')
+    setElevationMessage(undefined)
+  }, [activeTrackId])
+
+  async function doSampleElevation() {
+    if (!activeTrack) return
+    const trackId = activeTrack.id
+    setElevationStatus('loading')
+    setElevationMessage(undefined)
+    try {
+      // Dynamic import: this is the one place in ToolboxPanel that reaches
+      // into Cesium (via cesium/terrainSample.ts), and only once the user
+      // actually clicks the button -- see that module's own file comment
+      // for why this boundary matters (Cesium must never enter the main
+      // bundle just because this button exists).
+      const { sampleTrackElevation } = await import('../cesium/terrainSample')
+      const outcome = await sampleTrackElevation(activeTrack)
+      if (outcome.error) {
+        setElevationStatus('error')
+        setElevationMessage(outcome.error)
+        return
+      }
+      const result = setTrackElevation(trackId, outcome.heights)
+      if (!result || result.sampledCount === 0) {
+        setElevationStatus('error')
+        setElevationMessage('地形服务未返回任何有效高程数据，轨迹保持不带高程')
+        return
+      }
+      setElevationStatus('done')
+      const sourceLabel = outcome.source ? TERRAIN_SOURCE_LABEL[outcome.source] : '地形服务'
+      const disclaimer = `来自 ${sourceLabel}，供规划参考，非设备实测气压高程`
+      setElevationMessage(
+        result.failedCount > 0
+          ? `已为 ${result.sampledCount}/${result.sampledCount + result.failedCount} 个点写入高程（${result.failedCount} 个点采样失败）；${disclaimer}`
+          : `已为全部 ${result.sampledCount} 个点写入高程；${disclaimer}`,
+      )
+    } catch (err) {
+      setElevationStatus('error')
+      setElevationMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const splitIndex = hover && activeTrack && hover.trackId === activeTrackId ? hover.index : undefined
   const n = activeTrack?.points.lon.length ?? 0
@@ -210,6 +268,20 @@ export function ToolboxPanel() {
           </>
         )}
       </div>
+
+      {activeTrack && activeTrack.points.ele === undefined && (
+        <div className="toolbox-panel__row">
+          <span className="toolbox-panel__field-label">高程补全</span>
+          <p className="toolbox-panel__hint">
+            当前轨迹没有高程数据（手绘/规划路线的常见情况）。补全高程会从 Esri 约 30m 分辨率的全球
+            DEM 查询每个点的地面高度，供规划参考——不等同于设备实测的气压高程。
+          </p>
+          <button type="button" disabled={elevationStatus === 'loading'} onClick={() => void doSampleElevation()}>
+            {elevationStatus === 'loading' ? '正在查询地形…' : '补全高程'}
+          </button>
+          {elevationMessage && <p className="toolbox-panel__hint">{elevationMessage}</p>}
+        </div>
+      )}
 
       {!activeTrack && <p className="toolbox-panel__hint">请先在轨迹列表中选择一条轨迹</p>}
 

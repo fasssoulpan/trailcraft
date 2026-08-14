@@ -12,6 +12,7 @@ import { backfillTrackStyles } from '../core/model/trackStyle'
 import {
   appendVertex, deleteVertex, moveVertex, trackFromVertices, type Vertex,
 } from '../core/toolbox/draw'
+import { applySampledElevation } from '../core/toolbox/elevation'
 import { History } from './history'
 import { loadMode, saveMode, type Mode } from './mode'
 import { loadBasemapStyle, saveBasemapStyle, type BasemapScope, type BasemapStyle } from './basemapPref'
@@ -221,6 +222,29 @@ interface AppState {
    * 兜底防御。
    */
   finishDraw(): void
+  /**
+   * 把 `cesium/terrainSample.ts#sampleTrackElevation` 已经采样好的高程数组
+   * 写回 `trackId` 对应的轨迹(P2「补全高程」)。和 `finishDraw` 一样走
+   * `applyOp`——补全高程是一次可撤销的轨迹编辑,不应该绕开撤销栈。真正的
+   * 网络请求由调用方(`ToolboxPanel.tsx`)在调这个方法之前、通过 Cesium
+   * 动态 import 边界另一侧的 `sampleTrackElevation` 完成;这个方法本身
+   * 只做同步的"结果落地"这一步,和 store 里其它任何 action 一样不碰网络、
+   * 不 import cesium。
+   *
+   * 全部采样失败(`heights` 里没有一个非 undefined 值)时不 push 历史、
+   * 不改动 `tracks`——`core/toolbox/elevation.ts#applySampledElevation` 的
+   * "全部失败就原样返回输入 Track"约定决定了这里没有任何有意义的变更可
+   * 撤销,提前弹出反而会在撤销栈里留一条"什么都没变"的空操作。
+   *
+   * 找不到 `trackId`,或轨迹在采样发起之后、结果落地之前已经被替换成点数
+   * 不同的另一条轨迹(比如用户同时又做了一次抽稀)时,静默放弃、返回
+   * `undefined`——`heights` 数组是针对发起采样那一刻的点数生成的,套用到
+   * 点数已经变化的轨迹上没有意义,不能强行按下标对应。
+   */
+  setTrackElevation(
+    trackId: string,
+    heights: (number | undefined)[],
+  ): { sampledCount: number; failedCount: number } | undefined
   /**
    * Records a request to move the map camera onto `trackId`. MapView watches
    * `locateRequest` and, once it has acted on it (via `trackLayer.ts`'s
@@ -455,6 +479,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     // does for imports, so finishing a drawn route selects it immediately.
     set({ drawMode: false, drawVertices: [], drawCursor: undefined, activeTrackId: created?.id ?? get().activeTrackId })
   },
+
+  setTrackElevation: (trackId, heights) => {
+    const s = get()
+    const track = s.tracks.find((t) => t.id === trackId)
+    if (!track) return undefined
+    // Cheap pure preview (no history side effect) purely to decide whether
+    // there's anything worth pushing onto the undo stack -- see this
+    // action's own doc comment for why a total failure must not push a
+    // no-op history entry.
+    const preview = applySampledElevation(track, heights)
+    if (preview.sampledCount === 0) return { sampledCount: 0, failedCount: preview.failedCount }
+
+    s.applyOp('补全高程', (tracks) => {
+      const idx = tracks.findIndex((t) => t.id === trackId)
+      if (idx === -1) return tracks
+      const current = tracks[idx]
+      // heights was generated against the point count at sampling time; if
+      // the track's shape changed since (another op landed while the
+      // network request was in flight), the array no longer lines up with
+      // this track's indices -- discard rather than let
+      // applySampledElevation's own length-mismatch guard throw mid-applyOp.
+      if (current.points.lon.length !== heights.length) return tracks
+      const result = applySampledElevation(current, heights)
+      const next = [...tracks]
+      next.splice(idx, 1, result.track)
+      return next
+    })
+    return { sampledCount: preview.sampledCount, failedCount: preview.failedCount }
+  },
+
   requestLocate: (trackId) =>
     set((s) => ({ locateRequest: { trackId, seq: (s.locateRequest?.seq ?? 0) + 1 } })),
   clearLocateRequest: () => set({ locateRequest: undefined }),

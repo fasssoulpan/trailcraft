@@ -88,6 +88,7 @@ describe('appStore', () => {
       tracks: [], sourceMemory: {}, activeTrackId: undefined, hover: undefined,
       cps: [], statsOptions: { threshold: 5, smoothWindow: 5 }, locateRequest: undefined,
       canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined, history: new History(),
+      drawMode: false, drawVertices: [], drawCursor: undefined,
     })
   })
 
@@ -791,6 +792,113 @@ describe('appStore', () => {
       useAppStore.getState().setBasemapStyle('plan', 'satellite')
       useAppStore.getState().setContoursEnabled(false)
       useAppStore.getState().setRadarEnabled(false)
+    })
+  })
+
+  describe('hand-drawn routes', () => {
+    it('setDrawMode(true) resets any leftover draft and clears hover', () => {
+      const t = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t)
+      useAppStore.setState({ hover: { trackId: t.id, index: 0 } })
+      useAppStore.getState().setDrawMode(true)
+      const s = useAppStore.getState()
+      expect(s.drawMode).toBe(true)
+      expect(s.drawVertices).toEqual([])
+      expect(s.hover).toBeUndefined()
+    })
+
+    it('addDrawVertex/moveDrawVertex/deleteDrawVertex build up the vertex list', () => {
+      useAppStore.getState().setDrawMode(true)
+      useAppStore.getState().addDrawVertex([0, 0])
+      useAppStore.getState().addDrawVertex([1, 0])
+      useAppStore.getState().addDrawVertex([2, 0])
+      expect(useAppStore.getState().drawVertices).toEqual([[0, 0], [1, 0], [2, 0]])
+
+      useAppStore.getState().moveDrawVertex(1, [1, 5])
+      expect(useAppStore.getState().drawVertices).toEqual([[0, 0], [1, 5], [2, 0]])
+
+      useAppStore.getState().deleteDrawVertex(0)
+      expect(useAppStore.getState().drawVertices).toEqual([[1, 5], [2, 0]])
+    })
+
+    it('cancelDraw discards the draft without touching tracks or history', () => {
+      useAppStore.getState().setDrawMode(true)
+      useAppStore.getState().addDrawVertex([0, 0])
+      useAppStore.getState().addDrawVertex([1, 0])
+      useAppStore.getState().cancelDraw()
+      const s = useAppStore.getState()
+      expect(s.drawMode).toBe(false)
+      expect(s.drawVertices).toEqual([])
+      expect(s.tracks).toEqual([])
+      expect(s.canUndo).toBe(false)
+    })
+
+    it('finishDraw commits a Track through applyOp (undoable) and selects it', () => {
+      useAppStore.getState().setDrawMode(true)
+      useAppStore.getState().addDrawVertex([116, 39.9])
+      useAppStore.getState().addDrawVertex([116.01, 39.9])
+      useAppStore.getState().addDrawVertex([116.01, 39.91])
+      useAppStore.getState().finishDraw()
+
+      const s = useAppStore.getState()
+      expect(s.tracks.length).toBe(1)
+      expect(s.drawMode).toBe(false)
+      expect(s.drawVertices).toEqual([])
+      expect(s.activeTrackId).toBe(s.tracks[0].id)
+      expect(s.canUndo).toBe(true)
+      expect(s.tracks[0].points.ele).toBeUndefined()
+      expect(s.tracks[0].points.time).toBeUndefined()
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().tracks).toEqual([])
+    })
+
+    it('finishDraw with fewer than 2 vertices is a silent no-op', () => {
+      useAppStore.getState().setDrawMode(true)
+      useAppStore.getState().addDrawVertex([116, 39.9])
+      useAppStore.getState().finishDraw()
+      const s = useAppStore.getState()
+      // finishDraw itself no-ops on <2 vertices, but the draft/mode are left
+      // untouched by that early return -- ToolboxPanel's own `canFinishDraw`
+      // gate is what's meant to stop the button being clickable in the
+      // first place.
+      expect(s.tracks).toEqual([])
+      expect(s.drawMode).toBe(true)
+    })
+  })
+
+  describe('setTrackElevation', () => {
+    it('applies heights through applyOp (undoable), leaving a derived track with an ele column', () => {
+      const t = makeTrack('a.gpx') // 2 points
+      useAppStore.getState().addTrack(t)
+
+      const result = useAppStore.getState().setTrackElevation(t.id, [100, 200])
+      expect(result).toEqual({ sampledCount: 2, failedCount: 0 })
+
+      const s = useAppStore.getState()
+      expect(s.tracks.length).toBe(1)
+      expect(s.tracks[0].id).not.toBe(t.id)
+      expect(Array.from(s.tracks[0].points.ele!)).toEqual([100, 200])
+      expect(s.canUndo).toBe(true)
+
+      useAppStore.getState().undo()
+      expect(useAppStore.getState().tracks[0].points.ele).toBeUndefined()
+    })
+
+    it('a total sampling failure does not push history or touch tracks', () => {
+      const t = makeTrack('a.gpx')
+      useAppStore.getState().addTrack(t)
+
+      const result = useAppStore.getState().setTrackElevation(t.id, [undefined, undefined])
+      expect(result).toEqual({ sampledCount: 0, failedCount: 2 })
+
+      const s = useAppStore.getState()
+      expect(s.tracks[0]).toBe(t) // untouched, same object
+      expect(s.canUndo).toBe(false)
+    })
+
+    it('returns undefined for an unknown track id', () => {
+      expect(useAppStore.getState().setTrackElevation('nope', [1, 2])).toBeUndefined()
     })
   })
 })
