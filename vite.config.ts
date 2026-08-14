@@ -50,6 +50,14 @@ export default defineConfig({
   // source.loaded() === false with 4000 valid coordinates in the source).
   // Excluding it from pre-bundling makes Vite serve the package's own ESM
   // build untouched, keeping the worker blob intact.
+  server: {
+    // Bind IPv4 explicitly. Vite's default binding left the dev server
+    // listening only on [::1] (IPv6 loopback) on this machine, so a browser
+    // that resolves `localhost` to 127.0.0.1 could not connect at all --
+    // which reads as "the page won't load" rather than as an address-family
+    // mismatch. `127.0.0.1` keeps it loopback-only (not exposed on the LAN).
+    host: '127.0.0.1',
+  },
   optimizeDeps: {
     exclude: ['maplibre-gl'],
   },
