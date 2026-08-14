@@ -13,11 +13,34 @@
 export interface LayoutSizes {
   sidebarWidth: number
   profileHeight: number
+  // Added alongside the collapse feature. A value persisted by an older
+  // build of the app never wrote these keys at all, so `loadLayoutSizes`
+  // below must treat a missing/non-boolean value the same as `false` --
+  // exactly the same "tolerate an old shape" contract `sidebarWidth`/
+  // `profileHeight` already have for a non-number/missing value.
+  sidebarCollapsed: boolean
+  profileCollapsed: boolean
 }
 
 const STORAGE_KEY = 'trailcraft:layout:v1'
 
-export const DEFAULT_LAYOUT_SIZES: LayoutSizes = { sidebarWidth: 320, profileHeight: 240 }
+export const DEFAULT_LAYOUT_SIZES: LayoutSizes = {
+  sidebarWidth: 320,
+  profileHeight: 240,
+  sidebarCollapsed: false,
+  profileCollapsed: false,
+}
+
+// Fixed on-screen size of the always-visible affordance a pane collapses
+// down to (the thin edge strip / toggle row) -- not part of LayoutSizes
+// itself since it isn't a user preference, just a constant both App.tsx and
+// App.css need to agree on for the sidebar's collapsed inline width. The
+// profile pane's collapsed height isn't listed here because it doesn't need
+// one: its toggle button is the pane's only child at that point, so leaving
+// height/flexBasis unset lets flexbox size the pane to the button's own
+// content height instead of hard-coding a number that could drift out of
+// sync with the button's actual rendered height (padding/font-size changes).
+export const SIDEBAR_COLLAPSED_WIDTH = 36
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(max, min), Math.max(value, min))
@@ -39,6 +62,14 @@ export function loadLayoutSizes(): LayoutSizes {
         typeof parsed.profileHeight === 'number' && Number.isFinite(parsed.profileHeight)
           ? parsed.profileHeight
           : DEFAULT_LAYOUT_SIZES.profileHeight,
+      sidebarCollapsed:
+        typeof parsed.sidebarCollapsed === 'boolean'
+          ? parsed.sidebarCollapsed
+          : DEFAULT_LAYOUT_SIZES.sidebarCollapsed,
+      profileCollapsed:
+        typeof parsed.profileCollapsed === 'boolean'
+          ? parsed.profileCollapsed
+          : DEFAULT_LAYOUT_SIZES.profileCollapsed,
     }
   } catch {
     return { ...DEFAULT_LAYOUT_SIZES }

@@ -17,6 +17,48 @@
   text-align: left;
 }
 
+/* Collapsed state of .app-layout__sidebar (App.tsx) -- a thin always-visible
+ * edge strip with just the restore affordance, so the sidebar's whole
+ * width goes back to the map instead of leaving a dead empty panel. Its
+ * width (App.tsx's SIDEBAR_COLLAPSED_WIDTH, layout.ts) is far below
+ * SIDEBAR_MIN, so it never needs to participate in sidebarMax's "leave room
+ * for MAP_MIN_WIDTH" math the way the expanded sidebar does. */
+.app-layout__sidebar-collapsed {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 16px;
+  border-right: 1px solid var(--border);
+}
+
+.app-layout__sidebar-collapsed-toggle,
+.app-layout__sidebar-collapse-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Houses ModeSwitch plus its new collapse button side by side, still inside
+ * the sticky pinned header (see .app-layout__sidebar-pinned below). */
+.app-layout__sidebar-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-layout__sidebar-pinned-row .mode-switch {
+  flex: 1 1 auto;
+}
+
 .app-layout__main {
   flex: 1 1 auto;
   min-width: 0;
@@ -34,6 +76,30 @@
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Always-visible toggle row for the profile pane -- same idiom as
+ * .app-layout__segments-toggle below (SegmentTable's own collapse control),
+ * not a third style. When collapsed this is the pane's only child, and
+ * .app-layout__profile has no explicit height set in that state (App.tsx),
+ * so flex: 0 0 auto here sizes the whole pane down to just this row. */
+.app-layout__profile-toggle {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.app-layout__profile-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* Draggable dividers between sidebar|map and map|profile (App.tsx +

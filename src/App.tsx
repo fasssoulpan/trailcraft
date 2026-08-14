@@ -15,7 +15,7 @@ import { ProfileCanvas } from './profile/ProfileCanvas'
 import { Splitter } from './ui/Splitter'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
-import { clamp, loadLayoutSizes, saveLayoutSizes, type LayoutSizes } from './state/layout'
+import { clamp, loadLayoutSizes, saveLayoutSizes, SIDEBAR_COLLAPSED_WIDTH, type LayoutSizes } from './state/layout'
 import { MapDebugBadge } from './ui/MapDebugBadge'
 import './App.css'
 
@@ -57,6 +57,24 @@ function App() {
   const mainRef = useRef<HTMLDivElement | null>(null)
   const segmentsRef = useRef<HTMLDivElement | null>(null)
 
+  // Collapsing/restoring never touches sizes.sidebarWidth/profileHeight --
+  // it only flips the boolean, so the numeric size a pane restores to is
+  // always whatever it was before it was collapsed, never a default.
+  function toggleSidebar() {
+    setSizes((s) => {
+      const next = { ...s, sidebarCollapsed: !s.sidebarCollapsed }
+      saveLayoutSizes(next)
+      return next
+    })
+  }
+  function toggleProfile() {
+    setSizes((s) => {
+      const next = { ...s, profileCollapsed: !s.profileCollapsed }
+      saveLayoutSizes(next)
+      return next
+    })
+  }
+
   const sidebarMax = () => {
     const el = appLayoutRef.current
     if (!el) return SIDEBAR_MAX
@@ -80,7 +98,7 @@ function App() {
       const sidebarWidth = clamp(prev.sidebarWidth, SIDEBAR_MIN, sidebarMax())
       const profileHeight = clamp(prev.profileHeight, PROFILE_MIN, profileMax())
       if (sidebarWidth === prev.sidebarWidth && profileHeight === prev.profileHeight) return prev
-      return { sidebarWidth, profileHeight }
+      return { ...prev, sidebarWidth, profileHeight }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -108,34 +126,64 @@ function App() {
 
   return (
     <div className="app-layout" ref={appLayoutRef}>
-      <aside
-        className="app-layout__sidebar"
-        style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
-      >
-        {/* Pinned, not scrolled away with the rest of the panels: this is the
-         * app's primary mode toggle, and burying it at the top of a long
-         * scrolling column made it unfindable once any track was loaded. */}
-        <div className="app-layout__sidebar-pinned">
-          <ModeSwitch />
-        </div>
-        <LayerPanel />
-        <ProjectToolbar />
-        <ImportPanel />
-        <TrackList />
-        <ToolboxPanel />
-        <CpPanel />
-        <PacePanel />
-        <PerformancePanel />
-      </aside>
-      <Splitter
-        orientation="vertical"
-        value={sizes.sidebarWidth}
-        min={SIDEBAR_MIN}
-        getMax={sidebarMax}
-        onChange={(sidebarWidth) => setSizes((s) => ({ ...s, sidebarWidth }))}
-        onCommit={(sidebarWidth) => saveLayoutSizes({ ...sizesRef.current, sidebarWidth })}
-        label="调整侧边栏宽度"
-      />
+      {sizes.sidebarCollapsed ? (
+        // Collapsed to a thin always-visible strip -- see App.css's own
+        // comment on this class for why the map's minimums don't need to
+        // account for this width (it's far below SIDEBAR_MIN already).
+        <aside className="app-layout__sidebar-collapsed" style={{ width: SIDEBAR_COLLAPSED_WIDTH }}>
+          <button
+            type="button"
+            className="app-layout__sidebar-collapsed-toggle"
+            onClick={toggleSidebar}
+            aria-expanded={false}
+            aria-label="展开侧边栏"
+          >
+            ▸
+          </button>
+        </aside>
+      ) : (
+        <aside
+          className="app-layout__sidebar"
+          style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
+        >
+          {/* Pinned, not scrolled away with the rest of the panels: this is the
+           * app's primary mode toggle, and burying it at the top of a long
+           * scrolling column made it unfindable once any track was loaded. */}
+          <div className="app-layout__sidebar-pinned">
+            <div className="app-layout__sidebar-pinned-row">
+              <ModeSwitch />
+              <button
+                type="button"
+                className="app-layout__sidebar-collapse-btn"
+                onClick={toggleSidebar}
+                aria-expanded={true}
+                aria-label="收起侧边栏"
+              >
+                ◂
+              </button>
+            </div>
+          </div>
+          <LayerPanel />
+          <ProjectToolbar />
+          <ImportPanel />
+          <TrackList />
+          <ToolboxPanel />
+          <CpPanel />
+          <PacePanel />
+          <PerformancePanel />
+        </aside>
+      )}
+      {!sizes.sidebarCollapsed && (
+        <Splitter
+          orientation="vertical"
+          value={sizes.sidebarWidth}
+          min={SIDEBAR_MIN}
+          getMax={sidebarMax}
+          onChange={(sidebarWidth) => setSizes((s) => ({ ...s, sidebarWidth }))}
+          onCommit={(sidebarWidth) => saveLayoutSizes({ ...sizesRef.current, sidebarWidth })}
+          label="调整侧边栏宽度"
+        />
+      )}
       <div className="app-layout__main" ref={mainRef}>
         <div className="app-layout__map">
           {/* Only one of these is ever mounted -- switching modes must
@@ -159,18 +207,44 @@ function App() {
             </div>
           )}
         </div>
-        <Splitter
-          orientation="horizontal"
-          value={sizes.profileHeight}
-          min={PROFILE_MIN}
-          getMax={profileMax}
-          invert
-          onChange={(profileHeight) => setSizes((s) => ({ ...s, profileHeight }))}
-          onCommit={(profileHeight) => saveLayoutSizes({ ...sizesRef.current, profileHeight })}
-          label="调整高程剖面图高度"
-        />
-        <div className="app-layout__profile" style={{ height: sizes.profileHeight, flexBasis: sizes.profileHeight }}>
-          <ProfileCanvas />
+        {!sizes.profileCollapsed && (
+          <Splitter
+            orientation="horizontal"
+            value={sizes.profileHeight}
+            min={PROFILE_MIN}
+            getMax={profileMax}
+            invert
+            onChange={(profileHeight) => setSizes((s) => ({ ...s, profileHeight }))}
+            onCommit={(profileHeight) => saveLayoutSizes({ ...sizesRef.current, profileHeight })}
+            label="调整高程剖面图高度"
+          />
+        )}
+        <div
+          className="app-layout__profile"
+          // Collapsed: no explicit height/flexBasis, so flex:0 0 auto (see
+          // App.css) sizes this down to just the toggle button's own content
+          // height instead of a hard-coded number -- see layout.ts's
+          // SIDEBAR_COLLAPSED_WIDTH doc comment for why the profile pane
+          // doesn't have an equivalent constant.
+          style={sizes.profileCollapsed ? undefined : { height: sizes.profileHeight, flexBasis: sizes.profileHeight }}
+        >
+          {/* Same always-visible-toggle idiom as .app-layout__segments-toggle
+           * above (SegmentTable's own collapse control) rather than a
+           * separate style. */}
+          <button
+            type="button"
+            className="app-layout__profile-toggle"
+            onClick={toggleProfile}
+            aria-expanded={!sizes.profileCollapsed}
+            aria-label={sizes.profileCollapsed ? '展开高程剖面图' : '收起高程剖面图'}
+          >
+            {sizes.profileCollapsed ? '▸ 展开高程剖面图' : '▾ 收起高程剖面图'}
+          </button>
+          {!sizes.profileCollapsed && (
+            <div className="app-layout__profile-body">
+              <ProfileCanvas />
+            </div>
+          )}
         </div>
       </div>
     </div>
