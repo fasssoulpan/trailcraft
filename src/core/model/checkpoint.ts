@@ -1,12 +1,13 @@
-export type CpKind = 'cp' | 'aid' | 'gear' | 'danger' | 'quit'
+export type CpKind = 'cp' | 'aid' | 'gear' | 'danger' | 'quit' | 'landmark'
 
-/** 五种 CP 类型的中文展示名,CpPanel / MapView 的创建表单共用同一份映射。 */
+/** 六种 CP 类型的中文展示名,CpPanel / MapView 的创建表单共用同一份映射。 */
 export const CP_KIND_LABELS: Record<CpKind, string> = {
   cp: 'CP 打卡点',
   aid: '补给站',
   gear: '强装检查',
   danger: '危险路段',
   quit: '退赛点',
+  landmark: '重要地标',
 }
 
 /**
@@ -29,6 +30,10 @@ export const CP_KIND_COLORS: Record<CpKind, string> = {
   gear: '#ca8a04',
   danger: '#dc2626',
   quit: '#6b7280',
+  // Purple: distinct from every other kind above and from TRACK_PALETTE (see
+  // core/model/trackStyle.ts), so a landmark never reads as a track line or
+  // as another kind of checkpoint.
+  landmark: '#9333ea',
 }
 
 export interface CheckPoint {

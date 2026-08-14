@@ -13,9 +13,9 @@
  * `scoring_v4.js` itself, not in `elevation.js`/`gap.js`/etc.).
  *
  * PI = min(1000, round(C * (kme_v2 / hours)^K * (kme_v2 / KME_REF)^M * envFactor))
- *   C = 102.2   calibration constant (see "P2 Q2 commit 4" below)
- *   K = 0.709   speed exponent
- *   M = 0.142   length-normalisation exponent (see below)
+ *   C = 77.9    calibration constant (see "P2 Q2 commit 5" below)
+ *   K = 0.850   speed exponent
+ *   M = 0.155   length-normalisation exponent (see below)
  *   kme_v2 = dist_km + ascent_m/100 + descent_m/150
  *   KME_REF = 270 (UTMB's classic ~270 km-effort figure -- see calibration.ts;
  *     mathematically a pure labelling convention here, see "P2 Q2 commit 3"
@@ -228,25 +228,30 @@ import { computeKmSplits, type KmSplit } from './splits'
 const DEFAULT_THRESHOLD = 5
 const DEFAULT_SMOOTH_WINDOW = 5
 
-// ── Power-law model parameters (P2 Q2 commit 4 refit -- see header) ───────
-const SPI_C = 102.2
-const SPI_K = 0.709
-const SPI_M = 0.142
+// ── Power-law model parameters (P2 Q2 commit 5 refit -- see header) ───────
+//
+// Exported so tests can pin the level boundaries against the SAME constants
+// the model actually uses. They were duplicated into the test file before,
+// and duplication is precisely how the playback-speed ladder came to offer
+// 500x while the engine clamped to 20x -- one copy moved, the other didn't.
+export const SPI_C = 77.9
+export const SPI_K = 0.850
+export const SPI_M = 0.155
 // UTMB's classic ~270 km-effort (170km + 10000m D+ / 100, the widely-cited
 // v1 figure with no descent term) -- a recognisable "this is elite ultra
 // scale" reference point. Intentionally duplicated from calibration.ts's
 // `UTMB_KME_REF_V1` (same value) rather than imported, so this shipped
 // module has no runtime dependency on the calibration data table -- see
 // calibration.ts's header for why that table stays script/analysis-only.
-const SPI_KME_REF = 270
+export const SPI_KME_REF = 270
 
 export type PerformanceLevel = '精英级' | '优秀' | '良好' | '中等' | '入门'
 
 /** Level thresholds -- see this file's header comment for the anchor
- * (every 2026 崇礼168 AND 2025 UTMB-week category winner qualifies as
- * 精英级) and how the other three were derived from it. */
-const LEVELS: { threshold: number; label: PerformanceLevel }[] = [
-  { threshold: 620, label: '精英级' },
+ * (every VERIFIED 2026 崇礼168 AND 2025 UTMB-week category winner qualifies
+ * as 精英级) and how the other three were derived from it. */
+export const LEVELS: { threshold: number; label: PerformanceLevel }[] = [
+  { threshold: 680, label: '精英级' },
   { threshold: 500, label: '优秀' },
   { threshold: 380, label: '良好' },
   { threshold: 200, label: '中等' },

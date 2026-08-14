@@ -16,6 +16,11 @@ import type { KmlWaypoint } from '../parsers/kml'
  */
 export function inferCpKind(name: string): CpKind {
   if (name.includes('补给')) return 'aid'
+  // Deliberately NOT inferring 'landmark' from place-name-looking words: in
+  // real race KMLs almost every checkpoint is named after a place (崇礼168's
+  // own waypoints include 「CP7雪如意」, 「CP4桦林子」, 「CP11森林·雪公寓」),
+  // so any such rule would retype most genuine checkpoints as landmarks.
+  // 'landmark' stays a manual choice.
   return 'cp'
 }
 

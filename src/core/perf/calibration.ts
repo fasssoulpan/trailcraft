@@ -16,6 +16,23 @@
  * have (most rows below have no `expectedScore` at all -- they exist for
  * the STRUCTURAL checks in `calibrate-perf.ts`, not the numeric fit, because
  * no independently-published PI exists for them to fit against).
+ *
+ * ── P2 Q2 commit 5: unverifiable rows must not bind the fit ────────────────
+ * `confidence: 'low'` alone used to still leave a row in every structural
+ * gate (cap-avoidance, category spread) -- fine for a row that's merely
+ * lower-precision (e.g. OCC's alternate-course caveat), but not fine for a
+ * row whose course spec is an outright GUESS. Commit 4 found exactly that:
+ * 崇礼168 70km's proportionally-estimated ascent (never measured, never
+ * sourced) implied a pace mathematically incompatible with staying under
+ * 2025 UTMB men for any Riegel-plausible M/K, which dragged the whole safety
+ * ceiling down from ~960 to ~808 -- a guessed number was binding the model.
+ * `excludeFromFit: true` marks a row as excluded from BOTH the numeric fit
+ * (rows without `expectedScore` never were in it) AND every structural
+ * constraint in `calibrate-perf.ts` (cap-safety margin, category-spread
+ * check) -- the row stays in this table purely for documentation/provenance,
+ * never as something the model is required to respect. See the 100km/70km/
+ * 50km rows below for the three rows this applies to, and each row's note
+ * for why.
  */
 import type { PerformanceLevel } from './score'
 
@@ -45,6 +62,16 @@ export interface CalibrationRow {
   /** Caveats worth surfacing next to the row wherever it's reported --
    * which figures are estimated, and how. */
   note?: string
+  /** When true, this row is excluded from BOTH the numeric fit AND every
+   * structural constraint in `calibrate-perf.ts` (cap-safety margin,
+   * category-spread check) -- it is kept in this table purely for
+   * documentation/provenance (P2 Q2 commit 5). Use this for a row whose
+   * course spec/time isn't just lower-precision but is actually
+   * unverifiable (a guessed distance/ascent, a physically-implausible
+   * implied pace) -- `confidence: 'low'` alone still participates in every
+   * structural gate, which is correct for a row that's merely uncertain but
+   * wrong for a row that's a guess a bad fit could get bound to. */
+  excludeFromFit?: boolean
 }
 
 // UTMB's official "km-effort" is commonly cited as ~270 (170km + 10000m D+
@@ -113,10 +140,18 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
   // PI for any of them, only their real finish times -- the "Model PI"
   // figures in the P2 Q2 brief are the CURRENT (buggy) model's own output,
   // not a target to fit toward (fitting a model to reproduce its own bug
-  // would be circular). They exist for the structural checks instead: no
-  // category winner should hit the 1000 cap, and winners of different
-  // categories of the same race (comparable-calibre national elites) should
-  // land in a reasonable band of each other.
+  // would be circular). The 168km rows (real KML-exact course spec) exist
+  // for the structural checks: no category winner should hit the 1000 cap,
+  // and the two 168km finishers (same course, same climbing) should land in
+  // a reasonable band of each other.
+  //
+  // The 100km/70km/50km rows below are marked `excludeFromFit: true` (P2 Q2
+  // commit 5): their distance/ascent are not race-measured, only a
+  // proportional GUESS from the 168km course's gain rate, and for the 70km
+  // row that guess implies a physically-implausible pace (see its note) --
+  // see this file's header for why a guess must not be allowed to bind any
+  // part of the model, numeric or structural. Kept here only for
+  // provenance/documentation.
   {
     label: '崇礼168 2026, 168km, 赵家驹 (course record)',
     distanceKm: 172.8,
@@ -156,7 +191,8 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
     hours: 10 + 28 / 60 + 4 / 3600,
     source: 'user-supplied result (time, real); distance/ascent estimated (see note)',
     confidence: 'low',
-    note: 'distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced',
+    excludeFromFit: true,
+    note: 'UNVERIFIABLE, excluded from fit (P2 Q2 commit 5): distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced. Kept for provenance only -- do not re-add to the fit without a real course spec.',
   },
   {
     label: '崇礼168 2026, 70km, 张火话',
@@ -166,7 +202,23 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
     hours: 4 + 31 / 60 + 30 / 3600,
     source: 'user-supplied result (time, real); distance/ascent estimated (see note)',
     confidence: 'low',
-    note: 'distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced',
+    excludeFromFit: true,
+    // REJECTED (P2 Q2 commit 5), not just low-confidence: 70km in 4:31:30 is
+    // 15.5 km/h average -- over a 70km mountain course with an estimated
+    // 3000m+ of climbing, that is faster than either 2025 UTMB men's winner
+    // (9.0 km/h, 174km/10000m D+) or 2025 OCC's winner (11.4 km/h, 57km/
+    // 3500m D+) on genuinely comparable terrain. Not physically credible as
+    // stated. Either the category isn't really 70km, the ascent isn't really
+    // ~3000m, or this time belongs to a different category -- any of which
+    // means the row is unverifiable, not merely imprecise. Do NOT re-add
+    // this row to the fit without a sourced, verified course spec (e.g. the
+    // category's own KML/GPX) -- see calibrate-perf.ts's former handling of
+    // this row (superseded) for what happens when a guess like this is
+    // allowed to bind the model: it forced the whole safety ceiling from
+    // ~960 down to ~808 and inverted UTMB men (808) below this row's own
+    // score (954), a lesser regional 70km outranking a greater world-class
+    // 174km effort.
+    note: 'UNVERIFIABLE, excluded from fit (P2 Q2 commit 5): implied average speed is 15.5 km/h over a 70km/~3000m-D+ mountain course -- faster than 2025 UTMB or OCC winners on comparable terrain, not physically credible. distanceKm/ascentM are estimates, not sourced. Kept for provenance only -- do not re-add to the fit without a real, verified course spec.',
   },
   {
     label: '崇礼168 2026, 50km, 杨春龙',
@@ -176,7 +228,8 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
     hours: 4 + 24 / 60 + 47 / 3600,
     source: 'user-supplied result (time, real); distance/ascent estimated (see note)',
     confidence: 'low',
-    note: 'distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced',
+    excludeFromFit: true,
+    note: 'UNVERIFIABLE, excluded from fit (P2 Q2 commit 5): distanceKm is the nominal category distance (not GPS-measured); ascentM is proportional to the 168km course\'s measured gain rate, not sourced. Kept for provenance only -- do not re-add to the fit without a real course spec.',
   },
 
   // ── 2025 UTMB Mont-Blanc week (international elites, P2 Q2 commit 3) ────
@@ -270,5 +323,8 @@ export const CALIBRATION_TABLE: CalibrationRow[] = [
   // `expectedScore` only if you have a real published number, otherwise
   // leave it off and it still participates in the structural checks) and
   // re-run `npx vite-node scripts/calibrate-perf.ts` to see how it moves
-  // the fit.
+  // the fit. If the row's course spec/time is a genuine GUESS rather than
+  // just lower-precision (see `excludeFromFit`'s doc comment above), set
+  // `excludeFromFit: true` so it can't bind the model -- don't just mark it
+  // `confidence: 'low'` and leave it in the structural gates.
 ]

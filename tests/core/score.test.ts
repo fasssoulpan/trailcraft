@@ -5,7 +5,15 @@ import { createTrack, type Track, type TrackMeta } from '../../src/core/model/tr
 import { computeCumDist } from '../../src/core/geo/distance'
 import { parseGpx } from '../../src/core/parsers/gpx'
 import { parseFit } from '../../src/core/parsers/fit'
-import { calculateSpi, computePerformance, type PerformanceResult } from '../../src/core/perf/score'
+import {
+  calculateSpi,
+  computePerformance,
+  LEVELS,
+  SPI_C,
+  SPI_K,
+  SPI_KME_REF,
+  type PerformanceResult,
+} from '../../src/core/perf/score'
 
 function meta(name: string, kindOverride?: 'recorded' | 'planned' | 'uncertain'): TrackMeta {
   return { name, format: 'gpx', fileName: `${name}.gpx`, kindOverride }
@@ -128,15 +136,16 @@ describe('calculateSpi (power-law formula, dual-anchor regression)', () => {
     // Pin kme at KME_REF (270) so the length term (kme/KME_REF)^M is
     // exactly 1 and score reduces to C*(kme/hours)^K -- letting this test
     // solve for hours without duplicating score.ts's private M/KME_REF.
-    const KME_REF = 270
-    const SPI_C = 102.2
-    const SPI_K = 0.709
-    const hoursFor = (score: number) => KME_REF / (score / SPI_C) ** (1 / SPI_K)
-    expect(calculateSpi(KME_REF, hoursFor(620), 1.0)!.level).toBe('精英级')
-    expect(calculateSpi(KME_REF, hoursFor(500), 1.0)!.level).toBe('优秀')
-    expect(calculateSpi(KME_REF, hoursFor(380), 1.0)!.level).toBe('良好')
-    expect(calculateSpi(KME_REF, hoursFor(200), 1.0)!.level).toBe('中等')
-    expect(calculateSpi(KME_REF, hoursFor(10), 1.0)!.level).toBe('入门')
+    // Imported, NOT duplicated: a local copy of these constants is how this
+    // test silently went stale across three refits, and how the playback
+    // ladder came to offer 500x while the engine clamped to 20x.
+    const hoursFor = (score: number) => SPI_KME_REF / (score / SPI_C) ** (1 / SPI_K)
+    const eliteThreshold = LEVELS.find((l) => l.label === '精英级')!.threshold
+    expect(calculateSpi(SPI_KME_REF, hoursFor(eliteThreshold), 1.0)!.level).toBe('精英级')
+    expect(calculateSpi(SPI_KME_REF, hoursFor(500), 1.0)!.level).toBe('优秀')
+    expect(calculateSpi(SPI_KME_REF, hoursFor(380), 1.0)!.level).toBe('良好')
+    expect(calculateSpi(SPI_KME_REF, hoursFor(200), 1.0)!.level).toBe('中等')
+    expect(calculateSpi(SPI_KME_REF, hoursFor(10), 1.0)!.level).toBe('入门')
   })
 })
 
@@ -446,7 +455,14 @@ describe.skipIf(!existsSync(dataDir))('computePerformance on real recordings', (
 describe('calibration table structural checks (P2 Q2 commit 1+2)', () => {
   it('no 2026 崇礼168 category winner hits the 1000 cap', async () => {
     const { CALIBRATION_TABLE } = await import('../../src/core/perf/calibration')
-    const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
+    // `excludeFromFit` rows are unverified guesses kept only for provenance
+    // (the 70km row's own numbers imply an impossible 15.5 km/h over a
+    // mountain course). A guess must not be able to fail — or pass — a gate
+    // it was deliberately removed from; the calibration script's own verdict
+    // logic skips them for exactly this reason.
+    const chongli = CALIBRATION_TABLE.filter(
+      (r) => r.label.startsWith('崇礼168') && !r.excludeFromFit,
+    )
     expect(chongli.length).toBeGreaterThan(0)
     for (const row of chongli) {
       const kmeV2 = row.distanceKm + row.ascentM / 100 + row.descentM / 150

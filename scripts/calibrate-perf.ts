@@ -399,8 +399,13 @@ const CALIBRATION_ROW_ENV_FACTOR = 1.0
 function winnerRows(): CalibrationRow[] {
   // Every row except the flat anchor is some kind of race winner (real or
   // the reference's synthetic mountain anchor) -- all of them must respect
-  // the cap, not just the labelled 崇礼168/international groups.
-  return CALIBRATION_TABLE.filter((r) => r !== flatAnchorRow)
+  // the cap, not just the labelled 崇礼168/international groups. Rows
+  // flagged `excludeFromFit` (P2 Q2 commit 5 -- unverifiable course specs,
+  // e.g. 崇礼168's 100km/70km/50km) are excluded here too: a guessed number
+  // must not be able to bind the model via a structural gate either, only
+  // via a genuinely-published `expectedScore` (which none of these rows
+  // have anyway) or a verifiable course spec.
+  return CALIBRATION_TABLE.filter((r) => r !== flatAnchorRow && !r.excludeFromFit)
 }
 
 function hardConstraintsOk(p: Params, real: RealRecording[]): boolean {
@@ -410,7 +415,12 @@ function hardConstraintsOk(p: Params, real: RealRecording[]): boolean {
     if (raw > CAP_SAFETY_MARGIN) return false
   }
 
-  const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
+  // Category-spread check: with the 100km/70km/50km rows excluded (P2 Q2
+  // commit 5), this now only compares the two real 168km finishers (same
+  // course, same climbing) -- a gender-spread sanity check rather than a
+  // cross-category one, but still the check the brief names ("no inversion
+  // where a lesser achievement outranks a greater one").
+  const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168') && !r.excludeFromFit)
   if (chongli.length > 0) {
     const scores = chongli.map((row) => Math.min(rawScore(kmeV2(row), row.hours, CALIBRATION_ROW_ENV_FACTOR, p), 1000))
     if (Math.max(...scores) - Math.min(...scores) > SPREAD_MAX) return false
@@ -503,18 +513,21 @@ function printCalibrationTable(score: (row: CalibrationRow) => number | undefine
 
 function printStructuralChecks(score: (row: CalibrationRow) => number | undefined) {
   console.log('\n== Structural check 1: no 崇礼168 category winner hits the 1000 cap ==')
+  console.log('  (excludeFromFit rows are shown for provenance but do NOT count toward the verdict --')
+  console.log('   see calibration.ts: a guess must not be able to fail, or pass, a gate it is not in)')
   const chongli = CALIBRATION_TABLE.filter((r) => r.label.startsWith('崇礼168'))
   let anyCapped = false
   for (const row of chongli) {
     const s = score(row)
     const capped = s !== undefined && s >= 1000
-    if (capped) anyCapped = true
-    console.log(`  ${row.label.padEnd(48)} PI=${fmt(s, 0)}${capped ? '  *** AT CAP ***' : ''}`)
+    if (capped && !row.excludeFromFit) anyCapped = true
+    console.log(`  ${row.label.padEnd(48)} PI=${fmt(s, 0)}${capped ? '  *** AT CAP ***' : ''}${row.excludeFromFit ? '  (excluded from fit)' : ''}`)
   }
   console.log(`  verdict: ${anyCapped ? 'FAIL -- at least one category winner is pinned at the ceiling' : 'pass'}`)
 
-  console.log('\n== Structural check 2: 崇礼168 category-winner spread ==')
-  const scores = chongli.map((row) => score(row)).filter((s): s is number => s !== undefined)
+  console.log('\n== Structural check 2: 崇礼168 category-winner spread (excludeFromFit rows omitted) ==')
+  const verifiedChongli = chongli.filter((r) => !r.excludeFromFit)
+  const scores = verifiedChongli.map((row) => score(row)).filter((s): s is number => s !== undefined)
   if (scores.length > 0) {
     const spread = Math.max(...scores) - Math.min(...scores)
     console.log(`  scores: [${scores.join(', ')}]  spread=${spread.toFixed(0)}`)
