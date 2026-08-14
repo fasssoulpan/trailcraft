@@ -113,7 +113,12 @@ export function mileageForFrame(frameIndex: number, config: FrameScheduleConfig)
  * arrives just after the job already finished on its own) can never resurrect
  * or corrupt an already-settled job.
  */
-export type ExportPhase = 'idle' | 'prefetching' | 'rendering' | 'finalizing' | 'completed' | 'cancelled' | 'error'
+// Renamed from `RenderLoopPhase` to end a name collision with the LIVE
+// `RenderLoopPhase` in `exportResolutions.ts` (a different, actively-used union).
+// Two same-named types describing different things is a trap for whoever
+// edits next; this one models the cancellation state machine, not the UI's
+// progress phases.
+export type RenderLoopPhase = 'idle' | 'prefetching' | 'rendering' | 'finalizing' | 'completed' | 'cancelled' | 'error'
 
 export type ExportEvent =
   | { type: 'start' }
@@ -123,10 +128,10 @@ export type ExportEvent =
   | { type: 'cancel' }
   | { type: 'fail' }
 
-const TERMINAL_PHASES: ReadonlySet<ExportPhase> = new Set(['completed', 'cancelled', 'error'])
+const TERMINAL_PHASES: ReadonlySet<RenderLoopPhase> = new Set(['completed', 'cancelled', 'error'])
 
 /** True for the three phases `nextExportPhase` never transitions out of. */
-export function isTerminalExportPhase(phase: ExportPhase): boolean {
+export function isTerminalExportPhase(phase: RenderLoopPhase): boolean {
   return TERMINAL_PHASES.has(phase)
 }
 
@@ -147,7 +152,7 @@ export function isTerminalExportPhase(phase: ExportPhase): boolean {
  * current phase is the correct behaviour for a state machine that must never
  * itself throw mid-export.
  */
-export function nextExportPhase(phase: ExportPhase, event: ExportEvent): ExportPhase {
+export function nextExportPhase(phase: RenderLoopPhase, event: ExportEvent): RenderLoopPhase {
   if (isTerminalExportPhase(phase)) return phase
   if (event.type === 'cancel') return 'cancelled'
   if (event.type === 'fail') return 'error'

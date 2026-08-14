@@ -95,9 +95,18 @@ const EXPORT_PHASE_LABEL: Record<ExportProgressInfo['phase'], string> = {
  * phases that carry a meaningful `index`/`total`; the others are a fixed
  * label with no counter (`total` is reported as `0` for those, see
  * `frameExport.ts`). */
+/** The phases that report a meaningful `index`/`total`. Single source of
+ * truth for both the counter in the text label and the progress-bar element
+ * below -- keeping two separate inline conditions in step failed once. */
+const COUNTED_EXPORT_PHASES: ReadonlySet<ExportProgressInfo['phase']> = new Set([
+  'prefetching',
+  'rendering',
+  'credits',
+])
+
 function formatExportPhase(info: ExportProgressInfo): string {
   const label = EXPORT_PHASE_LABEL[info.phase]
-  if (info.total > 0 && (info.phase === 'prefetching' || info.phase === 'rendering' || info.phase === 'credits')) {
+  if (info.total > 0 && COUNTED_EXPORT_PHASES.has(info.phase)) {
     return `${label} ${info.index}/${info.total}`
   }
   return label
@@ -263,7 +272,10 @@ export function FlyControls({
               ? `预览级实时录屏（WebCodecs 不可用：${exportModeDetail}）`
               : '支持确定性 H.264 MP4 导出（1080p / 4K）；浏览器不支持 WebCodecs 时自动降级为预览级实时录屏'}
       </p>
-      {exportProgress !== undefined && (exportProgress.phase === 'prefetching' || exportProgress.phase === 'rendering') && exportProgress.total > 0 && (
+      {/* Keep this phase list in step with `formatExportPhase` above -- they
+       * drifted once already: 'credits' was added to the text label but not
+       * here, so the bar vanished for the whole credits tail. */}
+      {exportProgress !== undefined && COUNTED_EXPORT_PHASES.has(exportProgress.phase) && exportProgress.total > 0 && (
         <div className="fly-controls__export-progress" role="progressbar" aria-valuemin={0} aria-valuemax={exportProgress.total} aria-valuenow={exportProgress.index}>
           <div
             className="fly-controls__export-progress-bar"

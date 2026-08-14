@@ -7,7 +7,7 @@ import {
   nextExportPhase,
   isTerminalExportPhase,
   type FrameScheduleConfig,
-  type ExportPhase,
+  type RenderLoopPhase,
 } from '../../src/cesium/frameSchedule'
 
 describe('computeTotalDurationSeconds', () => {
@@ -114,7 +114,7 @@ describe('mileageForFrame: determinism', () => {
 
 describe('nextExportPhase: cancellation state machine', () => {
   it('walks the happy path idle -> prefetching -> rendering -> finalizing -> completed', () => {
-    let phase: ExportPhase = 'idle'
+    let phase: RenderLoopPhase = 'idle'
     phase = nextExportPhase(phase, { type: 'start' })
     expect(phase).toBe('prefetching')
     phase = nextExportPhase(phase, { type: 'prefetchDone' })
@@ -125,11 +125,11 @@ describe('nextExportPhase: cancellation state machine', () => {
     expect(phase).toBe('completed')
   })
 
-  it.each<ExportPhase>(['prefetching', 'rendering', 'finalizing'])('cancel from %s goes to cancelled', (phase) => {
+  it.each<RenderLoopPhase>(['prefetching', 'rendering', 'finalizing'])('cancel from %s goes to cancelled', (phase) => {
     expect(nextExportPhase(phase, { type: 'cancel' })).toBe('cancelled')
   })
 
-  it.each<ExportPhase>(['prefetching', 'rendering', 'finalizing'])('fail from %s goes to error', (phase) => {
+  it.each<RenderLoopPhase>(['prefetching', 'rendering', 'finalizing'])('fail from %s goes to error', (phase) => {
     expect(nextExportPhase(phase, { type: 'fail' })).toBe('error')
   })
 
@@ -139,7 +139,7 @@ describe('nextExportPhase: cancellation state machine', () => {
     expect(nextExportPhase('rendering', { type: 'prefetchDone' })).toBe('rendering')
   })
 
-  it.each<ExportPhase>(['completed', 'cancelled', 'error'])('terminal phase %s absorbs every further event', (phase) => {
+  it.each<RenderLoopPhase>(['completed', 'cancelled', 'error'])('terminal phase %s absorbs every further event', (phase) => {
     expect(nextExportPhase(phase, { type: 'start' })).toBe(phase)
     expect(nextExportPhase(phase, { type: 'cancel' })).toBe(phase)
     expect(nextExportPhase(phase, { type: 'fail' })).toBe(phase)
