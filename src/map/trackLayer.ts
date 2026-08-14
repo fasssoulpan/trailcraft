@@ -1,11 +1,12 @@
 import { GeoJSONSource, LngLatBounds, Marker, Popup, type Map as MapLibreMap } from 'maplibre-gl'
-import type { Feature, LineString } from 'geojson'
+import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
 import { CP_KIND_COLORS } from '../core/model/checkpoint'
 import type { HoverState } from '../state/appStore'
 import { decimateIndices } from '../core/toolbox/decimate'
 import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
+import type { Vertex } from '../core/toolbox/draw'
 
 /** MapLibre only ever draws this many vertices per track; real tracks (up to
  * ~330k points) are decimated down to this for rendering. Hover/lookup still
@@ -584,4 +585,123 @@ export function syncCpMarkers(map: MapLibreMap, activeTrack: Track | undefined, 
       styleCpMarkerElement(marker.getElement(), cp, ordinal)
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Hand-drawn route in progress (P2 toolbox addition)
+// ---------------------------------------------------------------------------
+
+const DRAW_LINE_SOURCE_ID = 'draw-inprogress-line'
+const DRAW_VERTEX_SOURCE_ID = 'draw-inprogress-vertices'
+
+const EMPTY_LINE_FEATURE: Feature<LineString> = {
+  type: 'Feature',
+  properties: {},
+  geometry: { type: 'LineString', coordinates: [] },
+}
+
+/** The drawn-so-far line plus, when given, a trailing "rubber band" segment
+ * out to the current cursor position. `undefined` (fewer than 2 total
+ * points) falls back to `EMPTY_LINE_FEATURE` -- a LineString geometry cannot
+ * hold 0 or 1 coordinates. */
+function drawLineFeature(vertices: readonly Vertex[], cursor?: Vertex): Feature<LineString> {
+  const coords: [number, number][] = vertices.map((v) => [v[0], v[1]])
+  if (cursor) coords.push([cursor[0], cursor[1]])
+  if (coords.length < 2) return EMPTY_LINE_FEATURE
+  return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+}
+
+function drawVertexFeatures(vertices: readonly Vertex[]): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: vertices.map((v, i) => ({
+      type: 'Feature',
+      properties: { index: i },
+      geometry: { type: 'Point', coordinates: [v[0], v[1]] },
+    })),
+  }
+}
+
+/**
+ * Draws (or updates) the in-progress hand-drawn route: a dashed line for the
+ * committed vertices plus the live rubber-band segment to `cursor`, and a
+ * small circle marker per vertex so the user can see exactly what they've
+ * placed and where a drag/delete would land. Idempotent -- safe to call on
+ * every store update while drawing (`MapView.tsx` does, once per
+ * drawVertices/drawCursor change).
+ *
+ * Same caller contract as `syncTrackLayers`: only call after 'style.load'.
+ */
+export function syncDrawLayer(map: MapLibreMap, vertices: readonly Vertex[], cursor?: Vertex): void {
+  const lineData = drawLineFeature(vertices, cursor)
+  const lineSource = map.getSource(DRAW_LINE_SOURCE_ID) as GeoJSONSource | undefined
+  if (lineSource) {
+    lineSource.setData(lineData)
+  } else {
+    map.addSource(DRAW_LINE_SOURCE_ID, { type: 'geojson', data: lineData })
+    map.addLayer({
+      id: DRAW_LINE_SOURCE_ID,
+      type: 'line',
+      source: DRAW_LINE_SOURCE_ID,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#16a34a', 'line-width': 3, 'line-dasharray': [2, 1.5] },
+    })
+  }
+
+  const vertexData = drawVertexFeatures(vertices)
+  const vertexSource = map.getSource(DRAW_VERTEX_SOURCE_ID) as GeoJSONSource | undefined
+  if (vertexSource) {
+    vertexSource.setData(vertexData)
+  } else {
+    map.addSource(DRAW_VERTEX_SOURCE_ID, { type: 'geojson', data: vertexData })
+    map.addLayer({
+      id: DRAW_VERTEX_SOURCE_ID,
+      type: 'circle',
+      source: DRAW_VERTEX_SOURCE_ID,
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#ffffff',
+        'circle-stroke-color': '#16a34a',
+        'circle-stroke-width': 2,
+      },
+    })
+  }
+}
+
+/** Tears down the draw-in-progress source/layers, if present. Call when
+ * leaving draw mode (toggled off, cancelled, or finished) so a stale preview
+ * never lingers on top of the committed track. */
+export function clearDrawLayer(map: MapLibreMap): void {
+  for (const id of [DRAW_LINE_SOURCE_ID, DRAW_VERTEX_SOURCE_ID]) {
+    if (map.getLayer(id)) map.removeLayer(id)
+    if (map.getSource(id)) map.removeSource(id)
+  }
+}
+
+/**
+ * Nearest draw vertex to (lng, lat), mirroring `findNearestOnTrack` above but
+ * over the flat (never decimated -- a hand-drawn vertex list is always small
+ * enough) `vertices` array itself. Pure geometry (this file's own
+ * `haversine`), used by `MapView.tsx` to hit-test "is the pointer close
+ * enough to an existing vertex to grab/delete it, rather than place a new
+ * one". Returns `undefined` when `vertices` is empty or nothing is within
+ * `maxDistanceM`.
+ */
+export function nearestDrawVertexIndex(
+  vertices: readonly Vertex[],
+  lng: number,
+  lat: number,
+  maxDistanceM: number,
+): number | undefined {
+  let bestIndex: number | undefined
+  let bestDist = Infinity
+  for (let i = 0; i < vertices.length; i++) {
+    const d = haversine(lng, lat, vertices[i][0], vertices[i][1])
+    if (d < bestDist) {
+      bestDist = d
+      bestIndex = i
+    }
+  }
+  if (bestIndex === undefined || bestDist > maxDistanceM) return undefined
+  return bestIndex
 }

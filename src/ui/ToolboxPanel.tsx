@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { splitAt, joinTracks, reverseTrack, removeAnomalies, simplifyTrack } from '../core/toolbox/ops'
+import { totalVertexDistance } from '../core/toolbox/draw'
+import { formatKm } from './perfFormat'
+import { drawAvailableForMode } from './layerAvailability'
 
 export function ToolboxPanel() {
   const tracks = useAppStore((s) => s.tracks)
@@ -13,6 +16,14 @@ export function ToolboxPanel() {
   const applyOp = useAppStore((s) => s.applyOp)
   const undo = useAppStore((s) => s.undo)
   const redo = useAppStore((s) => s.redo)
+  const mode = useAppStore((s) => s.mode)
+  const drawMode = useAppStore((s) => s.drawMode)
+  const drawVertices = useAppStore((s) => s.drawVertices)
+  const drawCursor = useAppStore((s) => s.drawCursor)
+  const setDrawMode = useAppStore((s) => s.setDrawMode)
+  const deleteDrawVertex = useAppStore((s) => s.deleteDrawVertex)
+  const cancelDraw = useAppStore((s) => s.cancelDraw)
+  const finishDraw = useAppStore((s) => s.finishDraw)
 
   const [maxSpeed, setMaxSpeed] = useState(10)
   const [tolerance, setTolerance] = useState(5)
@@ -28,6 +39,15 @@ export function ToolboxPanel() {
   // 按轨迹列表当前顺序取被勾选的轨迹(P0 不做拖拽排序,列表顺序即拼接顺序)。
   const joinTargets = tracks.filter((t) => joinSelection.has(t.id))
   const canJoin = joinTargets.length >= 2
+
+  // 手绘路线仅在规划模式可用(见 layerAvailability.ts#drawAvailableForMode
+  // 的文档注释:巡游模式的三维视图没有对应的点击落点交互)。实时里程读数把
+  // 已提交的顶点加上鼠标当前悬停位置(若有)一起算,这样即使还没点下下一个
+  // 顶点,拖动鼠标时读数也是"实时"的——和地图上橡皮筋线段显示的是同一段
+  // 距离。
+  const drawAvailability = drawAvailableForMode(mode)
+  const drawDistanceM = totalVertexDistance(drawCursor ? [...drawVertices, drawCursor] : drawVertices)
+  const canFinishDraw = drawVertices.length >= 2
 
   function toggleJoinSelection(id: string) {
     setJoinSelection((prev) => {
@@ -146,6 +166,49 @@ export function ToolboxPanel() {
         >
           重做
         </button>
+      </div>
+
+      <div className="toolbox-panel__row toolbox-panel__row--draw">
+        <span className="toolbox-panel__field-label">手绘路线</span>
+        {/* `!drawMode` gates the hint/start-button pair, NOT `drawAvailability.available`
+         * alone -- if the user switches into 巡游模式 mid-draw (App.tsx keeps
+         * MapView mounted only in 规划模式, but the draft itself lives in
+         * appStore and survives the switch), they still need a working
+         * "完成"/"取消" escape hatch here even though starting a NEW draw is
+         * unavailable right now. Without this split, switching to 巡游模式
+         * mid-draw would strand the draft with no visible way to finish or
+         * discard it. */}
+        {!drawMode && !drawAvailability.available && <p className="toolbox-panel__hint">{drawAvailability.hint}</p>}
+        {!drawMode && drawAvailability.available && (
+          <button type="button" onClick={() => setDrawMode(true)}>
+            开始手绘
+          </button>
+        )}
+        {drawMode && (
+          <>
+            <p className="toolbox-panel__hint">
+              在地图上点击加点、拖动已有点可移动、右键点击可删除；双击或点击「完成」结束
+            </p>
+            <p className="toolbox-panel__draw-readout">
+              {drawVertices.length} 个顶点 · {formatKm(drawDistanceM)}
+            </p>
+            <div className="toolbox-panel__row">
+              <button
+                type="button"
+                disabled={drawVertices.length === 0}
+                onClick={() => deleteDrawVertex(drawVertices.length - 1)}
+              >
+                删除最后一点
+              </button>
+              <button type="button" disabled={!canFinishDraw} onClick={() => finishDraw()}>
+                完成
+              </button>
+              <button type="button" onClick={() => cancelDraw()}>
+                取消
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {!activeTrack && <p className="toolbox-panel__hint">请先在轨迹列表中选择一条轨迹</p>}

@@ -10,17 +10,34 @@ import { useAppStore, type HoverState } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import { ALL_RASTER_SOURCE_IDS, OSM_STYLE, styleSpecForBasemap } from './basemapStyle'
 import { hoverReadoutLabel } from '../ui/hudStats'
+import type { Vertex } from '../core/toolbox/draw'
 import {
+  clearDrawLayer,
   findNearestOnTrack,
   locateTrack,
+  nearestDrawVertexIndex,
   pixelsToMeters,
   syncCpMarkers,
+  syncDrawLayer,
   syncHoverMarker,
   syncHoverReadout,
   syncTrackLayers,
   tryPendingFit,
   HOVER_GRAB_PX,
 } from './trackLayer'
+
+// How long to hold a 'click' before actually committing it as a new drawn
+// vertex, so a 'dblclick' arriving shortly after (browsers/MapLibre both
+// fire click, click, dblclick for a double-click) can cancel it instead of
+// leaving two stray extra vertices right at the finish point.
+const DRAW_CLICK_COMMIT_DELAY_MS = 220
+
+// On-screen movement (px) between a vertex-drag's mousedown and mouseup
+// below which it's still treated as a plain click (e.g. "grabbed" a vertex
+// but didn't actually move it) -- matches the small-jitter tolerance most
+// pointer-based UIs use to distinguish an intentional drag from a
+// stationary press.
+const DRAG_THRESHOLD_PX = 3
 
 // Re-exported so anything that previously imported `OSM_STYLE` from this
 // module (its original home, before milestone N6 commit 2 moved the actual
@@ -64,6 +81,14 @@ export function MapView() {
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
   const planBasemapStyle = useAppStore((s) => s.planBasemapStyle)
   const statsOptions = useAppStore((s) => s.statsOptions)
+  const drawMode = useAppStore((s) => s.drawMode)
+  const drawVertices = useAppStore((s) => s.drawVertices)
+  const drawCursor = useAppStore((s) => s.drawCursor)
+  const addDrawVertex = useAppStore((s) => s.addDrawVertex)
+  const moveDrawVertex = useAppStore((s) => s.moveDrawVertex)
+  const deleteDrawVertex = useAppStore((s) => s.deleteDrawVertex)
+  const setDrawCursor = useAppStore((s) => s.setDrawCursor)
+  const finishDraw = useAppStore((s) => s.finishDraw)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
   // CheckPoint.trackId is the source of truth for which track a CP belongs
@@ -97,6 +122,22 @@ export function MapView() {
   cpsRef.current = cps
   const setCpFormRef = useRef(setCpForm)
   setCpFormRef.current = setCpForm
+  const drawModeRef = useRef(drawMode)
+  drawModeRef.current = drawMode
+  const drawVerticesRef = useRef(drawVertices)
+  drawVerticesRef.current = drawVertices
+  const drawCursorRef = useRef(drawCursor)
+  drawCursorRef.current = drawCursor
+  const addDrawVertexRef = useRef(addDrawVertex)
+  addDrawVertexRef.current = addDrawVertex
+  const moveDrawVertexRef = useRef(moveDrawVertex)
+  moveDrawVertexRef.current = moveDrawVertex
+  const deleteDrawVertexRef = useRef(deleteDrawVertex)
+  deleteDrawVertexRef.current = deleteDrawVertex
+  const setDrawCursorRef = useRef(setDrawCursor)
+  setDrawCursorRef.current = setDrawCursor
+  const finishDrawRef = useRef(finishDraw)
+  finishDrawRef.current = finishDraw
 
   // Default the inline form's name to the next ordinal each time it's
   // (re)opened - but only then, not on every cps change, so it doesn't
@@ -105,6 +146,16 @@ export function MapView() {
     if (cpForm) setCpName(`CP${cps.length + 1}`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cpForm])
+
+  // Draw mode and the inline "add CP" form are mutually exclusive click
+  // targets on the same map (see the mount effect's `handleClick`, which
+  // never opens a CP form while `drawModeRef.current` is true) -- but if a
+  // CP form was already open the moment the user toggled draw mode on, it
+  // would otherwise just sit there, stale, floating over the draw
+  // interaction. Close it the instant draw mode turns on.
+  useEffect(() => {
+    if (drawMode) setCpForm(undefined)
+  }, [drawMode])
 
   // Create the map once; destroy on unmount.
   useEffect(() => {
@@ -183,6 +234,7 @@ export function MapView() {
         hoverReadoutLabel(tracksRef.current, hoverRef.current, statsOptionsRef.current),
       )
       syncCpMarkers(map, activeTrackRef.current, cpsRef.current)
+      if (drawModeRef.current) syncDrawLayer(map, drawVerticesRef.current, drawCursorRef.current)
     }
     map.on('style.load', handleStyleLoad)
 
@@ -228,14 +280,43 @@ export function MapView() {
     // A raw mousemove handler doing a linear scan over every track's render
     // copy on every event would thrash (mousemove fires far faster than the
     // display refreshes). Throttle to one lookup per animation frame instead.
+    // The same throttle serves both interaction modes below (normal hover
+    // lookup, and draw-mode's rubber-band cursor / vertex drag) -- they're
+    // mutually exclusive (see `drawModeRef` branch inside), never both live
+    // at once, so one rAF budget is enough.
     let rafId: number | null = null
     let pendingEvent: MapMouseEvent | null = null
+
+    // Draw-mode-only interaction state. Deliberately plain closure
+    // variables, not React state or store fields: they're transient
+    // per-gesture bookkeeping (which vertex a mousedown grabbed, whether the
+    // pointer has actually moved since) that nothing outside this effect
+    // needs to read, exactly like `rafId`/`pendingEvent` above.
+    let draggingIndex: number | null = null
+    let dragStartPoint: { x: number; y: number } | null = null
+    let dragMoved = false
+    let clickTimeoutId: number | null = null
 
     const runPendingLookup = () => {
       rafId = null
       const e = pendingEvent
       pendingEvent = null
       if (!e) return
+
+      if (drawModeRef.current) {
+        if (draggingIndex !== null) {
+          if (dragStartPoint) {
+            const dx = e.point.x - dragStartPoint.x
+            const dy = e.point.y - dragStartPoint.y
+            if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) dragMoved = true
+          }
+          moveDrawVertexRef.current(draggingIndex, [e.lngLat.lng, e.lngLat.lat])
+        } else {
+          setDrawCursorRef.current([e.lngLat.lng, e.lngLat.lat])
+        }
+        return
+      }
+
       const zoom = map.getZoom()
       const maxDistanceM = pixelsToMeters(zoom, e.lngLat.lat, HOVER_GRAB_PX)
       const nearest: HoverState | undefined = findNearestOnTrack(
@@ -258,10 +339,49 @@ export function MapView() {
         cancelAnimationFrame(rafId)
         rafId = null
       }
-      setHoverRef.current(undefined)
+      if (drawModeRef.current) setDrawCursorRef.current(undefined)
+      else setHoverRef.current(undefined)
     }
     map.on('mousemove', handleMouseMove)
     map.on('mouseout', handleMouseOut)
+
+    // Draw mode grabs an existing vertex on mousedown (within the same
+    // pixel grab radius hover/CP-click use) so the following mousemove
+    // events drag it instead of panning the map -- `dragPan.disable()` for
+    // the duration is what stops MapLibre's own pan handler from also
+    // reacting to the same pointer movement.
+    const handleMouseDown = (e: MapMouseEvent) => {
+      if (!drawModeRef.current) return
+      const zoom = map.getZoom()
+      const maxDistanceM = pixelsToMeters(zoom, e.lngLat.lat, HOVER_GRAB_PX)
+      const idx = nearestDrawVertexIndex(drawVerticesRef.current, e.lngLat.lng, e.lngLat.lat, maxDistanceM)
+      if (idx === undefined) return
+      draggingIndex = idx
+      dragStartPoint = { x: e.point.x, y: e.point.y }
+      dragMoved = false
+      map.dragPan.disable()
+    }
+    const handleMouseUp = () => {
+      if (draggingIndex === null) return
+      draggingIndex = null
+      dragStartPoint = null
+      map.dragPan.enable()
+    }
+    map.on('mousedown', handleMouseDown)
+    map.on('mouseup', handleMouseUp)
+
+    // Right-click deletes the nearest vertex within grab range -- the "clear
+    // way to delete one" this mode needs beyond ToolboxPanel's "删除最后一点"
+    // button (which only ever removes the tail of the list).
+    const handleContextMenu = (e: MapMouseEvent) => {
+      if (!drawModeRef.current) return
+      e.preventDefault() // suppress the browser's native context menu
+      const zoom = map.getZoom()
+      const maxDistanceM = pixelsToMeters(zoom, e.lngLat.lat, HOVER_GRAB_PX)
+      const idx = nearestDrawVertexIndex(drawVerticesRef.current, e.lngLat.lng, e.lngLat.lat, maxDistanceM)
+      if (idx !== undefined) deleteDrawVertexRef.current(idx)
+    }
+    map.on('contextmenu', handleContextMenu)
 
     // Clicking near the active track opens the inline "add CP" form;
     // clicking anywhere else (no active track, or too far from it) does
@@ -270,7 +390,33 @@ export function MapView() {
     // radius feels consistent with the "near enough to hover" one - but
     // scoped to just the active track's render copy, since a click near some
     // *other* track shouldn't open a CP form for the active one.
+    //
+    // Draw mode takes over this same 'click' event entirely (mutually
+    // exclusive with the CP-form path below, never both): a plain click adds
+    // a new vertex at the cursor, unless it's actually the tail end of a
+    // vertex-grab/drag gesture (`draggingIndex`/`dragMoved` from the
+    // mousedown/mousemove handlers above) — otherwise grabbing a vertex in
+    // place, or dragging it, would *also* drop a duplicate new vertex right
+    // where the pointer came up. The commit itself is delayed by
+    // `DRAW_CLICK_COMMIT_DELAY_MS` so a genuine double-click (which finishes
+    // the route instead, see `handleDblClick` below) can cancel it before it
+    // lands -- otherwise the browser's own click,click,dblclick sequence
+    // would leave two stray extra vertices right at the finish point.
     const handleClick = (e: MapMouseEvent) => {
+      if (drawModeRef.current) {
+        if (dragMoved) {
+          dragMoved = false
+          return
+        }
+        if (clickTimeoutId != null) return
+        const lngLat: Vertex = [e.lngLat.lng, e.lngLat.lat]
+        clickTimeoutId = window.setTimeout(() => {
+          clickTimeoutId = null
+          addDrawVertexRef.current(lngLat)
+        }, DRAW_CLICK_COMMIT_DELAY_MS)
+        return
+      }
+
       const active = activeTrackRef.current
       if (!active) {
         setCpFormRef.current(undefined)
@@ -290,14 +436,35 @@ export function MapView() {
     }
     map.on('click', handleClick)
 
+    // Double-click finishes the route instead of MapLibre's default
+    // "zoom in" -- `preventDefault()` on the MapMouseEvent is MapLibre's own
+    // documented way for a listener to suppress the built-in handler for the
+    // same event (mirrors how `cesium/viewer.ts` removes the equivalent
+    // Cesium input action, just via this library's own mechanism instead).
+    const handleDblClick = (e: MapMouseEvent) => {
+      if (!drawModeRef.current) return
+      e.preventDefault()
+      if (clickTimeoutId != null) {
+        clearTimeout(clickTimeoutId)
+        clickTimeoutId = null
+      }
+      finishDrawRef.current()
+    }
+    map.on('dblclick', handleDblClick)
+
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId)
+      if (clickTimeoutId != null) clearTimeout(clickTimeoutId)
       ro.disconnect()
       map.off('style.load', handleStyleLoad)
       map.off('error', handleError)
       map.off('mousemove', handleMouseMove)
       map.off('mouseout', handleMouseOut)
+      map.off('mousedown', handleMouseDown)
+      map.off('mouseup', handleMouseUp)
+      map.off('contextmenu', handleContextMenu)
       map.off('click', handleClick)
+      map.off('dblclick', handleDblClick)
       map.remove()
       mapRef.current = null
       loadedRef.current = false
@@ -366,6 +533,19 @@ export function MapView() {
     if (!loadedRef.current) return
     syncCpMarkers(map, activeTrack, cps)
   }, [activeTrack, cps])
+
+  // Draws (or tears down) the in-progress hand-drawn route. Same gate as the
+  // effects above. Explicitly tears down via `clearDrawLayer` the moment
+  // `drawMode` goes false (toggled off, cancelled, or finished) rather than
+  // just syncing an empty vertex list, so no stale source/layer lingers on
+  // the map in between draws.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!loadedRef.current) return
+    if (drawMode) syncDrawLayer(map, drawVertices, drawCursor)
+    else clearDrawLayer(map)
+  }, [drawMode, drawVertices, drawCursor])
 
   // Acts on the "定位" (locate) request from a TrackList row (see
   // appStore's `locateRequest`/`requestLocate`). Keyed on the request's

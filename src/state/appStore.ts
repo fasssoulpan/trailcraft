@@ -9,6 +9,9 @@ import type { StatsOptions } from '../core/stats/segments'
 import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
 import { backfillTrackStyles } from '../core/model/trackStyle'
+import {
+  appendVertex, deleteVertex, moveVertex, trackFromVertices, type Vertex,
+} from '../core/toolbox/draw'
 import { History } from './history'
 import { loadMode, saveMode, type Mode } from './mode'
 import { loadBasemapStyle, saveBasemapStyle, type BasemapScope, type BasemapStyle } from './basemapPref'
@@ -52,6 +55,27 @@ interface AppState {
   tracks: Track[]
   activeTrackId?: string
   hover?: HoverState
+  /**
+   * 手绘轨迹的进行中状态(P2 轨迹工具箱新增)。和 `hover`/`locateRequest`
+   * 同一类:纯会话态交互状态,不进撤销历史(草稿阶段每一次加点/拖动都
+   * push 一条 undo 记录既没意义也会淹没真正有意义的操作历史),也不进
+   * 工程文件(未完成的手绘草稿不是"轨迹"，没有理由被保存/加载)。
+   *
+   * `drawVertices` 是 `core/toolbox/draw.ts` 里"顶点列表是唯一数据源"的
+   * 那份顶点列表本体——`MapView.tsx` 的点击/拖拽只操作这个数组(通过
+   * `addDrawVertex`/`moveDrawVertex`/`deleteDrawVertex`,底层调用
+   * `core/toolbox/draw.ts` 的同名纯函数),从不直接构造 Track,直到
+   * `finishDraw` 才把它变成一条真正的 Track。这样以后要接路网吸附纠偏
+   * (方案 V2.1 §5.2,当前明确不在本次范围内),只需要在这个数组上插入一步
+   * 改写逻辑,不需要碰任何下游代码。
+   *
+   * `drawCursor` 只用于地图上"从最后一个顶点到当前鼠标位置"的橡皮筋线段
+   * 预览——和 `hover` 一样,通过 rAF 节流的 mousemove 更新(见
+   * `MapView.tsx`),不是每次原始鼠标事件都触发一次 store 写入。
+   */
+  drawMode: boolean
+  drawVertices: Vertex[]
+  drawCursor?: Vertex
   /**
    * A pending "move the camera onto this track" request from the "定位"
    * button on a TrackList row (MapView owns the actual map instance, so it
@@ -172,6 +196,31 @@ interface AppState {
   setTrackKindOverride(id: string, kind: TrackKind | undefined): void
   setActive(id: string): void
   setHover(h?: HoverState): void
+  /**
+   * 手绘模式的开/关。开启时清空任何残留的顶点/光标(比如上一次手绘取消后
+   * 又重新开始),并顺带清掉 `hover`——`MapView.tsx` 让手绘模式和"悬停找最
+   * 近点/点击加 CP"互斥,不该出现"手绘中同时还留着上一次悬停高亮"的
+   * 视觉混乱。关闭时同样清空草稿——`toggleDrawMode(false)` 和 `cancelDraw`
+   * 因此行为完全一致,是同一件事的两个入口(前者是"再点一次开关"，后者是
+   * ToolboxPanel 的"取消"按钮),没必要维护两套清空逻辑。
+   */
+  setDrawMode(on: boolean): void
+  addDrawVertex(v: Vertex): void
+  moveDrawVertex(index: number, v: Vertex): void
+  deleteDrawVertex(index: number): void
+  setDrawCursor(v?: Vertex): void
+  /** 丢弃当前手绘草稿,不落地成 Track。 */
+  cancelDraw(): void
+  /**
+   * 把当前草稿顶点交给 `core/toolbox/draw.ts#trackFromVertices` 落地成一条
+   * 新 Track,走 `applyOp` 挂进撤销历史(和 split/join/reverse/清洗/抽稀
+   * 完全一样的入口,手绘因此天然获得"可撤销")。顶点数不足 2 时静默无操作
+   * ——`trackFromVertices` 本身对 1 个顶点并不抛错(见该函数文档),但
+   * "画一条只有 1 个点的路线"对用户来说不是一次有意义的完成操作，交由
+   * `ToolboxPanel` 的按钮 disabled 状态在此之前就挡掉，这里的检查只是
+   * 兜底防御。
+   */
+  finishDraw(): void
   /**
    * Records a request to move the map camera onto `trackId`. MapView watches
    * `locateRequest` and, once it has acted on it (via `trackLayer.ts`'s
@@ -378,6 +427,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setActive: (id) => set({ activeTrackId: id }),
   setHover: (h) => set({ hover: h }),
+  drawMode: false, drawVertices: [], drawCursor: undefined,
+  setDrawMode: (on) =>
+    set({ drawMode: on, drawVertices: [], drawCursor: undefined, hover: on ? undefined : get().hover }),
+  addDrawVertex: (v) => set((s) => ({ drawVertices: appendVertex(s.drawVertices, v) })),
+  moveDrawVertex: (index, v) => set((s) => ({ drawVertices: moveVertex(s.drawVertices, index, v) })),
+  deleteDrawVertex: (index) => set((s) => ({ drawVertices: deleteVertex(s.drawVertices, index) })),
+  setDrawCursor: (v) => set({ drawCursor: v }),
+  cancelDraw: () => set({ drawMode: false, drawVertices: [], drawCursor: undefined }),
+  finishDraw: () => {
+    const s = get()
+    if (s.drawVertices.length < 2) return
+    const vertices = s.drawVertices
+    let created: Track | undefined
+    s.applyOp('手绘轨迹', (tracks) => {
+      created = trackFromVertices(vertices, {
+        name: `手绘路线 ${tracks.length + 1}`,
+        format: 'gpx',
+        fileName: '手绘路线.gpx',
+      })
+      return backfillTrackStyles([...tracks, created])
+    })
+    // applyOp resolves the active track by the OLD active track's index
+    // (see resolveActiveTrackAfterOp's doc comment) -- that logic is built
+    // for 1-for-1/1-for-N *replacements*, not appends, so it never points at
+    // the newly drawn track. Set it explicitly here, same as `addTrack`
+    // does for imports, so finishing a drawn route selects it immediately.
+    set({ drawMode: false, drawVertices: [], drawCursor: undefined, activeTrackId: created?.id ?? get().activeTrackId })
+  },
   requestLocate: (trackId) =>
     set((s) => ({ locateRequest: { trackId, seq: (s.locateRequest?.seq ?? 0) + 1 } })),
   clearLocateRequest: () => set({ locateRequest: undefined }),

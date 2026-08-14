@@ -380,6 +380,12 @@
   margin: 0;
 }
 
+.toolbox-panel__draw-readout {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
 .cp-panel {
   display: flex;
   flex-direction: column;

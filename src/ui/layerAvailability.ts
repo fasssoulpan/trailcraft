@@ -43,3 +43,25 @@ export function layerAvailabilityForMode(mode: Mode): LayerAvailability {
   }
   return { contoursAvailable: true, radarAvailable: true }
 }
+
+/**
+ * Hand-drawn routes (P2 toolbox addition, `ToolboxPanel.tsx`) are the mirror
+ * image of contours/radar above: available in 规划模式 (drawn against the 2D
+ * MapLibre view), unavailable in 巡游模式 (`FlyView.tsx`'s Cesium globe has
+ * no click-to-place-a-vertex interaction wired up, and drawing against a
+ * moving 3D camera wouldn't make sense anyway). Kept in this file rather
+ * than a separate module -- same "what can the UI let the user do in this
+ * mode, with what explanatory hint when it can't" shape as
+ * `layerAvailabilityForMode` above, just inverted per-mode.
+ */
+export interface DrawAvailability {
+  available: boolean
+  hint?: string
+}
+
+const DRAW_HINT_FLY = '手绘路线仅在规划模式可用：巡游模式的三维视图不支持点击落点'
+
+export function drawAvailableForMode(mode: Mode): DrawAvailability {
+  if (mode === 'fly') return { available: false, hint: DRAW_HINT_FLY }
+  return { available: true }
+}
