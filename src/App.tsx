@@ -9,6 +9,7 @@ import { ToolboxPanel } from './ui/ToolboxPanel'
 import { CpPanel } from './ui/CpPanel'
 import { PacePanel } from './ui/PacePanel'
 import { PerformancePanel } from './ui/PerformancePanel'
+import { ExportPanel } from './ui/ExportPanel'
 import { SegmentTable } from './ui/SegmentTable'
 import { ProjectToolbar } from './ui/ProjectToolbar'
 import { ProfileCanvas } from './profile/ProfileCanvas'
@@ -171,6 +172,7 @@ function App() {
           <CpPanel />
           <PacePanel />
           <PerformancePanel />
+          <ExportPanel />
         </aside>
       )}
       {!sizes.sidebarCollapsed && (
