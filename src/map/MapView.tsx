@@ -25,6 +25,7 @@ import {
   tryPendingFit,
   HOVER_GRAB_PX,
 } from './trackLayer'
+import { stepDrawGesture, INITIAL_DRAW_GESTURE_STATE, type DrawGestureEvent } from './drawGesture'
 
 // How long to hold a 'click' before actually committing it as a new drawn
 // vertex, so a 'dblclick' arriving shortly after (browsers/MapLibre both
@@ -32,12 +33,21 @@ import {
 // leaving two stray extra vertices right at the finish point.
 const DRAW_CLICK_COMMIT_DELAY_MS = 220
 
-// On-screen movement (px) between a vertex-drag's mousedown and mouseup
-// below which it's still treated as a plain click (e.g. "grabbed" a vertex
-// but didn't actually move it) -- matches the small-jitter tolerance most
-// pointer-based UIs use to distinguish an intentional drag from a
-// stationary press.
-const DRAG_THRESHOLD_PX = 3
+// There used to be a DRAG_THRESHOLD_PX constant here (3px, matching the
+// small-jitter tolerance most pointer UIs use) feeding a "did this gesture
+// actually drag?" flag reset inside MapLibre's 'click' handler. It was
+// deleted, not renumbered, after a code review found it collided exactly
+// with MapLibre's own `clickTolerance` (also 3px) -- MapLibre suppresses its
+// public 'click' event once mousedown->mouseup movement reaches that many
+// px, so a real drag past 3px meant 'click' never fired, the flag's only
+// reset path never ran, and it stayed stuck, silently eating the user's next
+// click. The fix, in `drawGesture.ts`, doesn't need a threshold at all: it
+// decides "was this click the tail of a vertex grab" from whether
+// *mousedown* hit an existing vertex, not from how far the pointer moved or
+// whether MapLibre chose to fire 'click'. See that module's doc comment for
+// the full writeup, including a second, previously-latent bug this same
+// change fixes (grabbing a vertex and releasing without moving it used to
+// still add a duplicate, since the old check only ever looked at movement).
 
 // Re-exported so anything that previously imported `OSM_STYLE` from this
 // module (its original home, before milestone N6 commit 2 moved the actual
@@ -287,15 +297,56 @@ export function MapView() {
     let rafId: number | null = null
     let pendingEvent: MapMouseEvent | null = null
 
-    // Draw-mode-only interaction state. Deliberately plain closure
-    // variables, not React state or store fields: they're transient
-    // per-gesture bookkeeping (which vertex a mousedown grabbed, whether the
-    // pointer has actually moved since) that nothing outside this effect
-    // needs to read, exactly like `rafId`/`pendingEvent` above.
-    let draggingIndex: number | null = null
-    let dragStartPoint: { x: number; y: number } | null = null
-    let dragMoved = false
+    // Draw-mode-only gesture state, driven entirely by `drawGesture.ts`'s
+    // pure `stepDrawGesture` (see that module's doc comment for the two
+    // Critical bugs this replaced). `gestureState`/`clickTimeoutId` are
+    // deliberately plain closure variables, not React state or store
+    // fields -- transient per-gesture bookkeeping nothing outside this
+    // effect needs to read, exactly like `rafId`/`pendingEvent` above.
+    let gestureState = INITIAL_DRAW_GESTURE_STATE
     let clickTimeoutId: number | null = null
+
+    // Feeds one gesture event through the pure reducer and executes
+    // whatever actions it returns -- this function is the entire bridge
+    // between MapLibre's real events/timers and `drawGesture.ts`'s pure
+    // decisions; every handler below only ever constructs an event and
+    // calls this.
+    const applyGesture = (event: DrawGestureEvent) => {
+      const step = stepDrawGesture(gestureState, event)
+      gestureState = step.state
+      for (const action of step.actions) {
+        switch (action.type) {
+          case 'disableDragPan':
+            map.dragPan.disable()
+            break
+          case 'enableDragPan':
+            map.dragPan.enable()
+            break
+          case 'moveVertex':
+            moveDrawVertexRef.current(action.index, action.lngLat)
+            break
+          case 'setCursor':
+            setDrawCursorRef.current(action.lngLat)
+            break
+          case 'scheduleAddVertex':
+            clickTimeoutId = window.setTimeout(() => {
+              clickTimeoutId = null
+              addDrawVertexRef.current(action.lngLat)
+              applyGesture({ type: 'addCommitted' })
+            }, DRAW_CLICK_COMMIT_DELAY_MS)
+            break
+          case 'cancelScheduledAdd':
+            if (clickTimeoutId != null) {
+              clearTimeout(clickTimeoutId)
+              clickTimeoutId = null
+            }
+            break
+          case 'finishDraw':
+            finishDrawRef.current()
+            break
+        }
+      }
+    }
 
     const runPendingLookup = () => {
       rafId = null
@@ -304,16 +355,7 @@ export function MapView() {
       if (!e) return
 
       if (drawModeRef.current) {
-        if (draggingIndex !== null) {
-          if (dragStartPoint) {
-            const dx = e.point.x - dragStartPoint.x
-            const dy = e.point.y - dragStartPoint.y
-            if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) dragMoved = true
-          }
-          moveDrawVertexRef.current(draggingIndex, [e.lngLat.lng, e.lngLat.lat])
-        } else {
-          setDrawCursorRef.current([e.lngLat.lng, e.lngLat.lat])
-        }
+        applyGesture({ type: 'mousemove', lngLat: [e.lngLat.lng, e.lngLat.lat] })
         return
       }
 
@@ -348,27 +390,40 @@ export function MapView() {
     // Draw mode grabs an existing vertex on mousedown (within the same
     // pixel grab radius hover/CP-click use) so the following mousemove
     // events drag it instead of panning the map -- `dragPan.disable()` for
-    // the duration is what stops MapLibre's own pan handler from also
-    // reacting to the same pointer movement.
+    // the duration (an action `applyGesture` executes on the reducer's
+    // behalf) is what stops MapLibre's own pan handler from also reacting
+    // to the same pointer movement.
     const handleMouseDown = (e: MapMouseEvent) => {
       if (!drawModeRef.current) return
       const zoom = map.getZoom()
       const maxDistanceM = pixelsToMeters(zoom, e.lngLat.lat, HOVER_GRAB_PX)
       const idx = nearestDrawVertexIndex(drawVerticesRef.current, e.lngLat.lng, e.lngLat.lat, maxDistanceM)
-      if (idx === undefined) return
-      draggingIndex = idx
-      dragStartPoint = { x: e.point.x, y: e.point.y }
-      dragMoved = false
-      map.dragPan.disable()
+      applyGesture({ type: 'mousedown', hitIndex: idx })
     }
+    // Not gated on `drawModeRef.current`: if a vertex is genuinely grabbed
+    // (`gestureState.draggingIndex !== null`), this must run regardless, and
+    // is a no-op (see `stepDrawGesture`'s 'mouseup' case) whenever nothing
+    // is grabbed, so it's always safe to feed in unconditionally.
     const handleMouseUp = () => {
-      if (draggingIndex === null) return
-      draggingIndex = null
-      dragStartPoint = null
-      map.dragPan.enable()
+      applyGesture({ type: 'mouseup' })
     }
     map.on('mousedown', handleMouseDown)
     map.on('mouseup', handleMouseUp)
+    // Defect (2) fix (代码审查): MapLibre's own public 'mouseup' is dispatched
+    // only from a listener scoped to the map's canvas container (traced
+    // through HandlerManager's constructor in maplibre-gl-dev.mjs), so a
+    // release that lands off-canvas -- e.g. dragging a vertex onto the
+    // sidebar right next to the map and letting go there -- never fires it,
+    // and `dragPan` (disabled above at mousedown) stays disabled forever
+    // with no visible cause. This `window`-level fallback runs the exact
+    // same step, so any release anywhere in the document re-enables it --
+    // mirroring how MapLibre's own pan handler self-heals via a
+    // document-level `mousemoveWindow` listener. Registered once here, in
+    // the mount effect (dependency array `[]`, see below), and removed in
+    // this same effect's cleanup -- neither a draw-mode toggle nor a
+    // basemap `setStyle` call re-runs this effect, so this listener can
+    // neither leak nor be registered twice across either of those.
+    window.addEventListener('mouseup', handleMouseUp)
 
     // Right-click deletes the nearest vertex within grab range -- the "clear
     // way to delete one" this mode needs beyond ToolboxPanel's "删除最后一点"
@@ -394,26 +449,20 @@ export function MapView() {
     // Draw mode takes over this same 'click' event entirely (mutually
     // exclusive with the CP-form path below, never both): a plain click adds
     // a new vertex at the cursor, unless it's actually the tail end of a
-    // vertex-grab/drag gesture (`draggingIndex`/`dragMoved` from the
-    // mousedown/mousemove handlers above) — otherwise grabbing a vertex in
-    // place, or dragging it, would *also* drop a duplicate new vertex right
-    // where the pointer came up. The commit itself is delayed by
-    // `DRAW_CLICK_COMMIT_DELAY_MS` so a genuine double-click (which finishes
+    // vertex-grab/drag gesture -- `applyGesture`/`stepDrawGesture` decide
+    // that from whether the gesture's *mousedown* hit an existing vertex
+    // (see `drawGesture.ts`'s doc comment), not from how far the pointer
+    // moved, so grabbing a vertex in place or dragging it never drops a
+    // duplicate new vertex where the pointer came up. The commit itself is
+    // delayed by `DRAW_CLICK_COMMIT_DELAY_MS` (the reducer's
+    // 'scheduleAddVertex' action) so a genuine double-click (which finishes
     // the route instead, see `handleDblClick` below) can cancel it before it
     // lands -- otherwise the browser's own click,click,dblclick sequence
     // would leave two stray extra vertices right at the finish point.
     const handleClick = (e: MapMouseEvent) => {
       if (drawModeRef.current) {
-        if (dragMoved) {
-          dragMoved = false
-          return
-        }
-        if (clickTimeoutId != null) return
         const lngLat: Vertex = [e.lngLat.lng, e.lngLat.lat]
-        clickTimeoutId = window.setTimeout(() => {
-          clickTimeoutId = null
-          addDrawVertexRef.current(lngLat)
-        }, DRAW_CLICK_COMMIT_DELAY_MS)
+        applyGesture({ type: 'click', lngLat })
         return
       }
 
@@ -444,11 +493,7 @@ export function MapView() {
     const handleDblClick = (e: MapMouseEvent) => {
       if (!drawModeRef.current) return
       e.preventDefault()
-      if (clickTimeoutId != null) {
-        clearTimeout(clickTimeoutId)
-        clickTimeoutId = null
-      }
-      finishDrawRef.current()
+      applyGesture({ type: 'dblclick' })
     }
     map.on('dblclick', handleDblClick)
 
@@ -462,6 +507,7 @@ export function MapView() {
       map.off('mouseout', handleMouseOut)
       map.off('mousedown', handleMouseDown)
       map.off('mouseup', handleMouseUp)
+      window.removeEventListener('mouseup', handleMouseUp)
       map.off('contextmenu', handleContextMenu)
       map.off('click', handleClick)
       map.off('dblclick', handleDblClick)
