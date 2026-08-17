@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { computeSegments, calibrateThreshold } from '../core/stats/segments'
+import { sortCpsByAnchor, alignCutoffsToSegments } from '../core/stats/cutoffAlign'
 import { estimateArrivals, type WarnLevel } from '../core/pace/models'
 
 /** h:mm,用于逐段耗时与全程合计耗时。 */
@@ -55,16 +56,11 @@ export function SegmentTable() {
   // segments 的切分边界与 computeSegments 内部完全一致:[起点, 各 CP(按
   // anchorIndex 排序), 终点]。segments[i] 的终点是 sortedCps[i](i < CP 数),
   // 最后一段(i === segments.length - 1)终点是"终点",没有对应 CP,关门时间
-  // 自然是 undefined——这里必须用同一份排序规则重新推导 sortedCps,否则
-  // cutoffsMs[i] 和 segments[i] 对不上号,预警会错配到相邻的 CP。
-  const sortedCps = [...cps].sort((a, b) => a.anchorIndex - b.anchorIndex)
-  const cutoffsMs = segments.map((_, i) => {
-    if (i >= sortedCps.length) return undefined // 终点段,无关门时间
-    const iso = sortedCps[i].cutoffTime
-    if (!iso) return undefined
-    const ms = Date.parse(iso)
-    return Number.isNaN(ms) ? undefined : ms
-  })
+  // 自然是 undefined——这份对齐逻辑现已抽到 core/stats/cutoffAlign.ts,
+  // 供 P3-R1 路书导出套件(Excel 节点明细、配速卡)复用同一份规则,不再
+  // 各自重新推导。
+  const sortedCps = sortCpsByAnchor(cps)
+  const cutoffsMs = alignCutoffsToSegments(segments, sortedCps)
   const startMs = Date.parse(raceStartTime)
   const arrivals = Number.isNaN(startMs)
     ? undefined
