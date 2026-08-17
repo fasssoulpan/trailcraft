@@ -2,25 +2,10 @@ import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { computeSegments, calibrateThreshold } from '../core/stats/segments'
 import { sortCpsByAnchor, alignCutoffsToSegments } from '../core/stats/cutoffAlign'
-import { estimateArrivals, type WarnLevel } from '../core/pace/models'
-
-/** h:mm,用于逐段耗时与全程合计耗时。 */
-function formatDurationHM(sec: number): string {
-  if (!Number.isFinite(sec)) return '--'
-  const totalMin = Math.round(sec / 60)
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  return `${h}:${String(m).padStart(2, '0')}`
-}
-
-/** HH:mm(本地时区),用于预计到达 / 关门时间这类"某个时刻"的展示。 */
-function formatClockHM(ms: number): string {
-  const d = new Date(ms)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const STATUS_LABEL: Record<WarnLevel, string> = { green: '安全', yellow: '紧张', red: '超时' }
+import { estimateArrivals, WARN_LEVEL_LABELS } from '../core/pace/models'
+// 与 P3-R1 路书导出套件(Excel 节点明细、配速卡)共用同一份紧凑时刻/时长
+// 格式化实现,而不是各自维护一份几乎相同的 h:mm / HH:mm 格式化代码。
+import { formatDurationCompactHM as formatDurationHM, formatClockHM } from '../core/export/timeFormat'
 
 export function SegmentTable() {
   const tracks = useAppStore((s) => s.tracks)
@@ -162,7 +147,7 @@ export function SegmentTable() {
                   <td>{arrival ? formatClockHM(arrival.etaMs) : '--'}</td>
                   <td>{cutoffMs !== undefined ? formatClockHM(cutoffMs) : '--'}</td>
                   <td className={arrival ? `segment-table__status segment-table__status--${arrival.level}` : undefined}>
-                    {arrival ? STATUS_LABEL[arrival.level] : '--'}
+                    {arrival ? WARN_LEVEL_LABELS[arrival.level] : '--'}
                   </td>
                 </tr>
               )

@@ -63,6 +63,17 @@ export type WarnLevel = 'green' | 'yellow' | 'red'
 export interface Arrival { etaMs: number; level: WarnLevel; marginSec: number }
 
 /**
+ * 三档预警的中文展示名与强调色,`SegmentTable.tsx` 的状态列、P3-R1 路书导出
+ * 套件(Excel 节点明细表格、配速卡)共用同一份映射——避免"安全/紧张/超时"
+ * 这几个词、或者红黄绿具体是哪个色号,在多个文件里各自维护一份、逐渐产生
+ * 分歧。颜色值与 `App.css` 的 `.segment-table__status--{green,yellow,red}`
+ * 保持一致——CSS 规则文件没有办法直接 import 这个常量,修改任一处颜色时
+ * 必须同步另一处。
+ */
+export const WARN_LEVEL_LABELS: Record<WarnLevel, string> = { green: '安全', yellow: '紧张', red: '超时' }
+export const WARN_LEVEL_COLORS: Record<WarnLevel, string> = { green: '#16a34a', yellow: '#ca8a04', red: '#dc2626' }
+
+/**
  * 逐段累加耗时(把当前已耗时喂给下一段,让疲劳效应跨段复利式生效),算出
  * 每个 CP 的预计到达时间,再对照关门时间给出红/黄/绿三档预警。
  *
