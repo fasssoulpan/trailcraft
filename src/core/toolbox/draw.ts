@@ -49,6 +49,78 @@ export type Vertex = [number, number]
  */
 export const DENSIFY_SPACING_M = 30
 
+/**
+ * Hard cap on how many points `densifyVertices` is allowed to produce.
+ * (代码审查 defect 3): `densifyVertices` runs synchronously on the main
+ * thread inside `finishDraw`, `steps = Math.ceil(segLen / spacingM)` has no
+ * upper bound, and the app's default view is zoom 3 (`DEFAULT_ZOOM` in
+ * `map/MapView.tsx`, roughly all of China) -- so two accidental clicks
+ * thousands of km apart are one careless gesture away, not a deliberate
+ * edge case. At `DENSIFY_SPACING_M` (30m) this cap allows a single drawn
+ * route to represent up to `30_000 * 30m` = 900km end-to-end before being
+ * refused, comfortably more than any real point-to-point trail-running
+ * route (even the longest known mountain ultras top out around 450-500km),
+ * while stopping well short of the hundreds-of-thousands-of-points,
+ * tab-freezing cases the review flagged (a 2000km accidental pair alone
+ * synthesises ~66,667 points; near-antipodal pairs run into the millions).
+ *
+ * Enforced via `checkDensifyBudget` below, called by the UI *before*
+ * `densifyVertices` ever runs the O(output-points) loop that would freeze
+ * the tab -- `checkDensifyBudget` itself is O(vertex count), not O(output
+ * points), so checking it is always cheap regardless of how big the
+ * (refused) output would have been.
+ */
+export const DENSIFY_MAX_POINTS = 30_000
+
+/**
+ * How many points `densifyVertices(vertices, spacingM)` would produce,
+ * without actually materialising them -- same per-segment step count
+ * (`Math.ceil(segLen / spacingM)`) `densifyVertices` itself computes, just
+ * summed instead of used to push points into an array. O(vertex count),
+ * so safe to call on every render while drawing (see `ToolboxPanel.tsx`).
+ */
+function estimateDensifiedPointCount(vertices: readonly Vertex[], spacingM: number): number {
+  if (vertices.length === 0) return 0
+  let total = 1 // vertices[0]
+  for (let i = 1; i < vertices.length; i++) {
+    const [lon0, lat0] = vertices[i - 1]
+    const [lon1, lat1] = vertices[i]
+    const segLen = haversine(lon0, lat0, lon1, lat1)
+    // Mirrors densifyVertices' own per-segment point count exactly: `steps`
+    // intermediate+end points when segLen > spacingM, else just the 1
+    // endpoint (no intermediate points inserted on short segments).
+    total += segLen > spacingM ? Math.ceil(segLen / spacingM) : 1
+  }
+  return total
+}
+
+export interface DensifyBudget {
+  /** How many points `densifyVertices` would produce for this vertex list. */
+  estimatedPoints: number
+  /** The cap `estimatedPoints` was checked against. */
+  maxPoints: number
+  /** `false` means the caller must refuse the draw rather than call
+   *  `densifyVertices`/`trackFromVertices` -- see `DENSIFY_MAX_POINTS`. */
+  ok: boolean
+}
+
+/**
+ * Pure guard for defect 3 (代码审查): checks whether densifying `vertices`
+ * would stay within `maxPoints`, *before* any O(output-points) work runs.
+ * Callers (`ToolboxPanel.tsx`'s finish-draw button, `appStore.ts`'s
+ * `finishDraw`) must check this and refuse the draw with a visible message
+ * rather than silently truncating -- a route the user drew turning into a
+ * shorter one with no explanation would be worse than refusing outright.
+ */
+export function checkDensifyBudget(
+  vertices: readonly Vertex[],
+  spacingM: number = DENSIFY_SPACING_M,
+  maxPoints: number = DENSIFY_MAX_POINTS,
+): DensifyBudget {
+  const estimatedPoints = estimateDensifiedPointCount(vertices, spacingM)
+  return { estimatedPoints, maxPoints, ok: estimatedPoints <= maxPoints }
+}
+
 function isFiniteVertex(v: Vertex): boolean {
   return Number.isFinite(v[0]) && Number.isFinite(v[1])
 }

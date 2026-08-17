@@ -593,6 +593,14 @@ export function syncCpMarkers(map: MapLibreMap, activeTrack: Track | undefined, 
 
 const DRAW_LINE_SOURCE_ID = 'draw-inprogress-line'
 const DRAW_VERTEX_SOURCE_ID = 'draw-inprogress-vertices'
+// Layers get their own id, distinct from their source's (代码审查 minor
+// finding): MapLibre namespaces sources and layers separately so reusing the
+// source id for the layer id never actually collided, but it read as
+// accidental. Cheap to make explicit since nothing outside this file
+// references either constant (verified: no other module imports these
+// draw-layer ids).
+const DRAW_LINE_LAYER_ID = 'draw-inprogress-line-layer'
+const DRAW_VERTEX_LAYER_ID = 'draw-inprogress-vertices-layer'
 
 const EMPTY_LINE_FEATURE: Feature<LineString> = {
   type: 'Feature',
@@ -640,7 +648,7 @@ export function syncDrawLayer(map: MapLibreMap, vertices: readonly Vertex[], cur
   } else {
     map.addSource(DRAW_LINE_SOURCE_ID, { type: 'geojson', data: lineData })
     map.addLayer({
-      id: DRAW_LINE_SOURCE_ID,
+      id: DRAW_LINE_LAYER_ID,
       type: 'line',
       source: DRAW_LINE_SOURCE_ID,
       layout: { 'line-join': 'round', 'line-cap': 'round' },
@@ -655,7 +663,7 @@ export function syncDrawLayer(map: MapLibreMap, vertices: readonly Vertex[], cur
   } else {
     map.addSource(DRAW_VERTEX_SOURCE_ID, { type: 'geojson', data: vertexData })
     map.addLayer({
-      id: DRAW_VERTEX_SOURCE_ID,
+      id: DRAW_VERTEX_LAYER_ID,
       type: 'circle',
       source: DRAW_VERTEX_SOURCE_ID,
       paint: {
@@ -672,9 +680,11 @@ export function syncDrawLayer(map: MapLibreMap, vertices: readonly Vertex[], cur
  * leaving draw mode (toggled off, cancelled, or finished) so a stale preview
  * never lingers on top of the committed track. */
 export function clearDrawLayer(map: MapLibreMap): void {
-  for (const id of [DRAW_LINE_SOURCE_ID, DRAW_VERTEX_SOURCE_ID]) {
-    if (map.getLayer(id)) map.removeLayer(id)
-    if (map.getSource(id)) map.removeSource(id)
+  for (const layerId of [DRAW_LINE_LAYER_ID, DRAW_VERTEX_LAYER_ID]) {
+    if (map.getLayer(layerId)) map.removeLayer(layerId)
+  }
+  for (const sourceId of [DRAW_LINE_SOURCE_ID, DRAW_VERTEX_SOURCE_ID]) {
+    if (map.getSource(sourceId)) map.removeSource(sourceId)
   }
 }
 

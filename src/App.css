@@ -386,6 +386,17 @@
   margin: 0;
 }
 
+.toolbox-panel__draw-warning {
+  color: #7c2d12;
+  background: rgba(255, 251, 235, 0.95);
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .cp-panel {
   display: flex;
   flex-direction: column;

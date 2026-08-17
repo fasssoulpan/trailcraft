@@ -10,7 +10,7 @@ import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
 import { backfillTrackStyles } from '../core/model/trackStyle'
 import {
-  appendVertex, deleteVertex, moveVertex, trackFromVertices, type Vertex,
+  appendVertex, checkDensifyBudget, deleteVertex, moveVertex, trackFromVertices, type Vertex,
 } from '../core/toolbox/draw'
 import { applySampledElevation } from '../core/toolbox/elevation'
 import { History } from './history'
@@ -462,6 +462,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   finishDraw: () => {
     const s = get()
     if (s.drawVertices.length < 2) return
+    // Defect 3 (代码审查): refuse rather than silently truncate a route that
+    // would densify past DENSIFY_MAX_POINTS -- ToolboxPanel already disables
+    // the "完成" button and shows a visible warning once this would be
+    // false (see its own `checkDensifyBudget` usage), so reaching here with
+    // an over-budget draft should only happen via some other/future caller
+    // of this action; this is the last-resort backstop, same silent-no-op
+    // style as the `< 2` guard just above it.
+    if (!checkDensifyBudget(s.drawVertices).ok) return
     const vertices = s.drawVertices
     let created: Track | undefined
     s.applyOp('手绘轨迹', (tracks) => {

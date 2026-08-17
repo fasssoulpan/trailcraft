@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { splitAt, joinTracks, reverseTrack, removeAnomalies, simplifyTrack } from '../core/toolbox/ops'
-import { totalVertexDistance } from '../core/toolbox/draw'
+import { checkDensifyBudget, totalVertexDistance } from '../core/toolbox/draw'
 import { formatKm } from './perfFormat'
 import { drawAvailableForMode } from './layerAvailability'
 import type { TerrainSource } from '../cesium/terrainSelection'
@@ -105,7 +105,16 @@ export function ToolboxPanel() {
   // 距离。
   const drawAvailability = drawAvailableForMode(mode)
   const drawDistanceM = totalVertexDistance(drawCursor ? [...drawVertices, drawCursor] : drawVertices)
-  const canFinishDraw = drawVertices.length >= 2
+  // Defect 3 (代码审查): densifying a route whose vertices are spread across
+  // thousands of km (easy to do by accident -- the default view is zoom 3,
+  // roughly all of China, see MapView.tsx's DEFAULT_ZOOM) would synthesise
+  // enough points to freeze the tab. Checked on every render (cheap --
+  // checkDensifyBudget is O(vertex count), not O(output points)) so the
+  // "完成" button disables itself, and the reason is shown, the moment a
+  // drag/click pushes the draft over budget -- never a silent truncation
+  // into a shorter route than the user actually drew.
+  const drawBudget = checkDensifyBudget(drawVertices)
+  const canFinishDraw = drawVertices.length >= 2 && drawBudget.ok
 
   function toggleJoinSelection(id: string) {
     setJoinSelection((prev) => {
@@ -250,6 +259,12 @@ export function ToolboxPanel() {
             <p className="toolbox-panel__draw-readout">
               {drawVertices.length} 个顶点 · {formatKm(drawDistanceM)}
             </p>
+            {!drawBudget.ok && (
+              <p className="toolbox-panel__draw-warning">
+                路线过长，稠密化后将生成 {drawBudget.estimatedPoints.toLocaleString('zh-CN')} 个点，超过上限{' '}
+                {drawBudget.maxPoints.toLocaleString('zh-CN')} 个，暂无法完成——请删除最后几个点或重新绘制更短的路线
+              </p>
+            )}
             <div className="toolbox-panel__row">
               <button
                 type="button"

@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { haversine } from '../../src/core/geo/distance'
 import {
   DENSIFY_SPACING_M,
+  DENSIFY_MAX_POINTS,
   densifyVertices,
+  checkDensifyBudget,
   trackFromVertices,
   totalVertexDistance,
   insertVertexAt,
@@ -203,5 +205,59 @@ describe('DENSIFY_SPACING_M', () => {
   it('is a positive, sane spacing in metres', () => {
     expect(DENSIFY_SPACING_M).toBeGreaterThan(0)
     expect(DENSIFY_SPACING_M).toBeLessThan(200)
+  })
+})
+
+// Regression coverage for code-review defect 3: densifyVertices' step count
+// is unbounded (`Math.ceil(segLen / spacingM)`), and the app's default view
+// (zoom 3, roughly all of China) makes an accidental multi-thousand-km pair
+// of clicks easy -- checkDensifyBudget is the guard that must catch this
+// *before* any O(output-points) work runs.
+describe('checkDensifyBudget', () => {
+  it('is ok for an ordinary short drawn route (well within budget)', () => {
+    const budget = checkDensifyBudget(SQUARE)
+    expect(budget.ok).toBe(true)
+    expect(budget.estimatedPoints).toBeLessThan(DENSIFY_MAX_POINTS)
+  })
+
+  it('estimatedPoints matches the actual densifyVertices output length', () => {
+    // Cross-check the O(vertex count) estimate against the real O(output
+    // points) computation, for a route safely under the cap either way.
+    const budget = checkDensifyBudget(SQUARE)
+    expect(budget.estimatedPoints).toBe(densifyVertices(SQUARE).length)
+
+    const single: Vertex[] = [[10, 20]]
+    expect(checkDensifyBudget(single).estimatedPoints).toBe(densifyVertices(single).length)
+  })
+
+  it('is 0/ok for an empty vertex list', () => {
+    const budget = checkDensifyBudget([])
+    expect(budget.estimatedPoints).toBe(0)
+    expect(budget.ok).toBe(true)
+  })
+
+  it('flags a ~2000km segment (two careless clicks at zoom 3) as over budget', () => {
+    // ~18 degrees of longitude at the equator is ~2003km -- matches the
+    // review's own worked example (~66,667 densified points at 30m
+    // spacing), comfortably over DENSIFY_MAX_POINTS (30,000).
+    const farApart: Vertex[] = [[0, 0], [18, 0]]
+    const budget = checkDensifyBudget(farApart)
+    expect(budget.ok).toBe(false)
+    expect(budget.estimatedPoints).toBeGreaterThan(DENSIFY_MAX_POINTS)
+    expect(budget.estimatedPoints).toBeGreaterThan(60_000)
+  })
+
+  it('respects an explicit maxPoints override', () => {
+    expect(checkDensifyBudget(SQUARE, DENSIFY_SPACING_M, 1).ok).toBe(false)
+    expect(checkDensifyBudget(SQUARE, DENSIFY_SPACING_M, Number.MAX_SAFE_INTEGER).ok).toBe(true)
+  })
+
+  it('DENSIFY_MAX_POINTS is a positive, sane cap', () => {
+    expect(DENSIFY_MAX_POINTS).toBeGreaterThan(1000)
+    // Cap * spacing should comfortably exceed any real trail-running route
+    // (hundreds of km) while staying well short of the tab-freezing point
+    // counts the review measured (tens/hundreds of thousands of points).
+    expect(DENSIFY_MAX_POINTS * DENSIFY_SPACING_M).toBeGreaterThan(400_000) // > 400km
+    expect(DENSIFY_MAX_POINTS).toBeLessThan(200_000)
   })
 })
