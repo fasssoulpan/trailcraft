@@ -5,6 +5,8 @@ import { saveProject, loadProject, listProjects } from '../state/persist'
 import { trackToGpx } from '../core/export/gpxExport'
 import type { Crs } from '../core/model/track'
 import { deriveDefaultProjectName } from './projectName'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
 
 /**
  * Blob + object URL 是本项目"无后端"约束下下载文件的唯一方式(见 core/export
@@ -135,71 +137,63 @@ export function ProjectToolbar() {
   }
 
   return (
-    <div className="project-toolbar">
-      <input
-        type="text"
-        className="project-toolbar__name"
-        value={projectName}
-        onChange={(e) => {
-          setNameTouched(true)
-          setProjectName(e.target.value)
-        }}
-        placeholder="工程名称"
-      />
-      <div className="project-toolbar__row">
-        <button type="button" onClick={() => void handleSave()}>
-          保存工程
-        </button>
-        <button type="button" onClick={() => void handleOpenList()}>
-          打开工程
-        </button>
-        <button type="button" onClick={handleExportJson}>
-          导出工程 JSON
-        </button>
-        <button type="button" onClick={() => importFileRef.current?.click()}>
-          导入工程 JSON
-        </button>
+    <Section title="工程" description="保存、打开或导入导出整份工程（含全部轨迹、CP、配速参数），也可单独导出某条轨迹的 GPX。">
+      <div className="project-toolbar">
         <input
-          ref={importFileRef}
-          type="file"
-          accept=".json"
-          style={{ display: 'none' }}
+          type="text"
+          className="project-toolbar__name"
+          value={projectName}
           onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) void handleImportJsonFile(f)
-            e.target.value = ''
+            setNameTouched(true)
+            setProjectName(e.target.value)
           }}
+          placeholder="工程名称"
         />
+        <div className="project-toolbar__row">
+          <Button onClick={() => void handleSave()}>保存工程</Button>
+          <Button onClick={() => void handleOpenList()}>打开工程</Button>
+          <Button onClick={handleExportJson}>导出工程 JSON</Button>
+          <Button onClick={() => importFileRef.current?.click()}>导入工程 JSON</Button>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void handleImportJsonFile(f)
+              e.target.value = ''
+            }}
+          />
+        </div>
+
+        {projectList && (
+          <ul className="project-toolbar__list">
+            {projectList.length === 0 && <li className="project-toolbar__hint">尚无已保存的工程</li>}
+            {projectList.map((name) => (
+              <li key={name}>
+                <Button size="sm" onClick={() => void handleOpen(name)}>
+                  {name}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="project-toolbar__row project-toolbar__row--gpx">
+          <label>
+            <input type="radio" name="gpx-crs" checked={gpxCrs === 'wgs84'} onChange={() => setGpxCrs('wgs84')} />
+            WGS-84(设备/OSM)
+          </label>
+          <label>
+            <input type="radio" name="gpx-crs" checked={gpxCrs === 'gcj02'} onChange={() => setGpxCrs('gcj02')} />
+            GCJ-02(国内 App)
+          </label>
+          <Button onClick={handleExportGpx}>导出 GPX</Button>
+        </div>
+
+        {message && <p className="project-toolbar__hint">{message}</p>}
       </div>
-
-      {projectList && (
-        <ul className="project-toolbar__list">
-          {projectList.length === 0 && <li className="project-toolbar__hint">尚无已保存的工程</li>}
-          {projectList.map((name) => (
-            <li key={name}>
-              <button type="button" onClick={() => void handleOpen(name)}>
-                {name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="project-toolbar__row project-toolbar__row--gpx">
-        <label>
-          <input type="radio" name="gpx-crs" checked={gpxCrs === 'wgs84'} onChange={() => setGpxCrs('wgs84')} />
-          WGS-84(设备/OSM)
-        </label>
-        <label>
-          <input type="radio" name="gpx-crs" checked={gpxCrs === 'gcj02'} onChange={() => setGpxCrs('gcj02')} />
-          GCJ-02(国内 App)
-        </label>
-        <button type="button" onClick={handleExportGpx}>
-          导出 GPX
-        </button>
-      </div>
-
-      {message && <p className="project-toolbar__hint">{message}</p>}
-    </div>
+    </Section>
   )
 }

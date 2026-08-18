@@ -1,6 +1,9 @@
 import { useAppStore } from '../state/appStore'
 import type { BasemapStyle } from '../state/basemapPref'
 import { layerAvailabilityForMode } from './layerAvailability'
+import { Section } from './primitives/Section'
+import { Field } from './primitives/Field'
+import { SegmentedControl } from './primitives/SegmentedControl'
 
 const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
   { value: 'satellite', label: '3D 卫星图' },
@@ -10,10 +13,7 @@ const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
 /**
  * Single place to toggle the three display layers the P1 plan added on top
  * of the base map/globe (P1 §3.5-§3.7, milestone N6 commit 1): basemap
- * style, contours, distance radar. Follows `ToolboxPanel.tsx`'s row/hint
- * idiom (a `<div className="toolbox-panel">`-style container of labelled
- * rows) and `ModeSwitch.tsx`'s segmented-button styling for the basemap
- * picker, rather than inventing a new visual language for this panel.
+ * style, contours, distance radar.
  *
  * All three toggles live in `appStore` (reading their initial values from
  * `basemapPref.ts`/`layerPrefs.ts`, writing back on every change via the
@@ -49,56 +49,37 @@ export function LayerPanel() {
   const availability = layerAvailabilityForMode(mode)
 
   return (
-    <div className="layer-panel">
-      <h3 className="layer-panel__title">图层</h3>
+    <Section title="图层" description="切换底图样式，以及等高线、距离雷达这两个仅巡游模式可用的叠加层。">
+      <Field label="底图">
+        <SegmentedControl
+          value={currentStyle}
+          options={BASEMAP_OPTIONS}
+          onChange={(style) => setBasemapStyle(mode, style)}
+          ariaLabel="底图样式"
+        />
+      </Field>
 
-      <div className="layer-panel__row">
-        <span className="layer-panel__field-label">底图</span>
-        <div className="layer-panel__group" role="group" aria-label="底图样式">
-          {BASEMAP_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={
-                opt.value === currentStyle ? 'layer-panel__chip layer-panel__chip--active' : 'layer-panel__chip'
-              }
-              onClick={() => setBasemapStyle(mode, opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Field
+        inline
+        label="等高线"
+        hint={!availability.contoursAvailable ? availability.contoursHint : undefined}
+      >
+        <input
+          type="checkbox"
+          checked={contoursEnabled}
+          disabled={!availability.contoursAvailable}
+          onChange={(e) => setContoursEnabled(e.target.checked)}
+        />
+      </Field>
 
-      <div className="layer-panel__row">
-        <label className="layer-panel__toggle">
-          <input
-            type="checkbox"
-            checked={contoursEnabled}
-            disabled={!availability.contoursAvailable}
-            onChange={(e) => setContoursEnabled(e.target.checked)}
-          />
-          等高线
-        </label>
-        {!availability.contoursAvailable && availability.contoursHint && (
-          <p className="layer-panel__hint">{availability.contoursHint}</p>
-        )}
-      </div>
-
-      <div className="layer-panel__row">
-        <label className="layer-panel__toggle">
-          <input
-            type="checkbox"
-            checked={radarEnabled}
-            disabled={!availability.radarAvailable}
-            onChange={(e) => setRadarEnabled(e.target.checked)}
-          />
-          距离雷达
-        </label>
-        {!availability.radarAvailable && availability.radarHint && (
-          <p className="layer-panel__hint">{availability.radarHint}</p>
-        )}
-      </div>
-    </div>
+      <Field inline label="距离雷达" hint={!availability.radarAvailable ? availability.radarHint : undefined}>
+        <input
+          type="checkbox"
+          checked={radarEnabled}
+          disabled={!availability.radarAvailable}
+          onChange={(e) => setRadarEnabled(e.target.checked)}
+        />
+      </Field>
+    </Section>
   )
 }

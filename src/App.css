@@ -1,3 +1,5 @@
+@import './ui/primitives/primitives.css';
+
 .app-layout {
   display: flex;
   height: 100vh;
@@ -818,34 +820,13 @@
 }
 
 /* Planning / flythrough toggle (ui/ModeSwitch.tsx), sitting right above
- * ProjectToolbar so it reads as the same header area. A segmented control
- * rather than a checkbox/select -- both modes should always be visible and
- * equally reachable in one click. */
+ * ProjectToolbar so it reads as the same header area. Visuals now come from
+ * the shared SegmentedControl primitive (primitives.css's .segmented) --
+ * .mode-switch itself only needs to override the primitive's own
+ * `width: fit-content` so it fills the pinned row (see the `flex: 1 1 auto`
+ * rule above). */
 .mode-switch {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-  font-size: 13px;
-}
-
-.mode-switch__option {
-  flex: 1 1 auto;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-.mode-switch__option:not(:first-child) {
-  border-left: 1px solid var(--border);
-}
-
-.mode-switch__option--active {
-  background: var(--accent-bg);
-  color: var(--text-h);
-  font-weight: 500;
+  width: auto;
 }
 
 /* Layer toggles (ui/LayerPanel.tsx), milestone N6 commit 1 -- basemap style

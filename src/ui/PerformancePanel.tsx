@@ -21,6 +21,9 @@ import {
   summarizeSensorCoverage,
 } from './perfFormat'
 import { QuickCalcPanel } from './QuickCalcPanel'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
+import { StatTile, StatGrid } from './primitives/StatTile'
 
 /**
  * 表现报告面板(P2 §3.3,里程碑 Q3)。一个可关闭的浮层/弹窗,由侧边栏按钮
@@ -42,23 +45,20 @@ export function PerformancePanel() {
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
   return (
-    <div className="perf-entry">
-      <button
-        type="button"
-        className="perf-entry__button"
-        disabled={!activeTrack}
-        onClick={() => setOpen(true)}
-      >
-        表现分析
-      </button>
-      {!activeTrack && <p className="perf-entry__hint">请先在轨迹列表中选择一条轨迹</p>}
+    <Section title="表现分析" description="打开完整表现报告（含表现分、坡度分布、主要爬坡、逐公里数据），或不带轨迹直接速算。">
+      <div className="perf-entry">
+        <Button variant="primary" disabled={!activeTrack} onClick={() => setOpen(true)}>
+          表现分析
+        </Button>
+        {!activeTrack && <p className="perf-entry__hint">请先在轨迹列表中选择一条轨迹</p>}
 
-      {open && activeTrack && (
-        <PerformanceModal track={activeTrack} statsOptions={statsOptions} cps={cps} onClose={() => setOpen(false)} />
-      )}
+        {open && activeTrack && (
+          <PerformanceModal track={activeTrack} statsOptions={statsOptions} cps={cps} onClose={() => setOpen(false)} />
+        )}
 
-      <QuickCalcPanel />
-    </div>
+        <QuickCalcPanel />
+      </div>
+    </Section>
   )
 }
 
@@ -87,9 +87,9 @@ function PerformanceModal({
       >
         <div className="perf-modal__header">
           <h3 className="perf-modal__title">表现报告 · {track.meta.name}</h3>
-          <button type="button" className="perf-modal__close" onClick={onClose} aria-label="关闭">
+          <Button variant="ghost" size="sm" className="perf-modal__close" onClick={onClose} aria-label="关闭">
             ×
-          </button>
+          </Button>
         </div>
 
         <div className="perf-modal__body">
@@ -143,35 +143,17 @@ function PerformanceReport({
         <h4 className="perf-modal__section-title">核心指标</h4>
         <p className="perf-disclaimer">{PERF_DISCLAIMER}</p>
         <div className="perf-score">
-          <span className="perf-score__value">{analysis.spiScore}</span>
+          <span className="perf-score__value tabular-nums">{analysis.spiScore}</span>
           <span className="perf-score__level">{analysis.spiLevel}</span>
         </div>
-        <div className="perf-metrics-grid">
-          <div className="perf-metric">
-            <span className="perf-metric__label">距离</span>
-            <span className="perf-metric__value">{formatKm(analysis.totalDistanceM)}</span>
-          </div>
-          <div className="perf-metric">
-            <span className="perf-metric__label">累计爬升</span>
-            <span className="perf-metric__value">{formatMeters(analysis.totalAscentM)}</span>
-          </div>
-          <div className="perf-metric">
-            <span className="perf-metric__label">累计下降</span>
-            <span className="perf-metric__value">{formatMeters(analysis.totalDescentM)}</span>
-          </div>
-          <div className="perf-metric">
-            <span className="perf-metric__label">用时</span>
-            <span className="perf-metric__value">{formatDurationHM(analysis.totalTimeS)}</span>
-          </div>
-          <div className="perf-metric">
-            <span className="perf-metric__label">平均配速</span>
-            <span className="perf-metric__value">{formatPaceMinPerKm(avgPaceSecPerKm)}</span>
-          </div>
-          <div className="perf-metric">
-            <span className="perf-metric__label">里程当量(km-effort)</span>
-            <span className="perf-metric__value">{analysis.kmEffortV2.toFixed(1)}</span>
-          </div>
-        </div>
+        <StatGrid>
+          <StatTile label="距离" value={formatKm(analysis.totalDistanceM)} />
+          <StatTile label="累计爬升" value={formatMeters(analysis.totalAscentM)} />
+          <StatTile label="累计下降" value={formatMeters(analysis.totalDescentM)} />
+          <StatTile label="用时" value={formatDurationHM(analysis.totalTimeS)} />
+          <StatTile label="平均配速" value={formatPaceMinPerKm(avgPaceSecPerKm)} />
+          <StatTile label="里程当量(km-effort)" value={analysis.kmEffortV2.toFixed(1)} />
+        </StatGrid>
         <p className="perf-modal__audit-hint">
           用于计算表现分的里程当量为 {analysis.kmEffortV2.toFixed(1)},用时 {formatDurationHM(analysis.totalTimeS)}
           ——分数并非黑盒,可据此复核。
@@ -204,7 +186,7 @@ function PerformanceReport({
         {climbs.length === 0 ? (
           <p className="perf-modal__gate-text">未检测到显著爬坡段</p>
         ) : (
-          <table className="perf-table">
+          <table className="perf-table tabular-nums">
             <thead>
               <tr>
                 <th>区间</th>
@@ -236,7 +218,7 @@ function PerformanceReport({
           <p className="perf-modal__gate-text">轨迹过短，无法按公里切分</p>
         ) : (
           <div className="perf-table-scroll">
-            <table className="perf-table">
+            <table className="perf-table tabular-nums">
               <thead>
                 <tr>
                   <th>公里</th>
@@ -282,7 +264,7 @@ function PerformanceReport({
         <p className="perf-modal__audit-hint">
           在信任任何一项基于传感器的判断之前，先看它到底记录了多少——覆盖率低或缺失的读数不参与上面任何统计。
         </p>
-        <table className="perf-table">
+        <table className="perf-table tabular-nums">
           <thead>
             <tr>
               <th>传感器</th>

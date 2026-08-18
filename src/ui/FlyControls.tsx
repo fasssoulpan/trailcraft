@@ -21,6 +21,8 @@ import { useAppStore } from '../state/appStore'
 // speedOptions.ts. (Cesium-free module, so this import does not drag the 3D
 // engine into the main bundle.)
 import { SPEED_OPTIONS } from '../cesium/speedOptions'
+import { Button } from './primitives/Button'
+import { SegmentedControl } from './primitives/SegmentedControl'
 
 /** "1小时02分" / "4分30秒" / "45秒" -- estimated wall-clock playback time. */
 function formatPlaybackDuration(seconds: number): string {
@@ -170,9 +172,9 @@ export function FlyControls({
   return (
     <div className="fly-controls">
       <div className="fly-controls__row fly-controls__row--transport">
-        <button type="button" className="fly-controls__play" onClick={onTogglePlay}>
+        <Button variant="overlay" className="fly-controls__play" onClick={onTogglePlay}>
           {isPlaying ? '暂停' : '播放'}
-        </button>
+        </Button>
         <input
           type="range"
           className="fly-controls__scrubber"
@@ -183,80 +185,68 @@ export function FlyControls({
           onChange={(e) => onSeek(Number(e.target.value) / 1000)}
           aria-label="巡游进度"
         />
-        <span className="fly-controls__mileage">{formatKm(mileageM)} km</span>
+        <span className="fly-controls__mileage tabular-nums">{formatKm(mileageM)} km</span>
       </div>
 
       <div className="fly-controls__row fly-controls__row--options">
-        <div className="fly-controls__group" role="group" aria-label="播放倍速">
-          {SPEED_OPTIONS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={s === speed ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
-              onClick={() => setSpeed(s)}
-            >
-              {s}×
-            </button>
-          ))}
-          <span className="fly-controls__eta">
+        <div className="fly-controls__group">
+          <SegmentedControl
+            variant="overlay"
+            value={String(speed)}
+            options={SPEED_OPTIONS.map((s) => ({ value: String(s), label: `${s}×` }))}
+            onChange={(v) => setSpeed(Number(v))}
+            ariaLabel="播放倍速"
+          />
+          <span className="fly-controls__eta tabular-nums">
             全程约 {formatPlaybackDuration((progress?.baseDurationSeconds ?? 0) / speed)}
           </span>
         </div>
 
-        <div className="fly-controls__group" role="group" aria-label="相机模式">
-          {CAMERA_MODE_OPTIONS.map(({ mode, label }) => (
-            <button
-              key={mode}
-              type="button"
-              className={mode === cameraMode ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
-              onClick={() => setCameraMode(mode)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          variant="overlay"
+          value={cameraMode}
+          options={CAMERA_MODE_OPTIONS.map(({ mode, label }) => ({ value: mode, label }))}
+          onChange={setCameraMode}
+          ariaLabel="相机模式"
+        />
       </div>
 
       <div className="fly-controls__row fly-controls__row--record">
-        <div className="fly-controls__group" role="group" aria-label="导出画幅">
-          {EXPORT_ASPECT_RATIO_ORDER.map((ratio) => (
-            <button
-              key={ratio}
-              type="button"
-              className={ratio === exportRatio ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
-              disabled={exportProgress !== undefined}
-              onClick={() => onExportResolutionChange(resolutionKeysForRatio(ratio)[0])}
-            >
-              {EXPORT_ASPECT_RATIO_LABELS[ratio]}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          variant="overlay"
+          value={exportRatio}
+          options={EXPORT_ASPECT_RATIO_ORDER.map((ratio) => ({
+            value: ratio,
+            label: EXPORT_ASPECT_RATIO_LABELS[ratio],
+            disabled: exportProgress !== undefined,
+          }))}
+          onChange={(ratio) => onExportResolutionChange(resolutionKeysForRatio(ratio)[0])}
+          ariaLabel="导出画幅"
+        />
         {/* Only shown when the current ratio actually offers a choice (only
             16:9 does, 1080p/4K carried over from Q4) -- the other three
             ratios have exactly one resolution each, so a row with a single,
             permanently-active chip would just be noise. */}
         {ratioResolutionKeys.length > 1 && (
-          <div className="fly-controls__group" role="group" aria-label="导出分辨率">
-            {ratioResolutionKeys.map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={key === exportResolutionKey ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
-                disabled={exportProgress !== undefined}
-                onClick={() => onExportResolutionChange(key)}
-              >
-                {EXPORT_RESOLUTIONS[key].label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            variant="overlay"
+            value={exportResolutionKey}
+            options={ratioResolutionKeys.map((key) => ({
+              value: key,
+              label: EXPORT_RESOLUTIONS[key].label,
+              disabled: exportProgress !== undefined,
+            }))}
+            onChange={onExportResolutionChange}
+            ariaLabel="导出分辨率"
+          />
         )}
-        <button
-          type="button"
-          className={exportProgress !== undefined ? 'fly-controls__chip fly-controls__chip--active' : 'fly-controls__chip'}
+        <Button
+          variant="overlay"
+          className={exportProgress !== undefined ? 'fly-controls__chip--active' : undefined}
           onClick={exportProgress !== undefined ? onCancelExport : onStartExport}
         >
           {exportProgress !== undefined ? '取消导出' : '导出视频'}
-        </button>
+        </Button>
       </div>
       {/* 诚实标注 (P2 §3.4): 确定性渲染管线运行时标注为确定性 MP4 导出；
           若 WebCodecs 不可用而降级为 P1 的实时 MediaRecorder 录屏，则必须

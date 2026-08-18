@@ -1,6 +1,8 @@
 import { useAppStore } from '../state/appStore'
 import { DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 import { getTrackKind, resolveTrackKind, TRACK_KIND_LABEL, type TrackKind } from '../core/perf/trackKind'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
 
 const CRS_LABEL: Record<string, string> = { wgs84: 'WGS-84', gcj02: 'GCJ-02', bd09: 'BD-09' }
 
@@ -10,6 +12,16 @@ const MIN_LINE_WIDTH = 1
 const MAX_LINE_WIDTH = 10
 
 export function TrackList() {
+  const trackCount = useAppStore((s) => s.tracks.length)
+
+  return (
+    <Section title="轨迹列表" description="管理已导入的轨迹：调整显示颜色/粗细，标记实跑/规划，定位或删除。">
+      {trackCount === 0 ? <p className="track-list track-list--empty">尚未导入轨迹</p> : <TrackListItems />}
+    </Section>
+  )
+}
+
+function TrackListItems() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const setActive = useAppStore((s) => s.setActive)
@@ -17,10 +29,6 @@ export function TrackList() {
   const updateTrackStyle = useAppStore((s) => s.updateTrackStyle)
   const requestLocate = useAppStore((s) => s.requestLocate)
   const setTrackKindOverride = useAppStore((s) => s.setTrackKindOverride)
-
-  if (tracks.length === 0) {
-    return <p className="track-list track-list--empty">尚未导入轨迹</p>
-  }
 
   return (
     <ul className="track-list">
@@ -107,8 +115,8 @@ export function TrackList() {
               </select>
             </span>
             <span className="track-list__actions" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 className="track-list__locate"
                 title="定位到此轨迹"
                 onClick={() => {
@@ -123,14 +131,10 @@ export function TrackList() {
                 }}
               >
                 定位
-              </button>
-              <button
-                type="button"
-                className="track-list__remove"
-                onClick={() => removeTrack(t.id)}
-              >
+              </Button>
+              <Button size="sm" variant="danger" className="track-list__remove" onClick={() => removeTrack(t.id)}>
                 删除
-              </button>
+              </Button>
             </span>
           </li>
         )

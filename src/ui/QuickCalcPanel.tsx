@@ -4,6 +4,10 @@ import { calculateSpi } from '../core/perf/score'
 import { computeKmEffortV2, computeQuickSplits, segmentLengthKm } from '../core/perf/quickCalc'
 import { RACE_PRESETS, RACE_PRESET_CATEGORIES, type RacePreset, type RacePresetCategory } from '../core/perf/racePresets'
 import { formatPaceMinPerKm, formatDurationHM, formatKm, formatMeters, PERF_DISCLAIMER } from './perfFormat'
+import { Button } from './primitives/Button'
+import { SegmentedControl } from './primitives/SegmentedControl'
+import { Field } from './primitives/Field'
+import { StatTile, StatGrid } from './primitives/StatTile'
 
 /**
  * Track-free "quick calculator" mode (user-requested addition -- see
@@ -22,9 +26,9 @@ export function QuickCalcPanel() {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button type="button" className="perf-entry__button qc-entry-button" onClick={() => setOpen(true)}>
+      <Button className="qc-entry-button" onClick={() => setOpen(true)}>
         速算模式
-      </button>
+      </Button>
       {open && <QuickCalcModal onClose={() => setOpen(false)} />}
     </>
   )
@@ -85,9 +89,9 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
       >
         <div className="perf-modal__header">
           <h3 className="perf-modal__title">速算模式</h3>
-          <button type="button" className="perf-modal__close" onClick={onClose} aria-label="关闭">
+          <Button variant="ghost" size="sm" className="perf-modal__close" onClick={onClose} aria-label="关闭">
             ×
-          </button>
+          </Button>
         </div>
 
         <div className="perf-modal__body">
@@ -97,18 +101,14 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
 
           <section className="perf-modal__section">
             <h4 className="perf-modal__section-title">赛事预设</h4>
-            <div className="qc-preset-tabs">
-              {RACE_PRESET_CATEGORIES.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={c === category ? 'qc-preset-tab qc-preset-tab--active' : 'qc-preset-tab'}
-                  onClick={() => setCategory(c)}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              className="qc-preset-tabs"
+              size="sm"
+              value={category}
+              options={RACE_PRESET_CATEGORIES.map((c) => ({ value: c, label: c }))}
+              onChange={setCategory}
+              ariaLabel="赛事预设分类"
+            />
             <div className="qc-preset-list">
               {presetsInCategory.map((p) => (
                 <button
@@ -130,8 +130,7 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
           <section className="perf-modal__section">
             <h4 className="perf-modal__section-title">参数输入</h4>
             <div className="qc-field-row">
-              <label className="qc-field">
-                距离(km)
+              <Field label="距离(km)">
                 <input
                   type="number"
                   min={0}
@@ -139,9 +138,8 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
                   value={distanceKm}
                   onChange={(e) => setDistanceKm(Number(e.target.value))}
                 />
-              </label>
-              <label className="qc-field">
-                爬升(m)
+              </Field>
+              <Field label="爬升(m)">
                 <input
                   type="number"
                   min={0}
@@ -149,9 +147,8 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
                   value={ascentM}
                   onChange={(e) => onAscentChange(Number(e.target.value))}
                 />
-              </label>
-              <label className="qc-field">
-                下降(m)
+              </Field>
+              <Field label="下降(m)">
                 <input
                   type="number"
                   min={0}
@@ -162,21 +159,20 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
                     setDescentM(Number(e.target.value))
                   }}
                 />
-              </label>
+              </Field>
             </div>
             <p className="perf-env-note">
               下降默认等于爬升(按环线赛道估算)，可手动修改为点对点赛道的真实下降。
             </p>
 
             <div className="qc-field-row">
-              <label className="qc-field qc-field--time">
-                完赛用时
+              <Field label="完赛用时" className="qc-field--time">
                 <span className="qc-time-inputs">
                   <input type="number" min={0} value={hh} onChange={(e) => setHh(Number(e.target.value))} /> 时
                   <input type="number" min={0} max={59} value={mm} onChange={(e) => setMm(Number(e.target.value))} /> 分
                   <input type="number" min={0} max={59} value={ss} onChange={(e) => setSs(Number(e.target.value))} /> 秒
                 </span>
-              </label>
+              </Field>
             </div>
           </section>
 
@@ -186,23 +182,14 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
             {spi ? (
               <>
                 <div className="perf-score">
-                  <span className="perf-score__value">{spi.score}</span>
+                  <span className="perf-score__value tabular-nums">{spi.score}</span>
                   <span className="perf-score__level">{spi.level}</span>
                 </div>
-                <div className="perf-metrics-grid">
-                  <div className="perf-metric">
-                    <span className="perf-metric__label">里程当量(km-effort)</span>
-                    <span className="perf-metric__value">{kmEffortV2.toFixed(1)}</span>
-                  </div>
-                  <div className="perf-metric">
-                    <span className="perf-metric__label">平均配速</span>
-                    <span className="perf-metric__value">{formatPaceMinPerKm(avgPaceSecPerKm)}</span>
-                  </div>
-                  <div className="perf-metric">
-                    <span className="perf-metric__label">完赛用时</span>
-                    <span className="perf-metric__value">{formatDurationHM(finishTimeSec)}</span>
-                  </div>
-                </div>
+                <StatGrid>
+                  <StatTile label="里程当量(km-effort)" value={kmEffortV2.toFixed(1)} />
+                  <StatTile label="平均配速" value={formatPaceMinPerKm(avgPaceSecPerKm)} />
+                  <StatTile label="完赛用时" value={formatDurationHM(finishTimeSec)} />
+                </StatGrid>
                 <p className="perf-modal__audit-hint">
                   用于计算表现分的里程当量为 {kmEffortV2.toFixed(1)}，用时 {formatDurationHM(finishTimeSec)}
                   ——分数并非黑盒，可据此复核。此结果未做环境(温湿度/海拔)修正。
@@ -225,7 +212,7 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
               <p className="perf-modal__gate-text">请先输入有效的距离与完赛用时以生成分段估算</p>
             ) : (
               <div className="perf-table-scroll">
-                <table className="perf-table">
+                <table className="perf-table tabular-nums">
                   <thead>
                     <tr>
                       <th>分段</th>

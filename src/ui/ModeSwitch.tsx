@@ -1,5 +1,6 @@
 import { useAppStore } from '../state/appStore'
 import type { Mode } from '../state/mode'
+import { SegmentedControl } from './primitives/SegmentedControl'
 
 const OPTIONS: { value: Mode; label: string }[] = [
   { value: 'plan', label: '规划模式' },
@@ -18,21 +19,12 @@ export function ModeSwitch() {
   const setMode = useAppStore((s) => s.setMode)
 
   return (
-    <div className="mode-switch" role="radiogroup" aria-label="工作模式">
-      {OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          role="radio"
-          aria-checked={mode === opt.value}
-          className={
-            mode === opt.value ? 'mode-switch__option mode-switch__option--active' : 'mode-switch__option'
-          }
-          onClick={() => setMode(opt.value)}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      className="mode-switch"
+      value={mode}
+      options={OPTIONS}
+      onChange={setMode}
+      ariaLabel="工作模式"
+    />
   )
 }

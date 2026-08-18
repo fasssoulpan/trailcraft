@@ -1,0 +1,431 @@
+/*
+ * Styling for the shared component primitives (Section/Field/StatTile/
+ * Button/SegmentedControl) plus a base form-control reset for the surfaces
+ * that host them (the sidebar, the perf/quick-calc modals, the map's CP
+ * popup form). Scoped to those containers rather than a bare `button`/
+ * `input` element selector so MapLibre's and Cesium's own bundled widget
+ * CSS inside `.app-layout__map` is never touched by this reset.
+ */
+
+.app-layout__sidebar button,
+.perf-modal button,
+.map-cp-form button {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background var(--duration-fast) var(--easing-standard);
+}
+
+.app-layout__sidebar button:hover:not(:disabled),
+.perf-modal button:hover:not(:disabled),
+.map-cp-form button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.app-layout__sidebar button:disabled,
+.perf-modal button:disabled,
+.map-cp-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.app-layout__sidebar input[type='text'],
+.app-layout__sidebar input[type='number'],
+.app-layout__sidebar input[type='datetime-local'],
+.app-layout__sidebar input[type='search'],
+.app-layout__sidebar select,
+.perf-modal input[type='text'],
+.perf-modal input[type='number'],
+.perf-modal select,
+.map-cp-form input[type='text'],
+.map-cp-form input[type='datetime-local'],
+.map-cp-form select {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px var(--space-2);
+}
+
+.app-layout__sidebar input:focus-visible,
+.app-layout__sidebar select:focus-visible,
+.perf-modal input:focus-visible,
+.perf-modal select:focus-visible,
+.map-cp-form input:focus-visible,
+.map-cp-form select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+/* ---- Section ------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+}
+
+.section--group {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.section--panel {
+  gap: var(--space-2);
+}
+
+.section--group + .section--group {
+  margin-top: var(--space-3);
+}
+
+.section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.section--group > .section__header {
+  padding: var(--space-3) var(--space-4);
+}
+
+.section--group > .section__content > .section__body {
+  padding: 0 var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.section--group > .section__content > .section__description {
+  padding: 0 var(--space-4);
+}
+
+.section__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.section__chevron {
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.section__chevron--open {
+  transform: rotate(90deg);
+}
+
+.section--group .section__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.section--panel .section__title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.section__description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.section--panel .section__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.section__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.section__badge {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Field ----------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-base);
+}
+
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field__label {
+  color: var(--color-text);
+}
+
+.field--inline .field__label {
+  order: 2;
+}
+
+.field--inline .field__control {
+  order: 1;
+}
+
+.field__control > input,
+.field__control > select,
+.field__control > textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.field__hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.field__hint--error {
+  color: var(--color-danger);
+}
+
+/* ---- StatTile ---------------------------------------------------------*/
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2);
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+}
+
+.stat-tile__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.stat-tile__value {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stat-tile__unit {
+  margin-left: 3px;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.stat-tile--primary .stat-tile__value {
+  color: var(--color-primary);
+}
+.stat-tile--success .stat-tile__value {
+  color: var(--color-success);
+}
+.stat-tile--warning .stat-tile__value {
+  color: var(--color-warning);
+}
+.stat-tile--danger .stat-tile__value {
+  color: var(--color-danger);
+}
+
+/* ---- Button ------------------------------------------------------------*/
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  font: inherit;
+  font-size: var(--font-size-base);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+.btn--sm {
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.btn--secondary {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  border-color: var(--color-primary);
+  font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+.btn--ghost:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.btn--danger {
+  background: transparent;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Overlay skin -- matches the pre-existing .fly-controls__chip fixed-dark
+ * look pixel-for-pixel (same rgba/hex values), just implemented once
+ * instead of once per canvas-overlay control. Never themed. */
+.btn--overlay {
+  padding: 3px 9px;
+  font-size: var(--font-size-sm);
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-full);
+}
+.btn--overlay:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.btn--overlay:disabled {
+  opacity: 0.4;
+}
+
+/* ---- SegmentedControl ---------------------------------------------- */
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: var(--font-size-base);
+  width: fit-content;
+}
+
+.segmented__option {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segmented__option:not(:first-child) {
+  border-left: 1px solid var(--color-border);
+}
+
+.segmented__option--active {
+  background: var(--color-primary-bg);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.segmented__option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.segmented--sm .segmented__option {
+  padding: 3px var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* Overlay skin -- matches the pre-existing .fly-controls__chip group
+ * exactly (fixed dark chrome, pill chips with a gap between them rather
+ * than a joined strip) so FlyControls' on-canvas look is unchanged. */
+.segmented--overlay {
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  gap: 4px;
+  width: auto;
+}
+.segmented--overlay .segmented__option {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  font-size: var(--font-size-sm);
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-full);
+}
+.segmented--overlay .segmented__option:not(:first-child) {
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+.segmented--overlay .segmented__option--active {
+  color: #0b0c10;
+  background: #38bdf8;
+  border-color: #38bdf8;
+  font-weight: 600;
+}

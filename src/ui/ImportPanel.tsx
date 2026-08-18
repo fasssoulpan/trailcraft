@@ -3,6 +3,8 @@ import type { Crs } from '../core/model/track'
 import type { ImportResult } from '../core/pipeline/import'
 import { importInWorker } from '../workers/importClient'
 import { useAppStore } from '../state/appStore'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
 
 type FileStatus =
   | { phase: 'loading' }
@@ -78,42 +80,44 @@ export function ImportPanel() {
   }
 
   return (
-    <div className="import-panel">
-      <label className="import-panel__input-label">
-        导入轨迹文件
-        <input
-          type="file"
-          multiple
-          accept={ACCEPT}
-          onChange={(e) => {
-            void handleFiles(e.target.files)
-            e.target.value = '' // allow re-selecting the same file
-          }}
-        />
-      </label>
-      <ul className="import-panel__status-list">
-        {Object.entries(statuses).map(([fileName, status]) => (
-          <li key={fileName} className={`import-panel__status import-panel__status--${status.phase}`}>
-            <span className="import-panel__file-name">{fileName}</span>
-            {status.phase === 'loading' && <span> 导入中…</span>}
-            {status.phase === 'done' && <span> 已导入:{status.name}</span>}
-            {status.phase === 'error' && <span className="import-panel__error"> {status.message}</span>}
-            {status.phase === 'needs-crs' && (
-              <div className="import-panel__crs-prompt">
-                <p>
-                  无法自动判断该轨迹的坐标系。选错坐标系会导致轨迹在地图上整体偏移数百米,请确认轨迹来源:
-                </p>
-                <button type="button" onClick={() => void resolveCrs(fileName, 'gcj02')}>
-                  国内 App 轨迹(GCJ-02)
-                </button>
-                <button type="button" onClick={() => void resolveCrs(fileName, 'wgs84')}>
-                  GPS 设备轨迹(WGS-84)
-                </button>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Section title="导入轨迹" description="从 GPX / KML / FIT 文件导入一条或多条轨迹，坐标系无法自动判断时会在这里提示手动选择。">
+      <div className="import-panel">
+        <label className="import-panel__input-label">
+          导入轨迹文件
+          <input
+            type="file"
+            multiple
+            accept={ACCEPT}
+            onChange={(e) => {
+              void handleFiles(e.target.files)
+              e.target.value = '' // allow re-selecting the same file
+            }}
+          />
+        </label>
+        <ul className="import-panel__status-list">
+          {Object.entries(statuses).map(([fileName, status]) => (
+            <li key={fileName} className={`import-panel__status import-panel__status--${status.phase}`}>
+              <span className="import-panel__file-name">{fileName}</span>
+              {status.phase === 'loading' && <span> 导入中…</span>}
+              {status.phase === 'done' && <span> 已导入:{status.name}</span>}
+              {status.phase === 'error' && <span className="import-panel__error"> {status.message}</span>}
+              {status.phase === 'needs-crs' && (
+                <div className="import-panel__crs-prompt">
+                  <p>
+                    无法自动判断该轨迹的坐标系。选错坐标系会导致轨迹在地图上整体偏移数百米,请确认轨迹来源:
+                  </p>
+                  <Button size="sm" onClick={() => void resolveCrs(fileName, 'gcj02')}>
+                    国内 App 轨迹(GCJ-02)
+                  </Button>
+                  <Button size="sm" onClick={() => void resolveCrs(fileName, 'wgs84')}>
+                    GPS 设备轨迹(WGS-84)
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Section>
   )
 }

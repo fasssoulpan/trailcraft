@@ -5,6 +5,9 @@ import { checkDensifyBudget, totalVertexDistance } from '../core/toolbox/draw'
 import { formatKm } from './perfFormat'
 import { drawAvailableForMode } from './layerAvailability'
 import type { TerrainSource } from '../cesium/terrainSelection'
+import { Section } from './primitives/Section'
+import { Field } from './primitives/Field'
+import { Button } from './primitives/Button'
 
 type ElevationStatus = 'idle' | 'loading' | 'done' | 'error'
 
@@ -213,26 +216,17 @@ export function ToolboxPanel() {
   }
 
   return (
-    <div className="toolbox-panel">
-      <h3 className="toolbox-panel__title">工具箱</h3>
-
+    <Section
+      title="工具箱"
+      description="编辑当前轨迹：手绘新路线、分割/反向/拼接已有轨迹、补全高程、清洗异常点或抽稀。"
+    >
       <div className="toolbox-panel__row toolbox-panel__row--history">
-        <button
-          type="button"
-          disabled={!canUndo}
-          onClick={() => undo()}
-          title={undoLabel ? `撤销:${undoLabel}` : undefined}
-        >
+        <Button disabled={!canUndo} onClick={() => undo()} title={undoLabel ? `撤销:${undoLabel}` : undefined}>
           撤销
-        </button>
-        <button
-          type="button"
-          disabled={!canRedo}
-          onClick={() => redo()}
-          title={redoLabel ? `重做:${redoLabel}` : undefined}
-        >
+        </Button>
+        <Button disabled={!canRedo} onClick={() => redo()} title={redoLabel ? `重做:${redoLabel}` : undefined}>
           重做
-        </button>
+        </Button>
       </div>
 
       <div className="toolbox-panel__row toolbox-panel__row--draw">
@@ -246,17 +240,13 @@ export function ToolboxPanel() {
          * mid-draw would strand the draft with no visible way to finish or
          * discard it. */}
         {!drawMode && !drawAvailability.available && <p className="toolbox-panel__hint">{drawAvailability.hint}</p>}
-        {!drawMode && drawAvailability.available && (
-          <button type="button" onClick={() => setDrawMode(true)}>
-            开始手绘
-          </button>
-        )}
+        {!drawMode && drawAvailability.available && <Button onClick={() => setDrawMode(true)}>开始手绘</Button>}
         {drawMode && (
           <>
             <p className="toolbox-panel__hint">
               在地图上点击加点、拖动已有点可移动、右键点击可删除；双击或点击「完成」结束
             </p>
-            <p className="toolbox-panel__draw-readout">
+            <p className="toolbox-panel__draw-readout tabular-nums">
               {drawVertices.length} 个顶点 · {formatKm(drawDistanceM)}
             </p>
             {!drawBudget.ok && (
@@ -266,19 +256,19 @@ export function ToolboxPanel() {
               </p>
             )}
             <div className="toolbox-panel__row">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 disabled={drawVertices.length === 0}
                 onClick={() => deleteDrawVertex(drawVertices.length - 1)}
               >
                 删除最后一点
-              </button>
-              <button type="button" disabled={!canFinishDraw} onClick={() => finishDraw()}>
+              </Button>
+              <Button variant="primary" disabled={!canFinishDraw} onClick={() => finishDraw()}>
                 完成
-              </button>
-              <button type="button" onClick={() => cancelDraw()}>
+              </Button>
+              <Button variant="ghost" onClick={() => cancelDraw()}>
                 取消
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -291,9 +281,9 @@ export function ToolboxPanel() {
             当前轨迹没有高程数据（手绘/规划路线的常见情况）。补全高程会从 Esri 约 30m 分辨率的全球
             DEM 查询每个点的地面高度，供规划参考——不等同于设备实测的气压高程。
           </p>
-          <button type="button" disabled={elevationStatus === 'loading'} onClick={() => void doSampleElevation()}>
+          <Button disabled={elevationStatus === 'loading'} onClick={() => void doSampleElevation()}>
             {elevationStatus === 'loading' ? '正在查询地形…' : '补全高程'}
-          </button>
+          </Button>
           {elevationMessage && <p className="toolbox-panel__hint">{elevationMessage}</p>}
         </div>
       )}
@@ -301,18 +291,18 @@ export function ToolboxPanel() {
       {!activeTrack && <p className="toolbox-panel__hint">请先在轨迹列表中选择一条轨迹</p>}
 
       <div className="toolbox-panel__row">
-        <button type="button" disabled={!canSplit} onClick={doSplit}>
+        <Button disabled={!canSplit} onClick={doSplit}>
           在悬停点分割
-        </button>
+        </Button>
         {activeTrack && !canSplit && (
           <p className="toolbox-panel__hint">将鼠标悬停在当前轨迹的中间点上以启用</p>
         )}
       </div>
 
       <div className="toolbox-panel__row">
-        <button type="button" disabled={!activeTrack} onClick={doReverse}>
+        <Button disabled={!activeTrack} onClick={doReverse}>
           反向
-        </button>
+        </Button>
       </div>
 
       <div className="toolbox-panel__row toolbox-panel__row--join">
@@ -334,15 +324,14 @@ export function ToolboxPanel() {
             ))}
           </ul>
         )}
-        <button type="button" disabled={!canJoin} onClick={doJoin}>
+        <Button disabled={!canJoin} onClick={doJoin}>
           拼接选中
-        </button>
+        </Button>
         <p className="toolbox-panel__hint">按轨迹列表中的当前顺序拼接(暂不支持手动排序)</p>
       </div>
 
       <div className="toolbox-panel__row">
-        <label className="toolbox-panel__field">
-          最大速度 (m/s)
+        <Field label="最大速度 (m/s)" inline>
           <input
             type="number"
             min={0}
@@ -350,15 +339,14 @@ export function ToolboxPanel() {
             value={maxSpeed}
             onChange={(e) => setMaxSpeed(Number(e.target.value))}
           />
-        </label>
-        <button type="button" disabled={!activeTrack} onClick={doClean}>
+        </Field>
+        <Button disabled={!activeTrack} onClick={doClean}>
           清洗异常点
-        </button>
+        </Button>
       </div>
 
       <div className="toolbox-panel__row">
-        <label className="toolbox-panel__field">
-          抽稀容差 (m)
+        <Field label="抽稀容差 (m)" inline>
           <input
             type="number"
             min={0}
@@ -366,13 +354,13 @@ export function ToolboxPanel() {
             value={tolerance}
             onChange={(e) => setTolerance(Number(e.target.value))}
           />
-        </label>
-        <button type="button" disabled={!activeTrack} onClick={doSimplify}>
+        </Field>
+        <Button disabled={!activeTrack} onClick={doSimplify}>
           抽稀
-        </button>
+        </Button>
       </div>
 
       {message && <p className="toolbox-panel__message">{message}</p>}
-    </div>
+    </Section>
   )
 }

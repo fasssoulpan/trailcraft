@@ -6,6 +6,7 @@ import { estimateArrivals, WARN_LEVEL_LABELS } from '../core/pace/models'
 // 与 P3-R1 路书导出套件(Excel 节点明细、配速卡)共用同一份紧凑时刻/时长
 // 格式化实现,而不是各自维护一份几乎相同的 h:mm / HH:mm 格式化代码。
 import { formatDurationCompactHM as formatDurationHM, formatClockHM } from '../core/export/timeFormat'
+import { Button } from './primitives/Button'
 
 export function SegmentTable() {
   const tracks = useAppStore((s) => s.tracks)
@@ -99,9 +100,7 @@ export function SegmentTable() {
               onChange={(e) => setOfficialGain(e.target.value)}
             />
           </label>
-          <button type="button" onClick={doCalibrate}>
-            校准
-          </button>
+          <Button onClick={doCalibrate}>校准</Button>
         </div>
         {calibrateMessage && <p className="segment-table__hint">{calibrateMessage}</p>}
         {finishEtaMs !== undefined && (
@@ -113,7 +112,7 @@ export function SegmentTable() {
       </div>
 
       <div className="segment-table__scroll">
-        <table className="segment-table__table">
+        <table className="segment-table__table tabular-nums">
           <thead>
             <tr>
               <th>段名</th>

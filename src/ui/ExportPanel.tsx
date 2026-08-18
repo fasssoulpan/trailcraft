@@ -12,6 +12,8 @@ import {
   buildWebPagePayload, renderWebPageHtml, utf8ByteSize, computeWebPageSizeBreakdown,
   DEFAULT_MAX_POINTS,
 } from '../core/export/webPage'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
 
 /**
  * P3-R1 路书导出套件的单一入口:高差图 SVG/PNG、Excel 路书、配速卡都在这
@@ -212,38 +214,40 @@ export function ExportPanel() {
   }
 
   return (
-    <div className="export-panel">
-      <h3 className="export-panel__title">路书导出</h3>
+    <Section
+      title="路书导出"
+      description="生成分享/打印用的成果：高差图、Excel 路书、可离线打开的交互网页、腕带配速卡。"
+    >
       {!activeTrack && <p className="export-panel__hint">请先在轨迹列表中选择一条轨迹</p>}
 
       <div className="export-panel__row">
-        <button type="button" disabled={!activeTrack || busy} onClick={() => void handleExportSvg()}>
+        <Button disabled={!activeTrack || busy} onClick={() => void handleExportSvg()}>
           高差图 SVG
-        </button>
-        <button type="button" disabled={!activeTrack || busy} onClick={() => void handleExportPng()}>
+        </Button>
+        <Button disabled={!activeTrack || busy} onClick={() => void handleExportPng()}>
           高差图 PNG(4×)
-        </button>
+        </Button>
       </div>
 
       <div className="export-panel__row">
-        <button type="button" disabled={!activeTrack || busy} onClick={() => void handleExportExcel()}>
+        <Button disabled={!activeTrack || busy} onClick={() => void handleExportExcel()}>
           导出 Excel 路书
-        </button>
+        </Button>
       </div>
 
       <div className="export-panel__row">
-        <button type="button" disabled={!activeTrack || busy} onClick={handleExportWebPage}>
+        <Button variant="primary" disabled={!activeTrack || busy} onClick={handleExportWebPage}>
           导出交互网页(HTML)
-        </button>
+        </Button>
         {webPageOversized && webPageRemedy === 'route' && (
-          <button type="button" disabled={!activeTrack || busy} onClick={handleLowerWebPagePrecision}>
+          <Button disabled={!activeTrack || busy} onClick={handleLowerWebPagePrecision}>
             降低精度后重新生成
-          </button>
+          </Button>
         )}
         {webPageOversized && webPageRemedy === 'photo' && (
-          <button type="button" disabled={!activeTrack || busy} onClick={handleExcludeWebPagePhotos}>
+          <Button disabled={!activeTrack || busy} onClick={handleExcludeWebPagePhotos}>
             排除随身照片后重新生成
-          </button>
+          </Button>
         )}
       </div>
 
@@ -257,13 +261,13 @@ export function ExportPanel() {
             </label>
           ))}
         </div>
-        <button type="button" disabled={!activeTrack} onClick={handleExportPaceCard}>
+        <Button disabled={!activeTrack} onClick={handleExportPaceCard}>
           导出配速卡 SVG
-        </button>
+        </Button>
       </div>
 
       {busy && <p className="export-panel__hint">正在生成…</p>}
       {message && <p className="export-panel__hint">{message}</p>}
-    </div>
+    </Section>
   )
 }

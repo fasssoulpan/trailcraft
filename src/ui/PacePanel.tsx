@@ -1,5 +1,8 @@
 import { useAppStore } from '../state/appStore'
 import { isoToLocalInputValue, localInputValueToIso } from '../core/util/localTime'
+import { Section } from './primitives/Section'
+import { Field } from './primitives/Field'
+import { SegmentedControl } from './primitives/SegmentedControl'
 
 /**
  * 平路配速对普通人来说以 mm:ss/公里 思考远比裸秒数直观(“6 分配速”而不是
@@ -20,6 +23,11 @@ function mmSsToSec(value: string): number | undefined {
   return Number(m[1]) * 60 + Number(m[2])
 }
 
+const MODEL_OPTIONS: { value: 'practical' | 'tobler'; label: string }[] = [
+  { value: 'practical', label: '实用档' },
+  { value: 'tobler', label: 'Tobler 徒步函数' },
+]
+
 export function PacePanel() {
   const paceParams = useAppStore((s) => s.paceParams)
   const raceStartTime = useAppStore((s) => s.raceStartTime)
@@ -29,28 +37,20 @@ export function PacePanel() {
   const model = paceParams.model ?? 'practical'
 
   return (
-    <div className="pace-panel">
-      <h3 className="pace-panel__title">配速与关门预警</h3>
+    <Section
+      title="配速与关门预警"
+      description="设置预计配速模型，用于估算各 CP 的到达时间并与关门时间比对。"
+    >
+      <Field label="配速模型">
+        <SegmentedControl
+          value={model}
+          options={MODEL_OPTIONS}
+          onChange={(v) => setPaceParams({ model: v })}
+          ariaLabel="配速模型"
+        />
+      </Field>
 
-      <div className="pace-panel__row pace-panel__row--model">
-        <button
-          type="button"
-          className={model === 'practical' ? 'pace-panel__model-btn pace-panel__model-btn--active' : 'pace-panel__model-btn'}
-          onClick={() => setPaceParams({ model: 'practical' })}
-        >
-          实用档
-        </button>
-        <button
-          type="button"
-          className={model === 'tobler' ? 'pace-panel__model-btn pace-panel__model-btn--active' : 'pace-panel__model-btn'}
-          onClick={() => setPaceParams({ model: 'tobler' })}
-        >
-          Tobler 徒步函数
-        </button>
-      </div>
-
-      <label className="pace-panel__field">
-        平路配速(mm:ss / 公里)
+      <Field label="平路配速(mm:ss / 公里)">
         <input
           type="text"
           defaultValue={secToMmSs(paceParams.flatPaceSecPerKm)}
@@ -60,10 +60,9 @@ export function PacePanel() {
             if (sec !== undefined) setPaceParams({ flatPaceSecPerKm: sec })
           }}
         />
-      </label>
+      </Field>
 
-      <label className="pace-panel__field">
-        爬升垂直速度 VAM(米/小时)
+      <Field label="爬升垂直速度 VAM(米/小时)">
         <input
           type="number"
           min={0}
@@ -71,10 +70,9 @@ export function PacePanel() {
           value={paceParams.vamMPerH}
           onChange={(e) => setPaceParams({ vamMPerH: Number(e.target.value) })}
         />
-      </label>
+      </Field>
 
-      <label className="pace-panel__field">
-        下坡折算系数(秒/米下降)
+      <Field label="下坡折算系数(秒/米下降)">
         <input
           type="number"
           min={0}
@@ -82,10 +80,9 @@ export function PacePanel() {
           value={paceParams.descentFactor}
           onChange={(e) => setPaceParams({ descentFactor: Number(e.target.value) })}
         />
-      </label>
+      </Field>
 
-      <label className="pace-panel__field">
-        疲劳减速(% / 小时)
+      <Field label="疲劳减速(% / 小时)">
         <input
           type="number"
           min={0}
@@ -93,10 +90,9 @@ export function PacePanel() {
           value={paceParams.fatiguePctPerHour}
           onChange={(e) => setPaceParams({ fatiguePctPerHour: Number(e.target.value) })}
         />
-      </label>
+      </Field>
 
-      <label className="pace-panel__field">
-        起跑时间
+      <Field label="起跑时间">
         <input
           type="datetime-local"
           value={isoToLocalInputValue(raceStartTime)}
@@ -105,7 +101,7 @@ export function PacePanel() {
             if (iso) setRaceStartTime(iso)
           }}
         />
-      </label>
-    </div>
+      </Field>
+    </Section>
   )
 }

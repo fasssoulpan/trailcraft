@@ -4,6 +4,8 @@ import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import { isoToLocalInputValue, localInputValueToIso } from '../core/util/localTime'
 import { attachPhoto } from '../core/photo/attachPhoto'
 import { anchorPhotosToTrack, type PhotoGpsInput } from '../core/pipeline/photoAnchor'
+import { Section } from './primitives/Section'
+import { Button } from './primitives/Button'
 
 /** ± 按钮每次挪动锚点的全精度轨迹点数;够小以便精细纠偏,又不至于点半天挪不动。 */
 const ANCHOR_NUDGE_STEP = 5
@@ -132,9 +134,10 @@ export function CpPanel() {
   }
 
   return (
-    <div className="cp-panel">
-      <h3 className="cp-panel__title">CP 检查点</h3>
-
+    <Section
+      title="CP 检查点"
+      description="在地图上点击轨迹附近位置添加检查点，或从带 GPS 的照片批量生成；可设置关门时间用于配速预警。"
+    >
       {activeTrack && (
         <>
           <p className="cp-panel__hint cp-panel__hint--privacy">
@@ -231,9 +234,9 @@ export function CpPanel() {
                   {cp.photoUrl && (
                     <div className="cp-panel__photo-preview">
                       <img src={cp.photoUrl} alt="" className="cp-panel__photo-thumb" />
-                      <button type="button" className="cp-panel__photo-remove" onClick={() => removePhoto(cp.id)}>
+                      <Button size="sm" variant="ghost" className="cp-panel__photo-remove" onClick={() => removePhoto(cp.id)}>
                         移除照片
-                      </button>
+                      </Button>
                     </div>
                   )}
                   <label className="cp-panel__photo-pick">
@@ -269,37 +272,39 @@ export function CpPanel() {
                 </div>
 
                 <div className="cp-panel__row cp-panel__row--actions">
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={!activeTrack || cp.anchorIndex <= 0}
                     onClick={() => nudge(cp, -ANCHOR_NUDGE_STEP)}
                     title="锚点前移"
                   >
                     锚点 −
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={!activeTrack || cp.anchorIndex >= n - 1}
                     onClick={() => nudge(cp, ANCHOR_NUDGE_STEP)}
                     title="锚点后移"
                   >
                     锚点 ＋
-                  </button>
-                  <button type="button" disabled={i === 0} onClick={() => reorderCp(cp.id, -1)}>
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={i === 0} onClick={() => reorderCp(cp.id, -1)}>
                     上移
-                  </button>
-                  <button type="button" disabled={i === cps.length - 1} onClick={() => reorderCp(cp.id, 1)}>
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={i === cps.length - 1} onClick={() => reorderCp(cp.id, 1)}>
                     下移
-                  </button>
-                  <button type="button" className="cp-panel__remove" onClick={() => removeCp(cp.id)}>
+                  </Button>
+                  <Button size="sm" variant="danger" className="cp-panel__remove" onClick={() => removeCp(cp.id)}>
                     删除
-                  </button>
+                  </Button>
                 </div>
               </li>
             )
           })}
         </ul>
       )}
-    </div>
+    </Section>
   )
 }
