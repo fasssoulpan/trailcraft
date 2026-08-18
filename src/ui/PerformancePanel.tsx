@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import type { Track } from '../core/model/track'
 import type { StatsOptions } from '../core/stats/segments'
+import type { CheckPoint } from '../core/model/checkpoint'
 import { resolveTrackKind } from '../core/perf/trackKind'
 import { computePerformance } from '../core/perf/score'
 import { computeSensorCoverage } from '../core/perf/sensorCoverage'
+import { deriveInsightsForTrack } from '../core/perf/insights'
 import {
   formatPaceMinPerKm,
   formatDurationHM,
@@ -35,6 +37,7 @@ export function PerformancePanel() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const statsOptions = useAppStore((s) => s.statsOptions)
+  const cps = useAppStore((s) => s.cps)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
@@ -51,7 +54,7 @@ export function PerformancePanel() {
       {!activeTrack && <p className="perf-entry__hint">请先在轨迹列表中选择一条轨迹</p>}
 
       {open && activeTrack && (
-        <PerformanceModal track={activeTrack} statsOptions={statsOptions} onClose={() => setOpen(false)} />
+        <PerformanceModal track={activeTrack} statsOptions={statsOptions} cps={cps} onClose={() => setOpen(false)} />
       )}
 
       <QuickCalcPanel />
@@ -62,10 +65,12 @@ export function PerformancePanel() {
 function PerformanceModal({
   track,
   statsOptions,
+  cps,
   onClose,
 }: {
   track: Track
   statsOptions: StatsOptions
+  cps: CheckPoint[]
   onClose: () => void
 }) {
   const resolved = resolveTrackKind(track)
@@ -98,7 +103,7 @@ function PerformanceModal({
               ))}
             </div>
           ) : (
-            <PerformanceReport track={track} statsOptions={statsOptions} />
+            <PerformanceReport track={track} statsOptions={statsOptions} cps={cps} />
           )}
         </div>
       </div>
@@ -109,9 +114,11 @@ function PerformanceModal({
 function PerformanceReport({
   track,
   statsOptions,
+  cps,
 }: {
   track: Track
   statsOptions: StatsOptions
+  cps: CheckPoint[]
 }) {
   const analysis = computePerformance(track, statsOptions)
 
@@ -128,6 +135,7 @@ function PerformanceReport({
   const gradeBands = summarizeGradeBands(analysis.gradeSegments)
   const climbs = significantClimbs(analysis.gradeSegments)
   const sensorRows = summarizeSensorCoverage(computeSensorCoverage(track.points))
+  const insights = deriveInsightsForTrack(track, statsOptions, cps)
 
   return (
     <>
@@ -251,6 +259,21 @@ function PerformanceReport({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="perf-modal__section">
+        <h4 className="perf-modal__section-title">行动建议</h4>
+        {insights.length === 0 ? (
+          <p className="perf-modal__gate-text">本次数据未发现值得单独指出的模式</p>
+        ) : (
+          <ul className="perf-insights-list">
+            {insights.map((ins, i) => (
+              <li key={i} className="perf-insights-list__item">
+                {ins.text}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

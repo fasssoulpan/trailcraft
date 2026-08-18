@@ -1726,6 +1726,29 @@
   line-height: 1.6;
 }
 
+/* ── 行动建议 (P3-R5) -- each item is one evidence-grounded sentence from
+ * `core/perf/insights.ts`; no bullet decoration beyond a left accent bar so
+ * it doesn't visually compete with the data tables above it. ── */
+.perf-insights-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perf-insights-list__item {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
 /* ── Quick calculator (速算模式) -- reuses .perf-modal/.perf-table/etc above,
  * these are only the pieces specific to its preset picker and inputs. ── */
 
