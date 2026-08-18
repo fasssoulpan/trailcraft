@@ -47,6 +47,26 @@
   cursor: pointer;
 }
 
+/* Theme toggle (ui/ThemeToggle.tsx) -- lives in the same pinned header row
+ * as ModeSwitch, same 28x28 icon-button footprint as the sidebar's own
+ * collapse button so the row reads as one family of controls. */
+.theme-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-h);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--color-primary);
+}
+
 /* Houses ModeSwitch plus its new collapse button side by side, still inside
  * the sticky pinned header (see .app-layout__sidebar-pinned below). */
 .app-layout__sidebar-pinned-row {

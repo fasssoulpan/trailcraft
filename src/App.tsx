@@ -18,6 +18,7 @@ import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
 import { clamp, loadLayoutSizes, saveLayoutSizes, SIDEBAR_COLLAPSED_WIDTH, type LayoutSizes } from './state/layout'
 import { MapDebugBadge } from './ui/MapDebugBadge'
+import { ThemeToggle } from './ui/ThemeToggle'
 import './App.css'
 
 // Minimums/maximums for the two user-resizable panes. The map itself has no
@@ -153,6 +154,7 @@ function App() {
           <div className="app-layout__sidebar-pinned">
             <div className="app-layout__sidebar-pinned-row">
               <ModeSwitch />
+              <ThemeToggle />
               <button
                 type="button"
                 className="app-layout__sidebar-collapse-btn"
