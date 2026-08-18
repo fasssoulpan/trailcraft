@@ -8,6 +8,7 @@ import { formatClockHM } from '../../../src/core/export/timeFormat'
 import { OSM_TILE_URL_TEMPLATE } from '../../../src/map/basemapStyle'
 import {
   buildWebPagePayload, renderWebPageHtml, buildInteractiveWebPage, utf8ByteSize,
+  computeWebPageSizeBreakdown, PHOTO_DOMINANT_SHARE,
   WebPageDataError, DEFAULT_MAX_POINTS, DEFAULT_COORD_PRECISION,
 } from '../../../src/core/export/webPage'
 
@@ -302,5 +303,73 @@ describe('payload/page size -- the central constraint per the milestone brief', 
     const big = utf8ByteSize(buildInteractiveWebPage(t, cps, { maxPoints: 8000 }))
     const small = utf8ByteSize(buildInteractiveWebPage(t, cps, { maxPoints: 1000 }))
     expect(small).toBeLessThan(big)
+  })
+
+  it('includePhotos: false strips every checkpoint photoUrl from the payload, even when the CP has one', () => {
+    const t = climbingTrack()
+    const photoUrl = 'data:image/jpeg;base64,' + 'A'.repeat(2000)
+    const withPhoto: CheckPoint = { ...cp('c1', 'CP1', 50, t.id), photoUrl }
+    const included = buildWebPagePayload(t, [withPhoto])
+    const excluded = buildWebPagePayload(t, [withPhoto], { includePhotos: false })
+    expect(included.checkpoints[0].photoUrl).toBe(photoUrl)
+    expect(excluded.checkpoints[0].photoUrl).toBeUndefined()
+  })
+})
+
+describe('computeWebPageSizeBreakdown -- P3-R5 commit 1: photo vs. route bulk', () => {
+  it('all bulk from photos -> dominant "photo", photoShare === 1', () => {
+    const payload = { checkpoints: [{ photoUrl: 'x'.repeat(500) } as never] }
+    const b = computeWebPageSizeBreakdown(payload, 500)
+    expect(b.photoBytes).toBe(500)
+    expect(b.routeBytes).toBe(0)
+    expect(b.photoShare).toBe(1)
+    expect(b.dominant).toBe('photo')
+  })
+
+  it('no photos at all -> dominant "route", photoShare === 0', () => {
+    const payload = { checkpoints: [{ photoUrl: undefined } as never, {} as never] }
+    const b = computeWebPageSizeBreakdown(payload, 1000)
+    expect(b.photoBytes).toBe(0)
+    expect(b.routeBytes).toBe(1000)
+    expect(b.photoShare).toBe(0)
+    expect(b.dominant).toBe('route')
+  })
+
+  it('sums photoUrl bytes across multiple checkpoints', () => {
+    const payload = {
+      checkpoints: [
+        { photoUrl: 'a'.repeat(100) } as never,
+        { photoUrl: 'b'.repeat(300) } as never,
+        { photoUrl: undefined } as never,
+      ],
+    }
+    const b = computeWebPageSizeBreakdown(payload, 1000)
+    expect(b.photoBytes).toBe(400)
+    expect(b.routeBytes).toBe(600)
+    expect(b.photoShare).toBeCloseTo(0.4, 10)
+    expect(b.dominant).toBe('route') // 40% < PHOTO_DOMINANT_SHARE
+  })
+
+  it('exactly at PHOTO_DOMINANT_SHARE counts as photo-dominant (>=, not >)', () => {
+    const payload = { checkpoints: [{ photoUrl: 'x'.repeat(500) } as never] }
+    const b = computeWebPageSizeBreakdown(payload, 500 / PHOTO_DOMINANT_SHARE)
+    expect(b.photoShare).toBeCloseTo(PHOTO_DOMINANT_SHARE, 10)
+    expect(b.dominant).toBe('photo')
+  })
+
+  it('totalBytes === 0 does not throw or produce NaN -- photoShare defaults to 0', () => {
+    const payload = { checkpoints: [] }
+    const b = computeWebPageSizeBreakdown(payload, 0)
+    expect(b.photoBytes).toBe(0)
+    expect(b.routeBytes).toBe(0)
+    expect(b.photoShare).toBe(0)
+    expect(b.dominant).toBe('route')
+  })
+
+  it('clamps photoBytes to totalBytes if it would otherwise exceed it (defensive, should not happen in practice)', () => {
+    const payload = { checkpoints: [{ photoUrl: 'x'.repeat(2000) } as never] }
+    const b = computeWebPageSizeBreakdown(payload, 500)
+    expect(b.photoBytes).toBe(500)
+    expect(b.routeBytes).toBe(0)
   })
 })

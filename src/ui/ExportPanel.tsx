@@ -8,7 +8,10 @@ import {
   buildPaceCardSvgPages, DEFAULT_PACE_CARD_COLUMNS, PACE_CARD_COLUMN_ORDER, PACE_CARD_COLUMN_LABELS,
   type PaceCardColumnKey,
 } from '../core/export/paceCard'
-import { buildWebPagePayload, renderWebPageHtml, utf8ByteSize, DEFAULT_MAX_POINTS } from '../core/export/webPage'
+import {
+  buildWebPagePayload, renderWebPageHtml, utf8ByteSize, computeWebPageSizeBreakdown,
+  DEFAULT_MAX_POINTS,
+} from '../core/export/webPage'
 
 /**
  * P3-R1 路书导出套件的单一入口:高差图 SVG/PNG、Excel 路书、配速卡都在这
@@ -53,7 +56,11 @@ export function ExportPanel() {
   const [busy, setBusy] = useState(false)
   const [paceColumns, setPaceColumns] = useState<PaceCardColumnKey[]>(DEFAULT_PACE_CARD_COLUMNS)
   const [webPageMaxPoints, setWebPageMaxPoints] = useState(DEFAULT_MAX_POINTS)
+  const [webPageIncludePhotos, setWebPageIncludePhotos] = useState(true)
   const [webPageOversized, setWebPageOversized] = useState(false)
+  // 体积超标时该建议哪条补救路径——`undefined` 表示两条路都已经走到头
+  // (抽稀已到 `WEB_PAGE_MIN_POINTS`,照片也已排除),没有进一步的补救可提。
+  const [webPageRemedy, setWebPageRemedy] = useState<'route' | 'photo' | undefined>()
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
@@ -121,27 +128,60 @@ export function ExportPanel() {
   /**
    * P3-R4 commit 2:生成即测体积——`webPage.ts` 的模块注释已经论证过为什么
    * 抽稀是体积的决定性因素,这里把那份论证落到用户实际能看到、能操作的地方:
-   * 超阈值时不下载、给出实测大小,并提供"降低精度"的路径,而不是让用户拿到
+   * 超阈值时不下载、给出实测大小,并提供补救路径,而不是让用户拿到
    * 一个几十 MB、浏览器打开都吃力的文件之后才发现问题。
+   *
+   * P3-R5 commit 1:P3-R4 交付时这里只有"降低精度"一条路,但抽稀只影响路线
+   * 点数组——如果体积超标是检查点照片(`photoUrl` data URI)撑起来的,降低
+   * 精度点几次都不会让文件变小,用户会卡在一个没有出口的循环里。这里改用
+   * `computeWebPageSizeBreakdown` 先量出照片/路线各占多少,再决定该展示
+   * "降低精度"还是"排除随身照片"——只提供实际有效的那一个,不是两个都摆出来
+   * 让用户自己猜。
    */
   function handleExportWebPage() {
     if (!activeTrack) return
     try {
       const payload = buildWebPagePayload(activeTrack, cps, {
         maxPoints: webPageMaxPoints, statsOptions, paceParams, raceStartTimeIso: raceStartTime,
+        includePhotos: webPageIncludePhotos,
       })
       const html = renderWebPageHtml(payload)
       const bytes = utf8ByteSize(html)
-      if (bytes > WEB_PAGE_WARN_BYTES && webPageMaxPoints > WEB_PAGE_MIN_POINTS) {
+      if (bytes > WEB_PAGE_WARN_BYTES) {
+        const breakdown = computeWebPageSizeBreakdown(payload, bytes)
+        const canLowerPrecision = webPageMaxPoints > WEB_PAGE_MIN_POINTS
+        const canExcludePhotos = webPageIncludePhotos && breakdown.photoBytes > 0
+
+        let remedy: 'route' | 'photo' | undefined
+        if (breakdown.dominant === 'photo' && canExcludePhotos) remedy = 'photo'
+        else if (canLowerPrecision) remedy = 'route'
+        else if (canExcludePhotos) remedy = 'photo'
+        setWebPageRemedy(remedy)
         setWebPageOversized(true)
-        setMessage(`交互网页约 ${formatBytes(bytes)}（当前抽稀上限 ${webPageMaxPoints} 点），偏大不建议直接分享。可点击下方"降低精度后重新生成"缩小文件。`)
+
+        const photoNote = breakdown.photoBytes > 0
+          ? `，其中随身照片约 ${formatBytes(breakdown.photoBytes)}（${Math.round(breakdown.photoShare * 100)}%）`
+          : ''
+        const remedyHint =
+          remedy === 'photo'
+            ? '体积主要来自检查点随身照片，降低精度无法减小它——可点击下方"排除随身照片后重新生成"。'
+            : remedy === 'route'
+              ? '可点击下方"降低精度后重新生成"缩小文件。'
+              : '已降到最低抽稀点数且未内嵌照片，暂时没有进一步的补救方式。'
+        setMessage(
+          `交互网页约 ${formatBytes(bytes)}${photoNote}（当前抽稀上限 ${webPageMaxPoints} 点），偏大不建议直接分享。${remedyHint}`,
+        )
         return
       }
       setWebPageOversized(false)
+      setWebPageRemedy(undefined)
       triggerBlobDownload(new Blob([html], { type: 'text/html' }), `${filenameStem()}-交互网页.html`)
-      setMessage(`已导出交互网页（约 ${formatBytes(bytes)}，抽稀上限 ${webPageMaxPoints} 点）`)
+      setMessage(
+        `已导出交互网页（约 ${formatBytes(bytes)}，抽稀上限 ${webPageMaxPoints} 点${webPageIncludePhotos ? '' : '，已排除随身照片'}）`,
+      )
     } catch (err) {
       setWebPageOversized(false)
+      setWebPageRemedy(undefined)
       setMessage(describeError(err))
     }
   }
@@ -149,6 +189,11 @@ export function ExportPanel() {
   function handleLowerWebPagePrecision() {
     setWebPageMaxPoints((cur) => Math.max(WEB_PAGE_MIN_POINTS, Math.floor(cur / 2)))
     setMessage('已降低精度，请再次点击"导出交互网页"重新生成')
+  }
+
+  function handleExcludeWebPagePhotos() {
+    setWebPageIncludePhotos(false)
+    setMessage('已排除随身照片，请再次点击"导出交互网页"重新生成')
   }
 
   function handleExportPaceCard() {
@@ -190,9 +235,14 @@ export function ExportPanel() {
         <button type="button" disabled={!activeTrack || busy} onClick={handleExportWebPage}>
           导出交互网页(HTML)
         </button>
-        {webPageOversized && (
+        {webPageOversized && webPageRemedy === 'route' && (
           <button type="button" disabled={!activeTrack || busy} onClick={handleLowerWebPagePrecision}>
             降低精度后重新生成
+          </button>
+        )}
+        {webPageOversized && webPageRemedy === 'photo' && (
+          <button type="button" disabled={!activeTrack || busy} onClick={handleExcludeWebPagePhotos}>
+            排除随身照片后重新生成
           </button>
         )}
       </div>

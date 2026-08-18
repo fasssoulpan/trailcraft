@@ -92,6 +92,20 @@ export interface WebPageOptions {
   statsOptions?: StatsOptions
   paceParams?: PaceParams
   raceStartTimeIso?: string
+  /**
+   * 是否把检查点的 `photoUrl`(缩放后的 JPEG data URI,见 `core/photo/
+   * attachPhoto.ts`)内嵌进导出网页。默认 `true`。
+   *
+   * P3-R5 commit 1 补的缺口:抽稀(`maxPoints`)只改变路线点数组的体积,
+   * 对 `photoUrl` 这种整段塞进 payload 的字符串完全没有影响——一条 CP 照片
+   * 常常就是几十到上百 KB,几个 CP 带照片就能让体积超标,此时"降低精度"
+   * 这个补救对用户毫无用处(点几次都不会变小,体验上是死循环)。`false` 时
+   * 每个检查点的 `photoUrl` 被置为 `undefined`,不进入 payload、不出现在
+   * 导出网页里——`ExportPanel.tsx` 靠 `computeWebPageSizeBreakdown` 判断
+   * 体积超标主要来自照片还是路线数据,再决定提示用户走这条路径还是
+   * `maxPoints` 那条。
+   */
+  includePhotos?: boolean
 }
 
 export interface WebPageTrackSeries {
@@ -217,6 +231,7 @@ export function buildWebPagePayload(track: Track, cps: CheckPoint[], opts: WebPa
   )
 
   const hasElevation = !!track.points.ele
+  const includePhotos = opts.includePhotos ?? true
   const cpCoordN = track.points.lon.length
   const checkpoints: WebPageCheckpoint[] = sortedCps.map((cp) => {
     const anchor = Math.min(Math.max(cp.anchorIndex, 0), cpCoordN - 1)
@@ -227,7 +242,7 @@ export function buildWebPagePayload(track: Track, cps: CheckPoint[], opts: WebPa
       lon: roundTo(track.points.lon[anchor], precision),
       lat: roundTo(track.points.lat[anchor], precision),
       distM: Math.round(cumDist[anchor]),
-      photoUrl: cp.photoUrl,
+      photoUrl: includePhotos ? cp.photoUrl : undefined,
     }
   })
 
@@ -832,4 +847,63 @@ export function buildInteractiveWebPage(track: Track, cps: CheckPoint[], opts: W
  * 实际字节数，误导"文件多大"的判断）。 */
 export function utf8ByteSize(s: string): number {
   return new TextEncoder().encode(s).length
+}
+
+/**
+ * 体积超标时,"照片"和"路线数据"这两大块占比各是多少,以及哪一块占了大头
+ * ——`ExportPanel.tsx` 用这个结果决定该建议用户走哪条补救路径(降低精度 vs
+ * 排除照片),而不是像 P3-R4 那样只有"降低精度"一条路(对纯照片超标的情况
+ * 完全无效,用户会陷入"降精度、重新生成、还是超标"的死循环——这正是这个
+ * commit 要修的缺口)。
+ *
+ * 纯函数:只读 `payload.checkpoints[].photoUrl` 和调用方量出来的
+ * `totalBytes`(即整份 HTML 的 `utf8ByteSize`),不自己渲染 HTML——
+ * `ExportPanel.tsx` 已经为了显示"约 X MB"渲染过一次,这里没必要再渲染
+ * 一遍。`photoBytes` 是把每个 CP 的 `photoUrl` 字符串按 UTF-8 字节数加总
+ * (data URI 是纯 ASCII base64,和用 `.length` 结果相同,这里仍用
+ * `utf8ByteSize` 是为了和 `totalBytes` 的量纲严格一致，不留一个"两种字节
+ * 计数方式混用"的隐患)；`routeBytes` 不是单独量出来的,而是
+ * `totalBytes - photoBytes`——网页里除照片外的一切(路线点数组、CP 元数据、
+ * 高差图 SVG、内联 CSS/JS 模板……)都归进这一类，因为它们都会随
+ * `maxPoints` 抽稀或轨迹本身的点数变化，是"降低精度"这个补救唯一能影响到
+ * 的部分。
+ */
+export interface WebPageSizeBreakdown {
+  /** 整份导出 HTML 的字节数(调用方传入,通常就是 `utf8ByteSize(html)` 的
+   * 结果)。 */
+  totalBytes: number
+  /** 所有检查点 `photoUrl` 字节数之和。 */
+  photoBytes: number
+  /** `totalBytes - photoBytes`——路线数据 + 页面模板等其余部分。 */
+  routeBytes: number
+  /** `photoBytes / totalBytes`,`totalBytes` 为 0 时记 0(不产生 NaN)。 */
+  photoShare: number
+  /** 哪一部分占了大头,决定 `ExportPanel.tsx` 提示哪条补救路径。 */
+  dominant: 'photo' | 'route'
+}
+
+/**
+ * 占比阈值:达到或超过一半即认定"照片是超标的主因"。0.5 是一个不需要过度
+ * 精细化的分界——这个函数只需要在"降低精度"和"排除照片"两条路之间二选一,
+ * 不需要给出一个连续的置信度,谁占大头就该优先建议解决谁,50% 是这个二分
+ * 决策最直接对应"大头"直觉的分界点。
+ */
+export const PHOTO_DOMINANT_SHARE = 0.5
+
+export function computeWebPageSizeBreakdown(
+  payload: Pick<WebPagePayload, 'checkpoints'>,
+  totalBytes: number,
+): WebPageSizeBreakdown {
+  let photoBytes = 0
+  for (const cp of payload.checkpoints) {
+    if (cp.photoUrl) photoBytes += utf8ByteSize(cp.photoUrl)
+  }
+  // 防御性 clamp:理论上 photoBytes(payload 里的一部分)不会超过整份渲染后
+  // HTML 的字节数,但两者是分别测量的(一个直接量字符串、一个由调用方传入
+  // 整页渲染结果),不假设这层不变式永远成立。
+  if (photoBytes > totalBytes) photoBytes = totalBytes
+  const routeBytes = totalBytes - photoBytes
+  const photoShare = totalBytes > 0 ? photoBytes / totalBytes : 0
+  const dominant: 'photo' | 'route' = photoShare >= PHOTO_DOMINANT_SHARE ? 'photo' : 'route'
+  return { totalBytes, photoBytes, routeBytes, photoShare, dominant }
 }
