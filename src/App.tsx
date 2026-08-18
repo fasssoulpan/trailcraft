@@ -17,8 +17,14 @@ import { Splitter } from './ui/Splitter'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
 import { clamp, loadLayoutSizes, saveLayoutSizes, SIDEBAR_COLLAPSED_WIDTH, type LayoutSizes } from './state/layout'
+import {
+  loadSidebarGroups,
+  saveSidebarGroups,
+  type SidebarGroupState,
+} from './state/sidebarGroups'
 import { MapDebugBadge } from './ui/MapDebugBadge'
 import { ThemeToggle } from './ui/ThemeToggle'
+import { Section } from './ui/primitives/Section'
 import './App.css'
 
 // Minimums/maximums for the two user-resizable panes. The map itself has no
@@ -48,6 +54,17 @@ function App() {
   const hydrated = useRef(false)
 
   const [sizes, setSizes] = useState<LayoutSizes>(() => loadLayoutSizes())
+  // Which of the five task groups below (数据/规划/分析/输出/视图) are
+  // expanded -- see state/sidebarGroups.ts for why this is a persisted UI
+  // preference rather than component state that resets every reload.
+  const [groups, setGroups] = useState<SidebarGroupState>(() => loadSidebarGroups())
+  function setGroupOpen(key: keyof SidebarGroupState, open: boolean) {
+    setGroups((g) => {
+      const next = { ...g, [key]: open }
+      saveSidebarGroups(next)
+      return next
+    })
+  }
   // Mirrors `sizes` for the splitters' onCommit handlers, which only know
   // the dimension they themselves just changed and need the *other*
   // dimension's current value to persist the full { sidebarWidth,
@@ -166,15 +183,78 @@ function App() {
               </button>
             </div>
           </div>
-          <LayerPanel />
-          <ProjectToolbar />
-          <ImportPanel />
-          <TrackList />
-          <ToolboxPanel />
-          <CpPanel />
-          <PacePanel />
-          <PerformancePanel />
-          <ExportPanel />
+          {/* Grouped by task rather than stacked flat -- ten always-present
+           * panels in one scroll was the core usability problem this
+           * redesign set out to fix. Only the group relevant to what the
+           * user is doing needs to be open (state/sidebarGroups.ts persists
+           * which ones are); every panel keeps its own title+description
+           * header underneath (Section, primitives/Section.tsx) so the
+           * grouping adds a layer of navigation without hiding what each
+           * control does. */}
+          <Section
+            variant="group"
+            collapsible
+            title="数据"
+            description="导入轨迹文件，管理已导入的轨迹列表，保存/打开/导入导出整份工程。"
+            open={groups.data}
+            onOpenChange={(open) => setGroupOpen('data', open)}
+          >
+            <ImportPanel />
+            <TrackList />
+            <ProjectToolbar />
+          </Section>
+
+          <Section
+            variant="group"
+            collapsible
+            title="规划"
+            description="编辑当前轨迹：手绘新路线、设置检查点(CP)、配置配速与关门预警。"
+            open={groups.plan}
+            onOpenChange={(open) => setGroupOpen('plan', open)}
+            actions={
+              mode === 'fly' ? <span className="section__badge">手绘路线仅规划模式可用</span> : undefined
+            }
+          >
+            <ToolboxPanel />
+            <CpPanel />
+            <PacePanel />
+          </Section>
+
+          <Section
+            variant="group"
+            collapsible
+            title="分析"
+            description="查看完整表现报告，或不依赖已导入轨迹直接按数字速算。"
+            open={groups.analysis}
+            onOpenChange={(open) => setGroupOpen('analysis', open)}
+          >
+            <PerformancePanel />
+          </Section>
+
+          <Section
+            variant="group"
+            collapsible
+            title="输出"
+            description="生成分享/打印用的成果：高差图、Excel 路书、交互网页、腕带配速卡。"
+            open={groups.output}
+            onOpenChange={(open) => setGroupOpen('output', open)}
+          >
+            <ExportPanel />
+          </Section>
+
+          <Section
+            variant="group"
+            collapsible
+            title="视图"
+            description="切换底图样式；等高线与距离雷达是仅巡游模式可用的叠加层。"
+            open={groups.view}
+            onOpenChange={(open) => setGroupOpen('view', open)}
+            actions={
+              mode === 'plan' ? <span className="section__badge">等高线/雷达需切换到巡游模式</span> : undefined
+            }
+          >
+            <LayerPanel />
+          </Section>
         </aside>
       )}
       {!sizes.sidebarCollapsed && (
