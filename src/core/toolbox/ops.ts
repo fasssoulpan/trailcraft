@@ -16,6 +16,11 @@ function slicePoints(p: TrackPoints, keep: ArrayLike<number>): TrackPointsInput 
   const ele = p.ele ? new Float32Array(n) : undefined
   const time = p.time ? new Float64Array(n) : undefined
   const hr = p.hr ? new Uint16Array(n) : undefined
+  // cadence/power/temperature 和 ele 同一种缺失约定(逐点 NaN),不是 hr 的
+  // 0 哨兵——见 core/model/track.ts 里这三个字段的注释。
+  const cadence = p.cadence ? new Float32Array(n) : undefined
+  const power = p.power ? new Float32Array(n) : undefined
+  const temperature = p.temperature ? new Float32Array(n) : undefined
   for (let i = 0; i < n; i++) {
     const idx = keep[i]
     lon[i] = p.lon[idx]
@@ -23,8 +28,11 @@ function slicePoints(p: TrackPoints, keep: ArrayLike<number>): TrackPointsInput 
     if (ele) ele[i] = p.ele![idx]
     if (time) time[i] = p.time![idx]
     if (hr) hr[i] = p.hr![idx]
+    if (cadence) cadence[i] = p.cadence![idx]
+    if (power) power[i] = p.power![idx]
+    if (temperature) temperature[i] = p.temperature![idx]
   }
-  return { lon, lat, ele, time, hr }
+  return { lon, lat, ele, time, hr, cadence, power, temperature }
 }
 
 function derive(src: Track, keep: ArrayLike<number>, suffix: string): Track {
@@ -66,6 +74,9 @@ export function joinTracks(list: Track[]): Track {
   const anyEle = list.some((t) => t.points.ele !== undefined)
   const anyTime = list.some((t) => t.points.time !== undefined)
   const anyHr = list.some((t) => t.points.hr !== undefined)
+  const anyCadence = list.some((t) => t.points.cadence !== undefined)
+  const anyPower = list.some((t) => t.points.power !== undefined)
+  const anyTemperature = list.some((t) => t.points.temperature !== undefined)
 
   const lon = new Float64Array(totalN)
   const lat = new Float64Array(totalN)
@@ -75,6 +86,14 @@ export function joinTracks(list: Track[]): Track {
   // sentinel used elsewhere in the model, so a source track lacking hr needs
   // no explicit fill.
   const hr = anyHr ? new Uint16Array(totalN) : undefined
+  // cadence/power/temperature use the ele/time NaN-per-point convention (see
+  // core/model/track.ts), not hr's 0-default sentinel -- Float32Array
+  // default-initializes to 0, which here would be indistinguishable from a
+  // real 0 reading, so a source track lacking the column must be explicitly
+  // filled with NaN, mirroring the `ele`/`time` branches above exactly.
+  const cadence = anyCadence ? new Float32Array(totalN) : undefined
+  const power = anyPower ? new Float32Array(totalN) : undefined
+  const temperature = anyTemperature ? new Float32Array(totalN) : undefined
 
   let off = 0
   for (const t of list) {
@@ -84,12 +103,18 @@ export function joinTracks(list: Track[]): Track {
     if (ele) { if (t.points.ele) ele.set(t.points.ele, off); else ele.fill(NaN, off, off + n) }
     if (time) { if (t.points.time) time.set(t.points.time, off); else time.fill(NaN, off, off + n) }
     if (hr && t.points.hr) hr.set(t.points.hr, off)
+    if (cadence) { if (t.points.cadence) cadence.set(t.points.cadence, off); else cadence.fill(NaN, off, off + n) }
+    if (power) { if (t.points.power) power.set(t.points.power, off); else power.fill(NaN, off, off + n) }
+    if (temperature) {
+      if (t.points.temperature) temperature.set(t.points.temperature, off)
+      else temperature.fill(NaN, off, off + n)
+    }
     off += n
   }
 
   const first = list[0]
   const t = createTrack(
-    { lon, lat, ele, time, hr },
+    { lon, lat, ele, time, hr, cadence, power, temperature },
     { ...first.meta, name: `${first.meta.name} +${list.length - 1}` },
     first.originalCrs,
   )

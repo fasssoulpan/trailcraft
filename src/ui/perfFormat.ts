@@ -9,6 +9,7 @@
 import type { TrackKind } from '../core/perf/trackKind'
 import type { GradeSegment, GradeSegmentType } from '../core/perf/climbs'
 import type { EnvCompensation } from '../core/perf/env'
+import type { SensorCoverageStat, SensorCoverageSummary } from '../core/perf/sensorCoverage'
 
 const PLACEHOLDER = '--'
 
@@ -149,6 +150,67 @@ export const PERF_DISCLAIMER =
   '「表现分(社区估算)」是基于爬升 / 配速 / 环境的社区反向推导模型,不是官方 ITRA 积分,' +
   '标定依赖若干假设(精英参考区间取 900-960 分档而非公开的逐运动员官方成绩;部分赛事赛道数据为估算值),' +
   '仅供个人训练参考,不代表任何官方认证结果。'
+
+// ── 传感器覆盖 (P3-R5 commit 2 -- surfaces core/perf/sensorCoverage.ts) ─────
+
+export type SensorKey = 'hr' | 'cadence' | 'power' | 'temperature'
+
+export const SENSOR_LABELS: Record<SensorKey, string> = {
+  hr: '心率', cadence: '步频/踏频', power: '功率', temperature: '气温',
+}
+
+/** 单位——步频/踏频原始读数不做单位换算(见 `core/parsers/fit.ts` 对
+ *  `cadence` 字段的注释,设备给的是 rpm 还是 spm 取决于设备本身),因此
+ *  这里没有一个统一单位可标,留空。 */
+export const SENSOR_UNITS: Record<SensorKey, string> = {
+  hr: 'bpm', cadence: '', power: 'W', temperature: '°C',
+}
+
+const SENSOR_ORDER: SensorKey[] = ['hr', 'cadence', 'power', 'temperature']
+
+export interface SensorCoverageRow {
+  key: SensorKey
+  label: string
+  /** 该传感器列在这条轨迹上是否存在——不存在时其余两个字段直接是占位符,
+   *  不暗示"存在但恰好 0 覆盖"这个和"压根没有这项数据"不同的状态
+   *  (两者的区别见 `sensorCoverage.ts#SensorCoverageStat` 的文档注释)。 */
+  present: boolean
+  /** "62%"；`present` 为 `false` 时为占位符。 */
+  coverageLabel: string
+  /** "92 - 168 bpm，均值 132 bpm"；没有任何有效读数(列存在但覆盖率 0)
+   *  或列整体缺失时为占位符。 */
+  rangeLabel: string
+}
+
+function fmtNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+function formatSensorRange(stat: SensorCoverageStat, unit: string): string {
+  if (stat.min === undefined || stat.max === undefined || stat.mean === undefined) return PLACEHOLDER
+  const u = unit ? ` ${unit}` : ''
+  return `${fmtNum(stat.min)} - ${fmtNum(stat.max)}${u}，均值 ${fmtNum(stat.mean)}${u}`
+}
+
+/**
+ * `sensorCoverage.ts#computeSensorCoverage` 的结果转成 `PerformancePanel.tsx`
+ * 「深度分析」小节可以直接渲染的行——四个传感器固定顺序(心率/步频踏频/
+ * 功率/气温),不存在的传感器仍然出现在列表里(`present: false`),而不是
+ * 从列表里消失——"这条轨迹没有功率数据"本身就是需要让用户看到的信息,
+ * 隐藏掉这一行反而更容易让人误以为"没看到功率是因为面板没做这个功能"。
+ */
+export function summarizeSensorCoverage(summary: SensorCoverageSummary): SensorCoverageRow[] {
+  return SENSOR_ORDER.map((key) => {
+    const stat = summary[key]
+    return {
+      key,
+      label: SENSOR_LABELS[key],
+      present: stat.present,
+      coverageLabel: stat.present ? `${Math.round(stat.coverage * 100)}%` : PLACEHOLDER,
+      rangeLabel: stat.present ? formatSensorRange(stat, SENSOR_UNITS[key]) : PLACEHOLDER,
+    }
+  })
+}
 
 // ── Entry-point availability decision (P2 §3.3, the whole point of Q1) ────
 

@@ -23,6 +23,33 @@ export interface TrackPoints {
    * 有效数据点。
    */
   hr?: Uint16Array
+  /**
+   * 步频/踏频(FIT `cadence` 字段原始读数,单位由设备决定——跑步设备通常是
+   * spm,骑行设备通常是 rpm,这里不做单位换算,直接透传,和 ele/hr 对"设备
+   * 给什么就存什么"的一贯做法一致)。
+   *
+   * 用 `Float32Array` 而不是像 `hr` 那样用整数类型 + 0 哨兵:0 是步频/踏频
+   * 完全合法的真实读数(停下来的那一刻、或者滑行不蹬踏的骑行段),不能像
+   * 心率那样"0 当作缺失"——心率的 0 哨兵之所以安全,是因为活人心率永远不
+   * 可能真的是 0(见上方 hr 的注释);步频/踏频没有这条物理保证,借用同样
+   * 的哨兵会把"真实停止"误判成"设备没有这项数据"。因此沿用 ele/time 的
+   * 逐点 NaN 缺失约定:整列缺失是 `undefined`,单点缺失(该点没有踏频读数)
+   * 是 `NaN`。
+   */
+  cadence?: Float32Array
+  /**
+   * 功率(瓦特,FIT `power` 字段原始读数)。哨兵选择理由与 `cadence` 完全
+   * 相同——0 瓦是骑行滑行/静止时的合法真实读数,不能借用 `hr` 的 0 哨兵,
+   * 因此同样用 `Float32Array` + 逐点 NaN 缺失约定(整列缺失 `undefined`)。
+   */
+  power?: Float32Array
+  /**
+   * 气温(摄氏度,FIT `temperature` 字段原始读数)。哨兵选择理由同上——0°C
+   * 在越野跑常见的高海拔/夜爬场景里是完全合法的真实读数(结冰边缘温度),
+   * 不能借用 `hr` 的 0 哨兵,因此同样用 `Float32Array` + 逐点 NaN 缺失约定
+   * (整列缺失 `undefined`)。
+   */
+  temperature?: Float32Array
   /** 累计里程(米),由 geo 模块计算后挂载 */
   cumDist?: Float64Array
 }
@@ -91,6 +118,7 @@ export interface Track {
 export interface TrackPointsInput {
   lon: ArrayLike<number>; lat: ArrayLike<number>
   ele?: ArrayLike<number>; time?: ArrayLike<number>; hr?: ArrayLike<number>
+  cadence?: ArrayLike<number>; power?: ArrayLike<number>; temperature?: ArrayLike<number>
 }
 
 let seq = 0
@@ -105,6 +133,9 @@ export function createTrack(pts: TrackPointsInput, meta: TrackMeta, originalCrs:
     ['ele', pts.ele],
     ['time', pts.time],
     ['hr', pts.hr],
+    ['cadence', pts.cadence],
+    ['power', pts.power],
+    ['temperature', pts.temperature],
   ]
   for (const [name, arr] of fields) {
     if (arr && arr.length !== n)
@@ -118,6 +149,9 @@ export function createTrack(pts: TrackPointsInput, meta: TrackMeta, originalCrs:
       ele: pts.ele ? Float32Array.from(pts.ele) : undefined,
       time: pts.time ? Float64Array.from(pts.time) : undefined,
       hr: pts.hr ? Uint16Array.from(pts.hr) : undefined,
+      cadence: pts.cadence ? Float32Array.from(pts.cadence) : undefined,
+      power: pts.power ? Float32Array.from(pts.power) : undefined,
+      temperature: pts.temperature ? Float32Array.from(pts.temperature) : undefined,
     },
   }
 }

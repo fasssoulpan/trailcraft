@@ -4,6 +4,7 @@ import type { Track } from '../core/model/track'
 import type { StatsOptions } from '../core/stats/segments'
 import { resolveTrackKind } from '../core/perf/trackKind'
 import { computePerformance } from '../core/perf/score'
+import { computeSensorCoverage } from '../core/perf/sensorCoverage'
 import {
   formatPaceMinPerKm,
   formatDurationHM,
@@ -15,6 +16,7 @@ import {
   envCompensationNote,
   perfAvailability,
   PERF_DISCLAIMER,
+  summarizeSensorCoverage,
 } from './perfFormat'
 import { QuickCalcPanel } from './QuickCalcPanel'
 
@@ -125,6 +127,7 @@ function PerformanceReport({
   const avgPaceSecPerKm = analysis.totalDistanceM > 0 ? analysis.totalTimeS / (analysis.totalDistanceM / 1000) : undefined
   const gradeBands = summarizeGradeBands(analysis.gradeSegments)
   const climbs = significantClimbs(analysis.gradeSegments)
+  const sensorRows = summarizeSensorCoverage(computeSensorCoverage(track.points))
 
   return (
     <>
@@ -249,6 +252,31 @@ function PerformanceReport({
             </table>
           </div>
         )}
+      </section>
+
+      <section className="perf-modal__section">
+        <h4 className="perf-modal__section-title">传感器覆盖</h4>
+        <p className="perf-modal__audit-hint">
+          在信任任何一项基于传感器的判断之前，先看它到底记录了多少——覆盖率低或缺失的读数不参与上面任何统计。
+        </p>
+        <table className="perf-table">
+          <thead>
+            <tr>
+              <th>传感器</th>
+              <th>覆盖率</th>
+              <th>读数范围</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sensorRows.map((r) => (
+              <tr key={r.key}>
+                <td>{r.label}</td>
+                <td>{r.present ? r.coverageLabel : '无数据'}</td>
+                <td>{r.rangeLabel}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
     </>
   )

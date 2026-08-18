@@ -38,6 +38,14 @@ interface TrackFeatureProperties {
   ele?: number[]
   time?: number[]
   hr?: number[]
+  /** P3-R5 新增传感器列——和 ele/time/hr 同样的"整列缺失就不写这个键"约定
+   *  (见 `trackToFeature` 下方注释),因此在旧工程文件(P3-R5 之前保存,没有
+   *  这三个键)上反序列化时天然是 `undefined`,`createTrack` 按"未提供"处理,
+   *  不会把旧工程误读成"全部点都没有传感器读数"(那本该是"这个字段压根不
+   *  存在"而不是"存在但全 NaN")这两种语义不同的空状态。 */
+  cadence?: number[]
+  power?: number[]
+  temperature?: number[]
 }
 
 interface CpFeatureProperties {
@@ -53,7 +61,7 @@ interface CpFeatureProperties {
 }
 
 function trackToFeature(t: Track): object {
-  const { lon, lat, ele, time, hr } = t.points
+  const { lon, lat, ele, time, hr, cadence, power, temperature } = t.points
   const n = lon.length
   const coordinates: [number, number][] = new Array(n)
   for (let i = 0; i < n; i++) coordinates[i] = [lon[i], lat[i]]
@@ -68,6 +76,9 @@ function trackToFeature(t: Track): object {
     ele: ele ? Array.from(ele) : undefined,
     time: time ? Array.from(time) : undefined,
     hr: hr ? Array.from(hr) : undefined,
+    cadence: cadence ? Array.from(cadence) : undefined,
+    power: power ? Array.from(power) : undefined,
+    temperature: temperature ? Array.from(temperature) : undefined,
   }
   return { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties }
 }
@@ -132,7 +143,10 @@ function featureToTrack(f: RawFeature): Track {
   }
   const p = f.properties as unknown as TrackFeatureProperties
   const track = createTrack(
-    { lon, lat, ele: p.ele, time: p.time, hr: p.hr },
+    {
+      lon, lat, ele: p.ele, time: p.time, hr: p.hr,
+      cadence: p.cadence, power: p.power, temperature: p.temperature,
+    },
     p.meta,
     p.originalCrs,
   )

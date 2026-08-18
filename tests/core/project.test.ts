@@ -176,6 +176,61 @@ describe('serializeProject / deserializeProject', () => {
     expect(tracks[0].meta.kindOverride).toBeUndefined()
   })
 
+  // P3-R5 commit 2: cadence/power/temperature sensor columns.
+  it('round-trip preserves cadence/power/temperature, including per-point NaN', () => {
+    const t = createTrack(
+      {
+        lon: [116.1, 116.2, 116.3], lat: [39.9, 39.91, 39.92],
+        ele: [10, 20, 30], time: [1000, 2000, 3000], hr: [90, 95, 100],
+        cadence: [80, NaN, 85],
+        power: [NaN, 150, 160],
+        temperature: [0, NaN, -2.5],
+      },
+      { name: '传感器轨迹', format: 'fit', fileName: 'sensors.fit' },
+      'wgs84',
+    )
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    const back = tracks[0]
+    expect(back.points.cadence![0]).toBe(80)
+    expect(Number.isNaN(back.points.cadence![1])).toBe(true)
+    expect(back.points.power![0]).toBeNaN()
+    expect(back.points.power![1]).toBe(150)
+    expect(back.points.temperature![0]).toBe(0)
+    expect(back.points.temperature![2]).toBeCloseTo(-2.5, 5)
+  })
+
+  it('a track lacking cadence/power/temperature round-trips with all three still absent, not resurrected as all-NaN', () => {
+    const t = trackWithEle() // no cadence/power/temperature set
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const { tracks } = deserializeProject(p)
+    expect(tracks[0].points.cadence).toBeUndefined()
+    expect(tracks[0].points.power).toBeUndefined()
+    expect(tracks[0].points.temperature).toBeUndefined()
+  })
+
+  it('a project saved before cadence/power/temperature existed in the schema loads without the fields rather than crashing', () => {
+    // Simulates a genuine pre-P3-R5 project file: the keys themselves are
+    // absent from the serialized properties object (not merely holding
+    // `undefined`), matching how a file written before this milestone would
+    // actually look on disk -- same pattern as the kindOverride test above.
+    const t = trackWithEle()
+    const p = serializeProject('工程', [t], [], paceParams, statsOptions)
+    const raw = JSON.parse(JSON.stringify(p))
+    delete raw.features[0].properties.cadence
+    delete raw.features[0].properties.power
+    delete raw.features[0].properties.temperature
+    expect(() => deserializeProject(raw)).not.toThrow()
+    const { tracks } = deserializeProject(raw)
+    expect(tracks).toHaveLength(1)
+    expect(tracks[0].points.cadence).toBeUndefined()
+    expect(tracks[0].points.power).toBeUndefined()
+    expect(tracks[0].points.temperature).toBeUndefined()
+    // The pre-existing columns on the same old file must still load fine.
+    expect(tracks[0].points.ele).toBeDefined()
+    expect(tracks[0].points.hr).toBeDefined()
+  })
+
   it('multiple tracks and multiple cps round-trip independently, each cp keeping its own trackId', () => {
     const t1 = trackWithEle()
     const t2 = trackWithoutEle()

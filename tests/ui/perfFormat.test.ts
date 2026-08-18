@@ -10,9 +10,11 @@ import {
   envCompensationNote,
   perfAvailability,
   GRADE_BAND_ORDER,
+  summarizeSensorCoverage,
 } from '../../src/ui/perfFormat'
 import type { GradeSegment } from '../../src/core/perf/climbs'
 import type { EnvCompensation } from '../../src/core/perf/env'
+import type { SensorCoverageStat, SensorCoverageSummary } from '../../src/core/perf/sensorCoverage'
 
 function seg(partial: Partial<GradeSegment> & { type: GradeSegment['type'] }): GradeSegment {
   return {
@@ -171,5 +173,75 @@ describe('perfAvailability', () => {
     const result = perfAvailability('uncertain')
     expect(result.status).toBe('uncertain')
     expect(result.message).toContain('实跑')
+  })
+})
+
+const ABSENT: SensorCoverageStat = { present: false, totalCount: 0, validCount: 0, coverage: 0 }
+
+describe('summarizeSensorCoverage', () => {
+  it('always returns exactly 4 rows in the fixed hr/cadence/power/temperature order', () => {
+    const summary: SensorCoverageSummary = { hr: ABSENT, cadence: ABSENT, power: ABSENT, temperature: ABSENT }
+    const rows = summarizeSensorCoverage(summary)
+    expect(rows.map((r) => r.key)).toEqual(['hr', 'cadence', 'power', 'temperature'])
+  })
+
+  it('an absent column -> present:false and placeholder labels, not a 0% coverage claim', () => {
+    const summary: SensorCoverageSummary = { hr: ABSENT, cadence: ABSENT, power: ABSENT, temperature: ABSENT }
+    const rows = summarizeSensorCoverage(summary)
+    for (const row of rows) {
+      expect(row.present).toBe(false)
+      expect(row.coverageLabel).toBe('--')
+      expect(row.rangeLabel).toBe('--')
+    }
+  })
+
+  it('full coverage renders a rounded percentage and a min/max/mean range with unit', () => {
+    const summary: SensorCoverageSummary = {
+      hr: { present: true, totalCount: 100, validCount: 100, coverage: 1, min: 92, max: 168, mean: 132.4 },
+      cadence: ABSENT,
+      power: ABSENT,
+      temperature: ABSENT,
+    }
+    const rows = summarizeSensorCoverage(summary)
+    const hrRow = rows.find((r) => r.key === 'hr')!
+    expect(hrRow.present).toBe(true)
+    expect(hrRow.coverageLabel).toBe('100%')
+    expect(hrRow.rangeLabel).toBe('92 - 168 bpm，均值 132.4 bpm')
+  })
+
+  it('rounds partial coverage to the nearest percent', () => {
+    const summary: SensorCoverageSummary = {
+      hr: ABSENT,
+      cadence: { present: true, totalCount: 3, validCount: 1, coverage: 1 / 3, min: 80, max: 80, mean: 80 },
+      power: ABSENT,
+      temperature: ABSENT,
+    }
+    const rows = summarizeSensorCoverage(summary)
+    expect(rows.find((r) => r.key === 'cadence')!.coverageLabel).toBe('33%')
+  })
+
+  it('present but zero valid readings -> coverage "0%" but range placeholder (no fabricated min/max/mean)', () => {
+    const summary: SensorCoverageSummary = {
+      hr: ABSENT,
+      cadence: ABSENT,
+      power: { present: true, totalCount: 50, validCount: 0, coverage: 0 },
+      temperature: ABSENT,
+    }
+    const rows = summarizeSensorCoverage(summary)
+    const powerRow = rows.find((r) => r.key === 'power')!
+    expect(powerRow.present).toBe(true)
+    expect(powerRow.coverageLabel).toBe('0%')
+    expect(powerRow.rangeLabel).toBe('--')
+  })
+
+  it('cadence has no unit suffix in its range label (device-dependent rpm/spm, not standardised)', () => {
+    const summary: SensorCoverageSummary = {
+      hr: ABSENT,
+      cadence: { present: true, totalCount: 10, validCount: 10, coverage: 1, min: 80, max: 90, mean: 85 },
+      power: ABSENT,
+      temperature: ABSENT,
+    }
+    const rows = summarizeSensorCoverage(summary)
+    expect(rows.find((r) => r.key === 'cadence')!.rangeLabel).toBe('80 - 90，均值 85')
   })
 })

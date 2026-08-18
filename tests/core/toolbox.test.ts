@@ -1,10 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { createTrack, type Track } from '../../src/core/model/track'
+import { createTrack, type Track, type TrackPointsInput } from '../../src/core/model/track'
 import { computeCumDist, haversine } from '../../src/core/geo/distance'
 import { splitAt, joinTracks, reverseTrack, removeAnomalies, simplifyTrack } from '../../src/core/toolbox/ops'
 
 function mk(lon: number[], lat: number[], ele?: number[], time?: number[]) {
   const t = createTrack({ lon, lat, ele, time }, { name: 't', format: 'gpx', fileName: 't.gpx' })
+  t.points.cumDist = computeCumDist(t.points.lon, t.points.lat)
+  return t
+}
+
+/** Like `mk`, but accepts the full sensor column set (hr/cadence/power/
+ *  temperature) -- used by the P3-R5 "toolbox ops carry sensor columns
+ *  through" tests below, where the point is specifically the fate of those
+ *  columns across split/join/reverse. */
+function mkSensors(input: TrackPointsInput) {
+  const t = createTrack(input, { name: 't', format: 'fit', fileName: 't.fit' })
   t.points.cumDist = computeCumDist(t.points.lon, t.points.lat)
   return t
 }
@@ -271,5 +281,108 @@ describe('toolbox ops preserve per-track colour/lineWidth (Track.meta) across de
     const joined = joinTracks([t1, t2])
     expect(joined.meta.color).toBe('#abcdef')
     expect(joined.meta.lineWidth).toBe(8)
+  })
+})
+
+// P3-R5 commit 2: split/join/reverse/clean/simplify must not silently drop
+// cadence/power/temperature the way a naive rewrite of any of these ops
+// (one that lists ele/time/hr explicitly and forgets the three new columns)
+// would. Mirrors the existing ele/hr coverage above one-for-one, plus checks
+// that reverseTrack actually reverses the sensor arrays (not just carries
+// them through in original order) and that hr's 0-sentinel vs. the new
+// columns' NaN-sentinel convention both survive a join of a track that HAS
+// the column with one that doesn't.
+describe('toolbox ops preserve cadence/power/temperature sensor columns', () => {
+  it('splitAt: both halves carry their slice of cadence/power/temperature', () => {
+    const t = mkSensors({
+      lon: [0, 1, 2, 3], lat: [0, 0, 0, 0],
+      cadence: [80, 82, NaN, 86],
+      power: [100, NaN, 120, 130],
+      temperature: [0, 1, 2, -1],
+    })
+    const [a, b] = splitAt(t, 2)
+    expect(Array.from(a.points.cadence!)).toEqual([80, 82, NaN])
+    expect(Array.from(b.points.cadence!)).toEqual([NaN, 86])
+    expect(Array.from(a.points.power!)).toEqual([100, NaN, 120])
+    expect(Array.from(b.points.power!)).toEqual([120, 130])
+    expect(Array.from(a.points.temperature!)).toEqual([0, 1, 2])
+    expect(Array.from(b.points.temperature!)).toEqual([2, -1])
+  })
+
+  it('reverseTrack: cadence/power/temperature are reversed, not merely carried through', () => {
+    const t = mkSensors({
+      lon: [0, 1, 2], lat: [0, 10, 20],
+      cadence: [80, 82, 84],
+      power: [100, 110, 120],
+      temperature: [-1, 0, 1],
+    })
+    const r = reverseTrack(t)
+    expect(Array.from(r.points.cadence!)).toEqual([84, 82, 80])
+    expect(Array.from(r.points.power!)).toEqual([120, 110, 100])
+    expect(Array.from(r.points.temperature!)).toEqual([1, 0, -1])
+  })
+
+  it('joinTracks: concatenates cadence/power/temperature across sources that both have every column', () => {
+    const t1 = mkSensors({ lon: [0, 1], lat: [0, 0], cadence: [80, 82], power: [100, 110], temperature: [0, 1] })
+    const t2 = mkSensors({ lon: [2, 3], lat: [0, 0], cadence: [84, 86], power: [120, 130], temperature: [2, 3] })
+    const joined = joinTracks([t1, t2])
+    expect(Array.from(joined.points.cadence!)).toEqual([80, 82, 84, 86])
+    expect(Array.from(joined.points.power!)).toEqual([100, 110, 120, 130])
+    expect(Array.from(joined.points.temperature!)).toEqual([0, 1, 2, 3])
+  })
+
+  it('joinTracks: a source track lacking the column is filled with NaN (not 0) for its span, unlike hr', () => {
+    const withSensors = mkSensors({ lon: [0, 1], lat: [0, 0], cadence: [80, 82], power: [100, 110], temperature: [0, 1], hr: [90, 92] })
+    const without = mkSensors({ lon: [2, 3], lat: [0, 0] }) // no cadence/power/temperature/hr at all
+    const joined = joinTracks([withSensors, without])
+    expect(Array.from(joined.points.cadence!).slice(2)).toEqual([NaN, NaN])
+    expect(Array.from(joined.points.power!).slice(2)).toEqual([NaN, NaN])
+    expect(Array.from(joined.points.temperature!).slice(2)).toEqual([NaN, NaN])
+    // Contrast: hr's own "missing" sentinel is 0, not NaN (Uint16Array
+    // default-initializes to 0, which IS the sentinel there -- see ops.ts).
+    expect(Array.from(joined.points.hr!).slice(2)).toEqual([0, 0])
+  })
+
+  it('joinTracks: no source has a given column -> the joined track omits it entirely (undefined, not an all-NaN column)', () => {
+    const t1 = mkSensors({ lon: [0, 1], lat: [0, 0] })
+    const t2 = mkSensors({ lon: [2, 3], lat: [0, 0] })
+    const joined = joinTracks([t1, t2])
+    expect(joined.points.cadence).toBeUndefined()
+    expect(joined.points.power).toBeUndefined()
+    expect(joined.points.temperature).toBeUndefined()
+  })
+
+  it('removeAnomalies: cleaned track keeps cadence/power/temperature aligned with the surviving points', () => {
+    const dLat = 2 / 111320
+    const jumpLat = 500 / 111320
+    const t = mkSensors({
+      lon: [0, 0, 0, 0, 0],
+      lat: [0, dLat, 2 * dLat + jumpLat, 3 * dLat, 4 * dLat],
+      time: [0, 1000, 2000, 3000, 4000],
+      cadence: [80, 81, 999, 83, 84],
+    })
+    const cleaned = removeAnomalies(t)
+    expect(cleaned.points.lon.length).toBe(4)
+    expect(Array.from(cleaned.points.cadence!)).not.toContain(999)
+    expect(Array.from(cleaned.points.cadence!)).toEqual([80, 81, 83, 84])
+  })
+
+  it('simplifyTrack: surviving points keep their own cadence/power/temperature readings', () => {
+    const t = mkSensors({
+      lon: [0, 0.0001, 0.0002, 0.0003], lat: [0, 0, 0, 0],
+      cadence: [80, 81, 82, 83],
+    })
+    const s = simplifyTrack(t, 1) // collinear -> collapses to endpoints
+    expect(s.points.lon.length).toBe(2)
+    expect(Array.from(s.points.cadence!)).toEqual([80, 83])
+  })
+
+  it('a track with none of the three columns round-trips through every op with all three still undefined', () => {
+    const t = mk([0, 1, 2, 3], [0, 0, 0, 0], undefined, [0, 1000, 2000, 3000])
+    for (const result of [reverseTrack(t), removeAnomalies(t), simplifyTrack(t, 1), ...splitAt(t, 2)]) {
+      expect(result.points.cadence).toBeUndefined()
+      expect(result.points.power).toBeUndefined()
+      expect(result.points.temperature).toBeUndefined()
+    }
   })
 })

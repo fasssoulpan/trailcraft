@@ -60,4 +60,51 @@ describe('recordsToTrack', () => {
     expect(recordsToTrack(records, 'a.fit', 'COROS VERTIX 2S').meta.creator).toBe('COROS VERTIX 2S')
     expect(recordsToTrack(records, 'a.fit').meta.creator).toBeUndefined()
   })
+
+  // P3-R5 commit 2: cadence/power/temperature sensor columns.
+  describe('cadence/power/temperature', () => {
+    it('maps records with cadence/power/temperature to their own columns', () => {
+      const records = [
+        { position_lat: 39.99, position_long: 116.19, timestamp: new Date('2024-09-12T08:05:40Z'), cadence: 82, power: 210, temperature: 18 },
+        { position_lat: 39.995, position_long: 116.20, timestamp: new Date('2024-09-12T08:05:41Z'), cadence: 84, power: 215, temperature: 18.5 },
+      ]
+      const t = recordsToTrack(records, 'sensors.fit')
+      expect(t.points.cadence![0]).toBe(82)
+      expect(t.points.power![1]).toBe(215)
+      expect(t.points.temperature![1]).toBeCloseTo(18.5, 5)
+    })
+
+    it('leaves cadence/power/temperature undefined (whole column) when no record has them', () => {
+      const records = [
+        { position_lat: 39.99, position_long: 116.19, timestamp: new Date('2024-09-12T08:05:40Z') },
+        { position_lat: 39.995, position_long: 116.20, timestamp: new Date('2024-09-12T08:05:41Z') },
+      ]
+      const t = recordsToTrack(records, 'nosensor.fit')
+      expect(t.points.cadence).toBeUndefined()
+      expect(t.points.power).toBeUndefined()
+      expect(t.points.temperature).toBeUndefined()
+    })
+
+    it('per-point missing cadence/power/temperature becomes NaN, not 0, once the column is present', () => {
+      const records = [
+        { position_lat: 39.99, position_long: 116.19, timestamp: new Date('2024-09-12T08:05:40Z'), cadence: 82, power: 210, temperature: 18 },
+        { position_lat: 39.995, position_long: 116.20, timestamp: new Date('2024-09-12T08:05:41Z') }, // 本点没有传感器读数
+      ]
+      const t = recordsToTrack(records, 'partial.fit')
+      expect(Number.isNaN(t.points.cadence![1])).toBe(true)
+      expect(Number.isNaN(t.points.power![1])).toBe(true)
+      expect(Number.isNaN(t.points.temperature![1])).toBe(true)
+    })
+
+    it('a real 0 reading is preserved, not conflated with the NaN missing sentinel', () => {
+      const records = [
+        { position_lat: 39.99, position_long: 116.19, timestamp: new Date('2024-09-12T08:05:40Z'), cadence: 0, power: 0, temperature: 0 },
+        { position_lat: 39.995, position_long: 116.20, timestamp: new Date('2024-09-12T08:05:41Z'), cadence: 80, power: 100, temperature: 5 },
+      ]
+      const t = recordsToTrack(records, 'zero.fit')
+      expect(t.points.cadence![0]).toBe(0)
+      expect(t.points.power![0]).toBe(0)
+      expect(t.points.temperature![0]).toBe(0)
+    })
+  })
 })
