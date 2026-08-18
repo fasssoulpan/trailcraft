@@ -35,6 +35,16 @@ import type { BasemapStyle } from '../state/basemapPref'
 export const OSM_SOURCE_ID = 'osm'
 export const ESRI_SATELLITE_SOURCE_ID = 'esri-satellite'
 
+/** OSM's required attribution string -- pulled out to a named export so
+ * `core/export/webPage.ts` (P3-R4, the self-contained interactive page
+ * export, which raster-tiles the same OSM server directly from a small
+ * inline script rather than through MapLibre) can credit the exact same
+ * text instead of re-typing a string that could silently drift from this
+ * one. */
+export const OSM_ATTRIBUTION = '© OpenStreetMap contributors'
+
+export const OSM_TILE_URL_TEMPLATE = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+
 /**
  * Raster OSM basemap style. OpenStreetMap's own tile CDN
  * (tile.openstreetmap.org) is slow/unreliable to reach from mainland China,
@@ -47,9 +57,9 @@ export const OSM_STYLE: StyleSpecification = {
   sources: {
     [OSM_SOURCE_ID]: {
       type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: [OSM_TILE_URL_TEMPLATE],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: OSM_ATTRIBUTION,
     },
   },
   layers: [{ id: OSM_SOURCE_ID, type: 'raster', source: OSM_SOURCE_ID }],

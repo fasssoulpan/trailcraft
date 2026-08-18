@@ -13,7 +13,7 @@
  */
 import type { Track } from '../model/track'
 import type { CheckPoint } from '../model/checkpoint'
-import { computeSegments, type StatsOptions } from '../stats/segments'
+import { computeSegments, type SegmentStats, type StatsOptions } from '../stats/segments'
 import { sortCpsByAnchor, alignCutoffsToSegments } from '../stats/cutoffAlign'
 import { estimateArrivals, type PaceParams, type WarnLevel } from '../pace/models'
 
@@ -60,6 +60,87 @@ export interface RouteBookData {
   sortedCps: CheckPoint[]
 }
 
+/** `buildRouteBookRows`'s return, everything `buildRouteBookData` needs to
+ * assemble its public `RouteBookData` on top of. */
+export interface RouteBookRows {
+  rows: RouteBookRow[]
+  totalDistM: number
+  totalGainM: number
+  totalLossM: number
+  startMs: number | undefined
+  finishEtaMs: number | undefined
+}
+
+/**
+ * The row-building tail of `buildRouteBookData`, factored out so P3-R4's
+ * interactive-page export (`core/export/webPage.ts`) can produce rows that
+ * are *identical by construction* to the Excel/pace-card rows for the same
+ * track — not merely "computed the same way" by a second hand-written copy
+ * that could quietly drift the next time this logic changes.
+ *
+ * Deliberately more permissive than `buildRouteBookData` itself: takes
+ * `segments`/`sortedCps` already computed by the caller (so it has no
+ * opinion on whether zero CPs or missing elevation should be rejected —
+ * `computeSegments` already tolerates both, returning 0 gain/loss when there
+ * is no elevation column and a single start→finish segment when there are no
+ * CPs) and accepts `paceParams`/`raceStartTimeIso` as optional: passing
+ * `undefined` for either simply means every row's segTimeSec/etaMs/level/
+ * marginSec comes back `undefined`, the same degraded-but-valid shape
+ * `buildRouteBookData` already produces for an unparseable start time.
+ * `buildRouteBookData`'s own call site below still always supplies both, so
+ * this widening changes no existing behaviour.
+ */
+export function buildRouteBookRows(
+  segments: SegmentStats[],
+  sortedCps: CheckPoint[],
+  paceParams: PaceParams | undefined,
+  raceStartTimeIso: string | undefined,
+): RouteBookRows {
+  const cutoffsMs = alignCutoffsToSegments(segments, sortedCps)
+
+  const parsedStartMs = raceStartTimeIso !== undefined ? Date.parse(raceStartTimeIso) : NaN
+  const startMs = paceParams !== undefined && !Number.isNaN(parsedStartMs) ? parsedStartMs : undefined
+  const arrivals = startMs !== undefined ? estimateArrivals(segments, paceParams as PaceParams, startMs, cutoffsMs) : undefined
+
+  let cumDistM = 0
+  let cumGainM = 0
+  let cumLossM = 0
+  const rows: RouteBookRow[] = segments.map((s, i) => {
+    cumDistM += s.dist
+    cumGainM += s.gain
+    cumLossM += s.loss
+    const arrival = arrivals?.[i]
+    const prevEtaMs = i === 0 ? startMs : arrivals?.[i - 1]?.etaMs
+    const segTimeSec = arrival && prevEtaMs !== undefined ? (arrival.etaMs - prevEtaMs) / 1000 : undefined
+    return {
+      fromName: s.fromName,
+      toName: s.toName,
+      distM: s.dist,
+      gain: s.gain,
+      loss: s.loss,
+      gainRate: s.gainRate,
+      netSlope: s.netSlope,
+      cumDistM,
+      cumGainM,
+      cumLossM,
+      segTimeSec,
+      etaMs: arrival?.etaMs,
+      cutoffMs: cutoffsMs[i],
+      level: arrival?.level,
+      marginSec: arrival && Number.isFinite(arrival.marginSec) ? arrival.marginSec : undefined,
+    }
+  })
+
+  return {
+    rows,
+    totalDistM: cumDistM,
+    totalGainM: cumGainM,
+    totalLossM: cumLossM,
+    startMs,
+    finishEtaMs: arrivals?.[arrivals.length - 1]?.etaMs,
+  }
+}
+
 /**
  * 构建路书数据。三种缺失数据的拒绝(而不是生成一份带虚构/零值的文档,见
  * 本任务书对 `docs/P0-验收记录.md` §五 的引用):
@@ -96,49 +177,17 @@ export function buildRouteBookData(
 
   const segments = computeSegments(track, trackCps, statsOptions)
   const sortedCps = sortCpsByAnchor(trackCps)
-  const cutoffsMs = alignCutoffsToSegments(segments, sortedCps)
-
-  const parsedStartMs = Date.parse(raceStartTimeIso)
-  const startMs = Number.isNaN(parsedStartMs) ? undefined : parsedStartMs
-  const arrivals = startMs !== undefined ? estimateArrivals(segments, paceParams, startMs, cutoffsMs) : undefined
-
-  let cumDistM = 0
-  let cumGainM = 0
-  let cumLossM = 0
-  const rows: RouteBookRow[] = segments.map((s, i) => {
-    cumDistM += s.dist
-    cumGainM += s.gain
-    cumLossM += s.loss
-    const arrival = arrivals?.[i]
-    const prevEtaMs = i === 0 ? startMs : arrivals?.[i - 1]?.etaMs
-    const segTimeSec = arrival && prevEtaMs !== undefined ? (arrival.etaMs - prevEtaMs) / 1000 : undefined
-    return {
-      fromName: s.fromName,
-      toName: s.toName,
-      distM: s.dist,
-      gain: s.gain,
-      loss: s.loss,
-      gainRate: s.gainRate,
-      netSlope: s.netSlope,
-      cumDistM,
-      cumGainM,
-      cumLossM,
-      segTimeSec,
-      etaMs: arrival?.etaMs,
-      cutoffMs: cutoffsMs[i],
-      level: arrival?.level,
-      marginSec: arrival && Number.isFinite(arrival.marginSec) ? arrival.marginSec : undefined,
-    }
-  })
+  const { rows, totalDistM, totalGainM, totalLossM, startMs, finishEtaMs } =
+    buildRouteBookRows(segments, sortedCps, paceParams, raceStartTimeIso)
 
   return {
     trackName: track.meta.name,
-    totalDistM: cumDistM,
-    totalGainM: cumGainM,
-    totalLossM: cumLossM,
+    totalDistM,
+    totalGainM,
+    totalLossM,
     paceParams,
     startMs,
-    finishEtaMs: arrivals?.[arrivals.length - 1]?.etaMs,
+    finishEtaMs,
     rows,
     sortedCps,
   }
