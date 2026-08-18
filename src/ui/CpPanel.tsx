@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import { isoToLocalInputValue, localInputValueToIso } from '../core/util/localTime'
+import { attachPhoto } from '../core/photo/attachPhoto'
 
 /** ± 按钮每次挪动锚点的全精度轨迹点数;够小以便精细纠偏,又不至于点半天挪不动。 */
 const ANCHOR_NUDGE_STEP = 5
+
+type PhotoUploadStatus = { phase: 'loading' } | { phase: 'error'; message: string }
 
 // datetime-local <-> ISO 8601(含时区)的转换约定见 core/util/localTime.ts 顶部
 // 注释;PacePanel.tsx 的起跑时间输入复用同一份实现。
@@ -15,6 +19,34 @@ export function CpPanel() {
   const updateCp = useAppStore((s) => s.updateCp)
   const removeCp = useAppStore((s) => s.removeCp)
   const reorderCp = useAppStore((s) => s.reorderCp)
+
+  // 每个 CP 独立的照片上传状态(进行中/出错),不是 CheckPoint 本身的字段
+  // ——这是纯粹的会话态交互反馈,和 hover/drawCursor 同一类,上传成功后
+  // 结果直接写回 photoUrl,状态条目也就没用了,不需要持久化。
+  const [photoStatus, setPhotoStatus] = useState<Record<string, PhotoUploadStatus>>({})
+
+  async function handlePhotoPick(cpId: string, file: File | undefined) {
+    if (!file) return
+    setPhotoStatus((s) => ({ ...s, [cpId]: { phase: 'loading' } }))
+    const result = await attachPhoto(file)
+    if (result.ok) {
+      updateCp(cpId, { photoUrl: result.photo.photoUrl })
+      setPhotoStatus((s) => {
+        const next = { ...s }
+        delete next[cpId]
+        return next
+      })
+    } else {
+      setPhotoStatus((s) => ({ ...s, [cpId]: { phase: 'error', message: result.message } }))
+    }
+  }
+
+  function removePhoto(cpId: string) {
+    // photoUrl 是照片数据本身(缩放后的 data URI,见 attachPhoto.ts 的存储
+    // 决策注释),不是指向别处存储的 id——清空这个字段就是清空全部存储,
+    // 不存在需要额外回收的孤儿数据。
+    updateCp(cpId, { photoUrl: undefined })
+  }
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
   // CheckPoint.trackId (core/model/checkpoint.ts) is the source of truth for
@@ -35,6 +67,11 @@ export function CpPanel() {
   return (
     <div className="cp-panel">
       <h3 className="cp-panel__title">CP 检查点</h3>
+      {cps.length > 0 && (
+        <p className="cp-panel__hint cp-panel__hint--privacy">
+          照片仅在本机本地处理和保存,不会上传到任何服务器。
+        </p>
+      )}
 
       {cps.length === 0 && <p className="cp-panel__hint">在地图上点击轨迹附近位置以添加 CP</p>}
       {!activeTrack && cps.length > 0 && (
@@ -74,6 +111,36 @@ export function CpPanel() {
                   <span>{km !== undefined ? `${km.toFixed(2)} km` : '-- km'}</span>
                   <span>{ele !== undefined && !Number.isNaN(ele) ? `${ele.toFixed(0)} m` : '-- m'}</span>
                   <span className="cp-panel__anchor-index">点 #{cp.anchorIndex}</span>
+                </div>
+
+                <div className="cp-panel__row cp-panel__photo-row">
+                  {cp.photoUrl && (
+                    <div className="cp-panel__photo-preview">
+                      <img src={cp.photoUrl} alt="" className="cp-panel__photo-thumb" />
+                      <button type="button" className="cp-panel__photo-remove" onClick={() => removePhoto(cp.id)}>
+                        移除照片
+                      </button>
+                    </div>
+                  )}
+                  <label className="cp-panel__photo-pick">
+                    {cp.photoUrl ? '更换照片' : '添加照片'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        void handlePhotoPick(cp.id, e.target.files?.[0])
+                        e.target.value = '' // 允许重复选中同一个文件
+                      }}
+                    />
+                  </label>
+                  {photoStatus[cp.id]?.phase === 'loading' && (
+                    <span className="cp-panel__photo-status">处理中…</span>
+                  )}
+                  {photoStatus[cp.id]?.phase === 'error' && (
+                    <span className="cp-panel__photo-status cp-panel__photo-status--error">
+                      {(photoStatus[cp.id] as { phase: 'error'; message: string }).message}
+                    </span>
+                  )}
                 </div>
 
                 <div className="cp-panel__row">

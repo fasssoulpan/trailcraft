@@ -105,6 +105,17 @@ export const CheckpointCard = memo(
       // animation (App.css's `.checkpoint-card` `@keyframes`) replay for
       // every new checkpoint instead of only the very first one.
       <div key={card.id} className="checkpoint-card" style={{ borderLeftColor: card.color }} role="status">
+        {
+          // 方案 V2.1 §5.5「CP 卡片…实景照片淡入」——`key={card.photoUrl}`
+          // 让"这张卡片显示的是哪张照片"参与 React 的 key 比较,切换到下一个
+          // 带照片的 CP 时 <img> 会被当成新节点重新挂载,`checkpoint-card-photo-
+          // fade-in` 这条 CSS 动画因此每次都会重播,而不是只在整张卡片第一次
+          // 出现时播放一次(卡片本身的 key 是 card.id,只保证卡片级别的滑入
+          // 动画每次重播,不覆盖卡片内部照片的独立淡入时机)。
+          card.photoUrl && (
+            <img key={card.photoUrl} className="checkpoint-card__photo" src={card.photoUrl} alt="" />
+          )
+        }
         <div className="checkpoint-card__kind" style={{ color: card.color }}>
           {card.kindLabel}
         </div>

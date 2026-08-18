@@ -485,6 +485,58 @@
   margin-left: auto;
 }
 
+.cp-panel__hint--privacy {
+  opacity: 0.75;
+}
+
+.cp-panel__photo-row {
+  align-items: center;
+}
+
+.cp-panel__photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-panel__photo-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.cp-panel__photo-remove {
+  font-size: 12px;
+}
+
+.cp-panel__photo-pick {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cp-panel__photo-pick input[type='file'] {
+  /* 用 <label> 承载点击目标(和视觉一致的按钮外观),原生 file input 只保留
+   * 可访问性/可点击性,不需要自己再画一个丑陋的默认文件选择器控件。 */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.cp-panel__photo-status {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.cp-panel__photo-status--error {
+  color: #dc2626;
+}
+
 .segment-table {
   display: flex;
   flex-direction: column;
@@ -1105,6 +1157,24 @@
 
 .checkpoint-card__cutoff {
   color: #fca5a5;
+}
+
+/* CP 卡片实景照片淡入(方案 V2.1 §5.5)。`opacity` 单独做一条动画(而不是
+ * 复用 checkpoint-card-slide-in),因为照片是可选的、比卡片本体晚出现一拍
+ * 才合理——整张卡片一滑入就同时甩出一张图,视觉上比图片慢半拍淡入要突兀。 */
+@keyframes checkpoint-card-photo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.checkpoint-card__photo {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  animation: checkpoint-card-photo-fade-in 0.4s ease-out;
 }
 
 /* Distance radar (ui/RadarOverlay.tsx), milestone N6 commit 4 -- a

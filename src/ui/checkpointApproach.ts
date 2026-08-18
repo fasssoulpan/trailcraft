@@ -142,6 +142,13 @@ export interface CheckpointCardData {
   /** `undefined` when the checkpoint has no cutoff time set, or it fails to
    * parse. */
   cutoff: string | undefined
+  /** Passed straight through from `CheckPoint.photoUrl` (P3-R2 commit 2) --
+   * already a display-ready, downscaled/reoriented/EXIF-stripped data URI
+   * by the time it lands here (see `core/photo/attachPhoto.ts`), so there is
+   * nothing left for this formatting layer to compute; it only exists on
+   * this type so `CheckpointCard.tsx` doesn't have to reach past `card` back
+   * into `cp` for the one field that isn't derived from `track`. */
+  photoUrl: string | undefined
 }
 
 /**
@@ -170,5 +177,6 @@ export function buildCheckpointCardData(cp: CheckPoint, track: Track): Checkpoin
     mileageKm,
     eleM,
     cutoff: formatCheckpointCutoff(cp.cutoffTime),
+    photoUrl: cp.photoUrl,
   }
 }
