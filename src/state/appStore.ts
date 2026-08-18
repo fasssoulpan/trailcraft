@@ -3,6 +3,7 @@ import { newId, type Crs, type Track } from '../core/model/track'
 import type { TrackKind } from '../core/perf/trackKind'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
+import { nearestVertex } from '../core/geo/nearestVertex'
 import { checkpointsFromWaypoints } from '../core/pipeline/checkpointImport'
 import type { KmlWaypoint } from '../core/pipeline/import'
 import type { StatsOptions } from '../core/stats/segments'
@@ -260,6 +261,18 @@ interface AppState {
   updateCp(id: string, patch: Partial<CheckPoint>): void
   removeCp(id: string): void
   reorderCp(id: string, direction: -1 | 1): void
+  /**
+   * Commits the result of `core/pipeline/photoAnchor.ts#anchorPhotosToTrack`
+   * (P3-R2 commit 3 -- batch EXIF-GPS photo anchoring) to the store in one
+   * undoable step. `CpPanel.tsx` computes `created`/`updated` by calling that
+   * pure function itself (same division of labour as `ImportPanel.tsx`
+   * calling `importInWorker` and only handing the *result* to the store);
+   * this action's only job is the state transition. `updated` entries are
+   * full replacement objects (already carrying the new `photoUrl`, see that
+   * function's own doc comment) matched back into `s.cps` by `id`, not a
+   * patch -- there's nothing else to merge.
+   */
+  addPhotoCheckpoints(created: CheckPoint[], updated: CheckPoint[]): void
   setStatsOptions(patch: Partial<StatsOptions>): void
   setPaceParams(patch: Partial<PaceParams>): void
   setRaceStartTime(iso: string): void
@@ -616,6 +629,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     ;[reordered[idx], reordered[otherIdx]] = [reordered[otherIdx], reordered[idx]]
     const track = s.tracks.find((t) => t.id === trackId)
     const cps = track ? reanchorAll(track, reordered) : reordered
+    set({ cps, ...historyFlags(s.history) })
+  },
+
+  addPhotoCheckpoints: (created, updated) => {
+    if (created.length === 0 && updated.length === 0) return
+    const s = get()
+    const trackId = created[0]?.trackId ?? updated[0]?.trackId
+    const track = s.tracks.find((t) => t.id === trackId)
+    s.history.push('照片自动生成 CP', { tracks: s.tracks, cps: s.cps })
+    const updatedById = new Map(updated.map((c) => [c.id, c]))
+    const merged = [...s.cps.map((c) => updatedById.get(c.id) ?? c), ...created]
+
+    let cps = merged
+    if (track) {
+      // 不能像 addCp 那样简单地把新 CP 追加到列表末尾就直接交给
+      // reanchorAll:reanchorAll 信任"列表顺序就是沿赛道前进的顺序"(这是
+      // 单调锚定的前提,见该函数自己的注释),而一批新的照片 CP 很可能和
+      // 已有 CP(比如从 KML 导入的官方检查点)沿赛道方向交错分布——如果
+      // 有一个新 CP 实际位置比某个已有 CP 更靠前,却因为"新的都排在后面"
+      // 被排在它后面,anchorMonotonic 的单调地板会把它错误地锁死在那个
+      // 已有 CP 之后。做法和 checkpointImport.ts / photoAnchor.ts 同一个
+      // 两阶段预处理:先把这条轨迹自己的 CP 子集按各自独立的最近点下标
+      // 重新排序,再交给 reanchorAll(它内部会照这个新顺序重新跑一遍
+      // anchorMonotonic)。已有 CP 之间原本就是按赛道顺序排的,这一步对
+      // 它们只是重新确认、不改变相对顺序,只把新 CP 正确地插进中间。
+      const { lon, lat } = track.points
+      const trackPosition = (c: CheckPoint): number =>
+        c.clickLngLat ? nearestVertex(lon, lat, c.clickLngLat[0], c.clickLngLat[1]).index : c.anchorIndex
+      const relevant = merged.filter((c) => c.trackId === track.id)
+      const others = merged.filter((c) => c.trackId !== track.id)
+      const sortedRelevant = [...relevant].sort((a, b) => trackPosition(a) - trackPosition(b))
+      cps = reanchorAll(track, [...others, ...sortedRelevant])
+    }
     set({ cps, ...historyFlags(s.history) })
   },
 

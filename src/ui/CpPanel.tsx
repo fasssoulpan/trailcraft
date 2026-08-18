@@ -3,11 +3,27 @@ import { useAppStore } from '../state/appStore'
 import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
 import { isoToLocalInputValue, localInputValueToIso } from '../core/util/localTime'
 import { attachPhoto } from '../core/photo/attachPhoto'
+import { anchorPhotosToTrack, type PhotoGpsInput } from '../core/pipeline/photoAnchor'
 
 /** ± 按钮每次挪动锚点的全精度轨迹点数;够小以便精细纠偏,又不至于点半天挪不动。 */
 const ANCHOR_NUDGE_STEP = 5
 
 type PhotoUploadStatus = { phase: 'loading' } | { phase: 'error'; message: string }
+
+type BatchPhotoStatus =
+  | { phase: 'loading' }
+  | {
+      phase: 'done'
+      createdCount: number
+      updatedCount: number
+      /** 有 GPS 但离轨迹太远,被 anchorPhotosToTrack 拒绝的照片。 */
+      rejected: { name: string; distanceM: number }[]
+      /** 完全没有 GPS 的照片——不是错误,只是无法自动定位,列出来提醒用户
+       * 去下面对应 CP(或新建的 CP)手动添加。 */
+      noGps: string[]
+      /** EXIF/图片本身解析失败的照片(如 HEIC、损坏文件)。 */
+      failed: { name: string; message: string }[]
+    }
 
 // datetime-local <-> ISO 8601(含时区)的转换约定见 core/util/localTime.ts 顶部
 // 注释;PacePanel.tsx 的起跑时间输入复用同一份实现。
@@ -19,6 +35,7 @@ export function CpPanel() {
   const updateCp = useAppStore((s) => s.updateCp)
   const removeCp = useAppStore((s) => s.removeCp)
   const reorderCp = useAppStore((s) => s.reorderCp)
+  const addPhotoCheckpoints = useAppStore((s) => s.addPhotoCheckpoints)
 
   // 每个 CP 独立的照片上传状态(进行中/出错),不是 CheckPoint 本身的字段
   // ——这是纯粹的会话态交互反馈,和 hover/drawCursor 同一类,上传成功后
@@ -64,16 +81,113 @@ export function CpPanel() {
     updateCp(cp.id, { anchorIndex: next })
   }
 
+  // 批量照片锚定(P3-R2 commit 3)的会话态结果反馈,和 photoStatus 同一类
+  // ——不持久化,展示一次就够了。
+  const [batchStatus, setBatchStatus] = useState<BatchPhotoStatus | undefined>(undefined)
+
+  async function handleBatchPhotos(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0 || !activeTrack) return
+    setBatchStatus({ phase: 'loading' })
+    const files = Array.from(fileList)
+    // 每张照片独立读取/解码/缩放,互不阻塞(和 ImportPanel.tsx 批量导入
+    // 轨迹文件同一个并发策略),单张失败不影响其它照片继续处理。
+    const attached = await Promise.all(files.map(async (file) => ({ file, result: await attachPhoto(file) })))
+
+    const withGps: PhotoGpsInput[] = []
+    const noGps: string[] = []
+    const failed: { name: string; message: string }[] = []
+    for (const { file, result } of attached) {
+      if (!result.ok) {
+        failed.push({ name: file.name, message: result.message })
+        continue
+      }
+      if (!result.photo.gps) {
+        // 没有 GPS 不是错误——EXIF 里压根没有这个信息很常见(见
+        // attachPhoto.ts/exif.ts 的说明),留给用户在下面手动挑一个 CP 贴上。
+        noGps.push(file.name)
+        continue
+      }
+      withGps.push({
+        name: file.name.replace(/\.[^.]+$/, ''), // 去掉扩展名当默认 CP 名,用户可改
+        lat: result.photo.gps.lat,
+        lon: result.photo.gps.lon,
+        photoUrl: result.photo.photoUrl,
+        dateTimeOriginalMs: result.photo.dateTimeOriginalMs,
+      })
+    }
+
+    // anchorPhotosToTrack 要求 existingCps 已经按 track 过滤过——`cps`
+    // 正好就是这个组件顶部已经按 activeTrackId 过滤出来的子集。
+    const anchorResult = anchorPhotosToTrack(activeTrack, cps, withGps)
+    addPhotoCheckpoints(anchorResult.created, anchorResult.updated)
+
+    setBatchStatus({
+      phase: 'done',
+      createdCount: anchorResult.created.length,
+      updatedCount: anchorResult.updated.length,
+      rejected: anchorResult.rejected.map((r) => ({ name: r.input.name, distanceM: Math.round(r.distanceM) })),
+      noGps,
+      failed,
+    })
+  }
+
   return (
     <div className="cp-panel">
       <h3 className="cp-panel__title">CP 检查点</h3>
-      {cps.length > 0 && (
-        <p className="cp-panel__hint cp-panel__hint--privacy">
-          照片仅在本机本地处理和保存,不会上传到任何服务器。
-        </p>
+
+      {activeTrack && (
+        <>
+          <p className="cp-panel__hint cp-panel__hint--privacy">
+            照片仅在本机本地处理和保存,不会上传到任何服务器。
+          </p>
+          <div className="cp-panel__batch">
+            <label className="cp-panel__batch-pick">
+              从照片批量生成 CP(自动读取 EXIF GPS)
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  void handleBatchPhotos(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+            {batchStatus?.phase === 'loading' && <p className="cp-panel__hint">正在读取照片 EXIF 并锚定…</p>}
+            {batchStatus?.phase === 'done' && (
+              <div className="cp-panel__batch-result">
+                <p className="cp-panel__hint">
+                  新建 {batchStatus.createdCount} 个 CP,更新了 {batchStatus.updatedCount} 个已有 CP 的照片。
+                </p>
+                {batchStatus.noGps.length > 0 && (
+                  <p className="cp-panel__hint">
+                    {batchStatus.noGps.length} 张照片没有 GPS 信息,已跳过——可在下面对应的 CP 上手动添加:
+                    {batchStatus.noGps.join('、')}
+                  </p>
+                )}
+                {batchStatus.rejected.length > 0 && (
+                  <p className="cp-panel__hint cp-panel__hint--warn">
+                    {batchStatus.rejected.length} 张照片离轨迹太远,已跳过:
+                    {batchStatus.rejected.map((r) => `${r.name}(约 ${r.distanceM}m)`).join('、')}
+                  </p>
+                )}
+                {batchStatus.failed.length > 0 && (
+                  <p className="cp-panel__hint cp-panel__hint--warn">
+                    {batchStatus.failed.length} 张照片无法处理:
+                    {batchStatus.failed.map((f) => `${f.name}(${f.message})`).join('、')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      {cps.length === 0 && <p className="cp-panel__hint">在地图上点击轨迹附近位置以添加 CP</p>}
+      {cps.length === 0 && (
+        <p className="cp-panel__hint">
+          在地图上点击轨迹附近位置以添加 CP{activeTrack ? ',或用上面的批量照片功能自动生成' : ''}
+        </p>
+      )}
       {!activeTrack && cps.length > 0 && (
         <p className="cp-panel__hint">未选中轨迹,里程/海拔暂无法计算</p>
       )}

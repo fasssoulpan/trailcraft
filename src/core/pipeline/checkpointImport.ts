@@ -1,7 +1,7 @@
 import { newId, type Track } from '../model/track'
 import type { CheckPoint, CpKind } from '../model/checkpoint'
 import { anchorMonotonic } from '../stats/anchor'
-import { haversine } from '../geo/distance'
+import { nearestVertex } from '../geo/nearestVertex'
 import type { KmlWaypoint } from '../parsers/kml'
 
 /**
@@ -22,17 +22,6 @@ export function inferCpKind(name: string): CpKind {
   // so any such rule would retype most genuine checkpoints as landmarks.
   // 'landmark' stays a manual choice.
   return 'cp'
-}
-
-/** Unconstrained nearest-vertex search: the whole track is fair game, no monotonic floor. */
-function nearestVertexIndex(lon: Float64Array, lat: Float64Array, clickLon: number, clickLat: number): number {
-  let best = 0
-  let bestDist = Infinity
-  for (let i = 0; i < lon.length; i++) {
-    const d = haversine(clickLon, clickLat, lon[i], lat[i])
-    if (d < bestDist) { bestDist = d; best = i }
-  }
-  return best
 }
 
 /**
@@ -72,7 +61,7 @@ export function checkpointsFromWaypoints(track: Track, waypoints: KmlWaypoint[])
   const withRaw = waypoints.map((w, originalIndex) => ({
     w,
     originalIndex,
-    raw: nearestVertexIndex(lon, lat, w.lon, w.lat),
+    raw: nearestVertex(lon, lat, w.lon, w.lat).index,
   }))
   withRaw.sort((a, b) => a.raw - b.raw)
 
