@@ -8,6 +8,7 @@ import {
   buildPaceCardSvgPages, DEFAULT_PACE_CARD_COLUMNS, PACE_CARD_COLUMN_ORDER, PACE_CARD_COLUMN_LABELS,
   type PaceCardColumnKey,
 } from '../core/export/paceCard'
+import { buildWebPagePayload, renderWebPageHtml, utf8ByteSize, DEFAULT_MAX_POINTS } from '../core/export/webPage'
 
 /**
  * P3-R1 路书导出套件的单一入口:高差图 SVG/PNG、Excel 路书、配速卡都在这
@@ -23,6 +24,23 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * 交互网页超过这个体积就不直接下载——8MB 是"轻量分享"和"这已经不适合发在
+ * 聊天群里"之间一个宽松但有意义的分界:GitHub Pages/Cloudflare Pages 单文件
+ * 限制是几十到上百 MB(远没到瓶颈),真正的约束是分享场景本身——聊天软件
+ * 传文件、对方手机流量打开——8MB 往上用户体验已经明显变差。命中阈值时
+ * 拒绝静默下载一个"能用但很卡"的文件,而是提示用户可以降精度重新生成,见
+ * `handleExportWebPage`/`handleLowerWebPagePrecision`。
+ */
+const WEB_PAGE_WARN_BYTES = 8 * 1024 * 1024
+/** `decimateIndices` 允许更低，但网页降到几百个点以下路线形状已经明显失真,
+ * 没有继续往下降的意义——`handleLowerWebPagePrecision` 停在这个地板。 */
+const WEB_PAGE_MIN_POINTS = 500
+
+function formatBytes(n: number): string {
+  return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${(n / 1024).toFixed(0)} KB`
+}
+
 export function ExportPanel() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
@@ -34,6 +52,8 @@ export function ExportPanel() {
   const [message, setMessage] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
   const [paceColumns, setPaceColumns] = useState<PaceCardColumnKey[]>(DEFAULT_PACE_CARD_COLUMNS)
+  const [webPageMaxPoints, setWebPageMaxPoints] = useState(DEFAULT_MAX_POINTS)
+  const [webPageOversized, setWebPageOversized] = useState(false)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
 
@@ -98,6 +118,39 @@ export function ExportPanel() {
     }
   }
 
+  /**
+   * P3-R4 commit 2:生成即测体积——`webPage.ts` 的模块注释已经论证过为什么
+   * 抽稀是体积的决定性因素,这里把那份论证落到用户实际能看到、能操作的地方:
+   * 超阈值时不下载、给出实测大小,并提供"降低精度"的路径,而不是让用户拿到
+   * 一个几十 MB、浏览器打开都吃力的文件之后才发现问题。
+   */
+  function handleExportWebPage() {
+    if (!activeTrack) return
+    try {
+      const payload = buildWebPagePayload(activeTrack, cps, {
+        maxPoints: webPageMaxPoints, statsOptions, paceParams, raceStartTimeIso: raceStartTime,
+      })
+      const html = renderWebPageHtml(payload)
+      const bytes = utf8ByteSize(html)
+      if (bytes > WEB_PAGE_WARN_BYTES && webPageMaxPoints > WEB_PAGE_MIN_POINTS) {
+        setWebPageOversized(true)
+        setMessage(`交互网页约 ${formatBytes(bytes)}（当前抽稀上限 ${webPageMaxPoints} 点），偏大不建议直接分享。可点击下方"降低精度后重新生成"缩小文件。`)
+        return
+      }
+      setWebPageOversized(false)
+      triggerBlobDownload(new Blob([html], { type: 'text/html' }), `${filenameStem()}-交互网页.html`)
+      setMessage(`已导出交互网页（约 ${formatBytes(bytes)}，抽稀上限 ${webPageMaxPoints} 点）`)
+    } catch (err) {
+      setWebPageOversized(false)
+      setMessage(describeError(err))
+    }
+  }
+
+  function handleLowerWebPagePrecision() {
+    setWebPageMaxPoints((cur) => Math.max(WEB_PAGE_MIN_POINTS, Math.floor(cur / 2)))
+    setMessage('已降低精度，请再次点击"导出交互网页"重新生成')
+  }
+
   function handleExportPaceCard() {
     if (!activeTrack) return
     try {
@@ -131,6 +184,17 @@ export function ExportPanel() {
         <button type="button" disabled={!activeTrack || busy} onClick={() => void handleExportExcel()}>
           导出 Excel 路书
         </button>
+      </div>
+
+      <div className="export-panel__row">
+        <button type="button" disabled={!activeTrack || busy} onClick={handleExportWebPage}>
+          导出交互网页(HTML)
+        </button>
+        {webPageOversized && (
+          <button type="button" disabled={!activeTrack || busy} onClick={handleLowerWebPagePrecision}>
+            降低精度后重新生成
+          </button>
+        )}
       </div>
 
       <div className="export-panel__pace-card">
