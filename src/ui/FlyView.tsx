@@ -7,6 +7,7 @@ import { EXPORT_RESOLUTIONS, type ExportProgressInfo, type ExportMode, type Expo
 import type { Track } from '../core/model/track'
 import { useAppStore } from '../state/appStore'
 import { FlyControls } from './FlyControls'
+import { KeyframeEditor } from './KeyframeEditor'
 import { FlyOverlayLayer } from './FlyOverlayLayer'
 import { HudOverlay, type HudOverlayHandle } from './HudOverlay'
 import { CheckpointCard, type CheckpointCardHandle } from './CheckpointCard'
@@ -84,6 +85,8 @@ export function FlyView() {
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
   const cps = useAppStore((s) => s.cps)
+  const statsOptions = useAppStore((s) => s.statsOptions)
+  const setTrackCameraTrack = useAppStore((s) => s.setTrackCameraTrack)
   const locateRequest = useAppStore((s) => s.locateRequest)
   const clearLocateRequest = useAppStore((s) => s.clearLocateRequest)
   const flythroughSpeed = useAppStore((s) => s.flythroughSpeed)
@@ -215,6 +218,10 @@ export function FlyView() {
     if (!track || !mod) return
 
     const engine = new mod.FlythroughEngine(handle.viewer, track, {
+      // Seeds the freshly built engine with whatever keyframe track this
+      // Track already carries (P3-R3) -- later edits propagate via the
+      // lightweight `setCameraTrack` effect below, not another rebuild.
+      cameraTrack: track.meta.cameraTrack ?? [],
       onProgress: (info) => {
         setProgressInfo(info)
         // Bypasses React entirely -- see the hudRef/cpCardRef doc comment
@@ -416,17 +423,31 @@ export function FlyView() {
     mod.syncCpEntities(h.viewer, cps, tracks, activeTrackId)
   }, [cps, tracks, activeTrackId])
 
-  // Rebuilds the flythrough engine whenever the active *Track object*
+  // Rebuilds the flythrough engine whenever the active track's *geometry*
   // changes -- covers every subsequent track switch (the initial build for
   // whatever track is already active on mount happens inline in the mount
   // effect's `.then()`, for the same reason `syncTrackEntities`'s first
   // call does: this effect's dependency array doesn't change just because
-  // the viewer transitioned from not-ready to ready). Reference identity
-  // (not just id) is the right comparison here, matching every other
-  // Track-keyed cache in this codebase (trackEntities.ts's geometryCache,
-  // etc.): a toolbox op replaces the active track with a brand-new object
-  // at the same id, and the engine's camera path must be rebuilt from that
-  // new geometry, not silently keep flying through stale positions.
+  // the viewer transitioned from not-ready to ready). Reference identity of
+  // `activeTrack.points` (not just id) is the right comparison here,
+  // matching every other Track-keyed cache in this codebase
+  // (trackEntities.ts's geometryCache, etc.): a toolbox op replaces the
+  // active track with a brand-new object AND a brand-new `points`, and the
+  // engine's camera path must be rebuilt from that new geometry, not
+  // silently keep flying through stale positions.
+  //
+  // Deliberately keyed on `activeTrack.points`, NOT the whole `activeTrack`
+  // object: `updateTrackStyle`/`setTrackKindOverride`/
+  // `setTrackCameraTrack` (P3-R3) all replace the Track object at the same
+  // id with the same `points` (only `meta` changes) -- a full engine
+  // rebuild on every one of those would reset `mileageM` to 0 and destroy/
+  // recreate the marker entity, which is disastrous specifically for
+  // `setTrackCameraTrack`: `KeyframeEditor.tsx`'s timeline drag calls it on
+  // every pointer-move, so keying this on the whole object would snap
+  // playback back to the start of the route on every drag tick. Keyframe-
+  // track propagation has its own lightweight effect below
+  // (`engine.setCameraTrack`, which re-applies the current frame without
+  // rebuilding anything).
   useEffect(() => {
     const h = viewerHandleRef.current
     if (!h) return
@@ -436,7 +457,16 @@ export function FlyView() {
       engineRef.current = undefined
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTrack])
+  }, [activeTrack?.id, activeTrack?.points])
+
+  // Propagates a keyframe-track edit (`KeyframeEditor.tsx`, P3-R3) into the
+  // live engine WITHOUT rebuilding it (see the effect above's own doc
+  // comment for why that distinction matters) -- `setCameraTrack` just
+  // re-resolves and re-applies the current frame, so a timeline drag/insert/
+  // delete/template application shows up in the viewport immediately.
+  useEffect(() => {
+    engineRef.current?.setCameraTrack(activeTrack?.meta.cameraTrack ?? [])
+  }, [activeTrack?.meta.cameraTrack])
 
   // Propagates speed/camera-mode changes from appStore into whichever
   // engine is currently live -- the engine itself only reads these once,
@@ -593,6 +623,17 @@ export function FlyView() {
           onExportResolutionChange={setExportResolutionKey}
           onStartExport={handleStartExport}
           onCancelExport={handleCancelExport}
+        />
+      )}
+      {state.status === 'ready' && activeTrack && (
+        <KeyframeEditor
+          track={activeTrack}
+          cps={cps}
+          statsOptions={statsOptions}
+          cameraTrack={activeTrack.meta.cameraTrack ?? []}
+          currentMileageM={progressInfo?.mileageM ?? 0}
+          onChange={(next) => setTrackCameraTrack(activeTrack.id, next)}
+          onSeek={(progress) => engineRef.current?.seek(progress)}
         />
       )}
     </div>

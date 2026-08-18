@@ -1,3 +1,13 @@
+// Type-only import from `cesium/keyframes.ts` -- safe despite the "cesium/"
+// path: that module has zero `cesium` (the npm package) imports anywhere in
+// its own dependency chain (see its own file comment), so this creates no
+// bundle-size risk, unlike the `cesium/flythrough.ts`-style modules
+// `state/appStore.ts` deliberately avoids even a type import from (that one
+// DOES import `cesium` at module scope). `speedOptions.ts` already
+// establishes the same "pure cesium/-folder module, safe to statically
+// import from main-bundle code" precedent.
+import type { CameraTrack } from '../../cesium/keyframes'
+
 export type TrackFormat = 'gpx' | 'kml' | 'fit'
 export type Crs = 'wgs84' | 'gcj02' | 'bd09'
 
@@ -50,6 +60,24 @@ export interface TrackMeta {
    * `core/perf/trackKind.ts` 的 `resolveTrackKind`。
    */
   kindOverride?: 'recorded' | 'planned' | 'uncertain'
+  /**
+   * 巡游镜头的关键帧轨道(方案 V2.1 §5.5,里程碑 P3-R3)——按里程锚定,
+   * 描述这条轨迹自己的镜头编排(模板生成的关键帧和手动编辑的关键帧共用
+   * 同一份数组,互不区分,见 `cesium/keyframes.ts`/`cesium/cameraTemplates.ts`
+   * 各自的文件注释)。放在 meta 上而不是新开一个顶层字段/store 侧的
+   * `Record<trackId, ...>`,理由和 `kindOverride`/`color`/`lineWidth` 完全
+   * 一致:`trackToFeature`/`featureToTrack` 已经把整个 `meta` 对象原样
+   * 塞进/读出工程文件,加这个字段不需要再碰 `project.ts` 一行代码就自动
+   * 获得持久化;旧工程文件(没有这个字段)反序列化后这里自然是
+   * `undefined`,`cesium/keyframes.ts#sampleCameraAt` 对空/缺失轨道的处理
+   * 就是"退化为今天的默认镜头",因此旧工程原样能打开、巡游效果不变。
+   *
+   * 已知局限(与 `state/appStore.ts` 里 CP 重锚定的几个已知局限同类,
+   * 本里程碑不解决):`core/toolbox/ops.ts` 的轨迹操作(反转/简化/拼接等)
+   * 会像携带其它 meta 字段一样原样带走这份关键帧轨道,但不会重新按新的
+   * 里程/点序调整——反转轨迹后,关键帧的里程锚点会明显错位。
+   */
+  cameraTrack?: CameraTrack
 }
 
 export interface Track {

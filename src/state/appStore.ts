@@ -1,5 +1,11 @@
 import { create } from 'zustand'
 import { newId, type Crs, type Track } from '../core/model/track'
+// Type-only, and safe for the exact reason `core/model/track.ts`'s own
+// `cameraTrack` field doc comment gives: `cesium/keyframes.ts` has zero
+// `cesium` (the npm package) imports in its own dependency chain, unlike
+// `cesium/flythrough.ts` (whose `CameraMode` this file deliberately does
+// NOT import, re-declaring `FlythroughCameraMode` below instead).
+import type { CameraTrack } from '../cesium/keyframes'
 import type { TrackKind } from '../core/perf/trackKind'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
@@ -196,6 +202,16 @@ interface AppState {
    * 只管把用户的选择写进 Track。
    */
   setTrackKindOverride(id: string, kind: TrackKind | undefined): void
+  /**
+   * 覆盖某条轨迹的巡游镜头关键帧轨道(方案 V2.1 §5.5,里程碑 P3-R3)——写入
+   * `Track.meta.cameraTrack`(该字段的文档注释解释了为什么放在 meta 上,
+   * 免费获得 project.ts 的持久化)。和 `updateTrackStyle`/
+   * `setTrackKindOverride` 同一类操作:随时可再改的展示态调整,不走撤销栈
+   * ——`KeyframeEditor.tsx` 每次插入/移动/编辑/删除关键帧,或套用一个模板,
+   * 都是先用 `cesium/keyframes.ts`/`cesium/cameraTemplates.ts` 的纯函数
+   * 算出新数组,再整体调用这一个 action 落地,而不是逐字段 patch。
+   */
+  setTrackCameraTrack(id: string, cameraTrack: CameraTrack): void
   setActive(id: string): void
   setHover(h?: HoverState): void
   /**
@@ -444,6 +460,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTrackKindOverride: (id, kind) =>
     set((s) => ({
       tracks: s.tracks.map((t) => (t.id === id ? { ...t, meta: { ...t.meta, kindOverride: kind } } : t)),
+    })),
+  setTrackCameraTrack: (id, cameraTrack) =>
+    set((s) => ({
+      tracks: s.tracks.map((t) => (t.id === id ? { ...t, meta: { ...t.meta, cameraTrack } } : t)),
     })),
   removeTrack: (id) => {
     const s = get()

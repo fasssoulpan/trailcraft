@@ -45,11 +45,31 @@ import {
   followCameraOffset,
   speedToMileageDelta,
   averageSpeedMps,
-  DEFAULT_FOLLOW_CAMERA_CONFIG,
   type CameraPath,
   type TrackPathPoint,
   type PathSample,
 } from './cameraPath'
+/**
+ * Keyframe camera track (方案 V2.1 §5.5, milestone P3-R3) -- pure, no
+ * `cesium` import of its own (see its file comment), so pulling it in here
+ * doesn't change what this already-Cesium-touching module drags in.
+ *
+ * ---- This is where "live playback and export resolve the camera
+ * identically" actually gets satisfied, not asserted ----
+ * `applyFrame` below (the single per-frame update this engine has) calls
+ * `sampleCameraAt(this.cameraTrack, this.mileageM)` once and uses the
+ * result for FOLLOW-mode placement and FOV, in BOTH of `applyFrame`'s two
+ * callers: `handleTick` (live playback, driven by `viewer.clock.onTick`)
+ * and `seek` (used directly by the scrubber, AND by
+ * `deterministicRenderer.ts#runDeterministicRender`'s per-frame
+ * `engine.seek(progress)` loop during export -- see that module's own file
+ * comment). There is no second copy of this resolution logic anywhere:
+ * export doesn't get its own camera-placement code path to drift out of
+ * sync with preview, it drives the exact same engine instance (see
+ * `ui/FlyView.tsx`'s `handleStartExport`, which hands `engineRef.current`
+ * itself to `startExport`) through the same `seek`/`applyFrame`.
+ */
+import { sampleCameraAt, type CameraTrack, type CameraKeyframeConfig } from './keyframes'
 
 export type CameraMode = 'follow' | 'orbit' | 'free'
 
@@ -212,6 +232,12 @@ export interface FlythroughEngineOptions {
    * Zustand (see `state/appStore.ts`'s `flythroughSpeed`/
    * `flythroughCameraMode` doc comments for the settings that DO). */
   onProgress?: (info: FlythroughProgressInfo) => void
+  /** Initial keyframe camera track (方案 V2.1 §5.5, milestone P3-R3) --
+   * usually `Track.meta.cameraTrack ?? []`. Defaults to empty (today's
+   * plain follow-cam behaviour, unchanged -- see `keyframes.ts`'s own doc
+   * comment). Changeable later via `setCameraTrack` for live-preview
+   * editing without rebuilding the whole engine. */
+  cameraTrack?: CameraTrack
 }
 
 // ---- Engine ---------------------------------------------------------------
@@ -261,6 +287,11 @@ export class FlythroughEngine {
   private playing = false
   private speedMultiplier = DEFAULT_SPEED
   private cameraMode: CameraMode = 'follow'
+  /** See `FlythroughEngineOptions.cameraTrack`/`setCameraTrack`. Resolved
+   * once per frame in `applyFrame`, the single place both `handleTick`
+   * (live playback) and `seek` (scrubber AND the deterministic exporter's
+   * per-frame loop, see this file's own top-of-file comment) end up. */
+  private cameraTrack: CameraTrack = []
   private mileageM = 0
   private lastTickMs = 0
   private orbitAngleDeg = 0
@@ -273,6 +304,7 @@ export class FlythroughEngine {
   constructor(viewer: Viewer, track: Track, options: FlythroughEngineOptions = {}) {
     this.viewer = viewer
     this.onProgress = options.onProgress
+    this.cameraTrack = options.cameraTrack ?? []
 
     const { flat, idx } = buildPositionArray(track, RENDER_MAX_3D)
     this.idx = idx
@@ -403,6 +435,21 @@ export class FlythroughEngine {
   }
 
   /**
+   * Replaces the keyframe camera track and re-applies the current frame
+   * immediately (mirrors `seek`'s own "apply immediately, even while
+   * paused" behaviour) -- so a keyframe timeline edit shows up in the live
+   * viewport the instant `ui/KeyframeEditor.tsx` commits it, not just on
+   * the next tick/seek. Safe to call every keystroke; `applyFrame` and one
+   * `requestRender()` are cheap relative to an actual Cesium render.
+   */
+  setCameraTrack(track: CameraTrack): void {
+    if (this.destroyed) return
+    this.cameraTrack = track
+    this.applyFrame()
+    this.viewer.scene.requestRender()
+  }
+
+  /**
    * Fully disposes this engine: tick listener, wheel listener, marker
    * entity, and releases the camera transform/tracked-entity if this
    * engine had claimed either. Idempotent and tolerant of an
@@ -434,7 +481,14 @@ export class FlythroughEngine {
     this.lastTickMs = now
 
     if (this.playing) {
-      const delta = speedToMileageDelta(this.speedMultiplier, dtSec, this.baseSpeedMps)
+      // The keyframe track's own speedMultiplier (resolved at the CURRENT,
+      // pre-advance mileage) scales live playback the same way the user's
+      // own speed chip does -- see `keyframes.ts#CameraKeyframeConfig
+      // .speedMultiplier`'s doc comment for exactly why this is
+      // preview-only and never reaches `frameSchedule.ts`'s export
+      // schedule (a single constant speed for the whole export).
+      const keyframeSpeedMultiplier = sampleCameraAt(this.cameraTrack, this.mileageM).speedMultiplier
+      const delta = speedToMileageDelta(this.speedMultiplier * keyframeSpeedMultiplier, dtSec, this.baseSpeedMps)
       const next = this.mileageM + delta
       if (next >= this.path.totalMileage) {
         this.mileageM = this.path.totalMileage
@@ -481,9 +535,26 @@ export class FlythroughEngine {
     )
     this.markerEntity.position = new ConstantPositionProperty(markerCartesian)
 
+    // Resolved ONCE per frame, here -- see this file's own top-of-file
+    // comment for why this single call site (reached by both `handleTick`
+    // and `seek`, and therefore by the deterministic exporter's per-frame
+    // `seek` loop too) is what makes preview and export share one camera
+    // resolution path rather than two that merely "should" agree.
+    const cameraConfig = sampleCameraAt(this.cameraTrack, this.mileageM)
+
+    // FOV is a projection property, not something FOLLOW/ORBIT/FREE each
+    // define their own version of -- applied unconditionally every frame
+    // regardless of mode so it can never get "stuck" at a keyframe's value
+    // after switching away from FOLLOW (each frame re-resolves it fresh
+    // from the current mileage, same as everything else here). A no-op
+    // write whenever the track is empty (`cameraConfig.fovDeg ===
+    // DEFAULT_FOV_DEG === 60`, Cesium's own default -- see keyframes.ts).
+    const frustum = this.viewer.camera.frustum as { fov?: number }
+    if (typeof frustum.fov === 'number') frustum.fov = CesiumMath.toRadians(cameraConfig.fovDeg)
+
     switch (this.cameraMode) {
       case 'follow':
-        this.applyFollowCamera(sample)
+        this.applyFollowCamera(sample, cameraConfig)
         break
       case 'orbit':
         this.applyOrbitCamera(sample)
@@ -501,7 +572,28 @@ export class FlythroughEngine {
     })
   }
 
-  private applyFollowCamera(sample: PathSample): void {
+  /**
+   * `cameraConfig` is `sampleCameraAt`'s resolved distance/height/pitch/
+   * heading-offset for the current mileage -- `DEFAULT_CAMERA_CONFIG` when
+   * `cameraTrack` is empty, numerically identical to the
+   * `DEFAULT_FOLLOW_CAMERA_CONFIG`/`headingDeg` (no offset) this call used
+   * before keyframes existed, so an empty track reproduces the exact same
+   * camera as before this milestone.
+   *
+   * `headingOffsetDeg` is added directly to `sample.headingDeg` (the
+   * unnormalised sum is fine -- `followCameraOffset` normalises internally
+   * wherever it matters) BEFORE calling `followCameraOffset`, which places
+   * the camera behind the point along *that* rotated heading and points it
+   * back along the same heading. Because `followCameraOffset`'s position
+   * and orientation are constructed from the identical heading value, the
+   * point always sits exactly on the camera's forward ray by construction
+   * -- i.e. this is already a true look-at-the-point camera at ANY offset,
+   * not just at 0 (offset 0 is simply the plain forward-facing chase cam
+   * this engine has always used). This is what lets the finish-line orbit
+   * template sweep the heading offset through 360 degrees and get an
+   * actual orbit-look, with no separate "look at" computation needed here.
+   */
+  private applyFollowCamera(sample: PathSample, cameraConfig: CameraKeyframeConfig): void {
     const hasElevation = this.hasElevationAt(sample)
     const groundHeight = effectiveGroundHeightM(
       this.viewer,
@@ -511,7 +603,12 @@ export class FlythroughEngine {
       hasElevation,
     )
     const groundPoint: TrackPathPoint = { lon: sample.position.lon, lat: sample.position.lat, height: groundHeight }
-    const pose = followCameraOffset(groundPoint, sample.headingDeg, DEFAULT_FOLLOW_CAMERA_CONFIG)
+    const positionHeadingDeg = sample.headingDeg + cameraConfig.headingOffsetDeg
+    const pose = followCameraOffset(groundPoint, positionHeadingDeg, {
+      distanceBehindM: cameraConfig.distanceBehindM,
+      heightAboveM: cameraConfig.heightAboveM,
+      pitchDeg: cameraConfig.pitchDeg,
+    })
     this.viewer.camera.setView({
       destination: Cartesian3.fromDegrees(pose.position.lon, pose.position.lat, pose.position.height),
       orientation: {

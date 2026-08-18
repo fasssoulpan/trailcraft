@@ -1071,6 +1071,136 @@
   transition: width 0.15s linear;
 }
 
+/* Keyframe timeline editor (ui/KeyframeEditor.tsx, 方案 V2.1 §5.5, milestone
+ * P3-R3) -- same dark-chrome panel idiom as .fly-controls (rgba(11,12,16,..)
+ * background, 1px translucent-white border, 8px radius, 13px base font), but
+ * docked to the opposite corner (top-right, mirroring .hud-overlay's
+ * top-left) so its own variable height (fields only show once a keyframe is
+ * selected) never collides with .fly-controls' bottom bar the way stacking
+ * both along the same edge would. */
+.keyframe-editor {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 1;
+  width: 320px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #f3f4f6;
+  background: rgba(11, 12, 16, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.keyframe-editor--collapsed {
+  width: auto;
+}
+
+.keyframe-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.keyframe-editor__toggle {
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* The scrubbable timeline strip -- keyframe markers and the playhead are
+ * absolutely positioned children keyed by mileage fraction (left: N%), same
+ * "compute a % and let CSS place it" technique .fly-controls__export-progress
+ * already uses for its bar fill. */
+.keyframe-editor__timeline {
+  position: relative;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.keyframe-editor__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #38bdf8;
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.keyframe-editor__marker {
+  position: absolute;
+  top: 3px;
+  width: 14px;
+  height: 22px;
+  padding: 0;
+  transform: translateX(-7px);
+  background: #f97316;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+.keyframe-editor__marker--active {
+  background: #facc15;
+}
+
+.keyframe-editor__row {
+  flex-wrap: wrap;
+}
+
+.keyframe-editor__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.keyframe-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #d1d5db;
+}
+
+.keyframe-editor__field input,
+.keyframe-editor__field select {
+  padding: 3px 6px;
+  font-size: 12px;
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.keyframe-editor__field--range {
+  grid-column: 1 / -1;
+}
+
+.keyframe-editor__templates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 /* Composable overlay layer (ui/FlyOverlayLayer.tsx), milestone N4 -- covers
  * the whole 3D viewport above the Cesium canvas but below fly-controls'
  * bottom bar (later in DOM order, so it naturally stacks on top at the
