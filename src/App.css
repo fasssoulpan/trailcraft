@@ -19,6 +19,19 @@
   text-align: left;
 }
 
+/* The sidebar is a column flex container, so its children default to
+ * flex-shrink: 1 -- once the open groups are collectively taller than the
+ * viewport, the browser compresses every child instead of letting the
+ * container scroll. Combined with .section--group's `overflow: hidden` that
+ * squeezed the closed groups down to a few pixels: their headers were
+ * clipped to a sliver and the toggle button lost almost all of its hit area,
+ * so the groups below the first open one could not be expanded or even
+ * clicked. Pinning the children to their natural height is what lets the
+ * `overflow-y: auto` above actually do its job. */
+.app-layout__sidebar > * {
+  flex: 0 0 auto;
+}
+
 /* Collapsed state of .app-layout__sidebar (App.tsx) -- a thin always-visible
  * edge strip with just the restore affordance, so the sidebar's whole
  * width goes back to the map instead of leaving a dead empty panel. Its
@@ -71,14 +84,23 @@
 
 /* Houses ModeSwitch plus its new collapse button side by side, still inside
  * the sticky pinned header (see .app-layout__sidebar-pinned below). */
+/* Wraps rather than clips. .segmented carries `overflow: hidden` (it needs
+ * it so the active option's background stays inside the rounded border), so
+ * a mode switch allowed to shrink below its content silently cut the second
+ * label in half -- "巡游模式" rendered as "巡游" with the theme toggle sitting
+ * on top of the missing glyphs. At a narrow sidebar width the icon buttons
+ * now drop to a second line instead. */
 .app-layout__sidebar-pinned-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .app-layout__sidebar-pinned-row .mode-switch {
-  flex: 1 1 auto;
+  /* Grows into spare room but never shrinks past its own labels -- see the
+   * clipping note on the row above. */
+  flex: 1 0 auto;
 }
 
 .app-layout__main {

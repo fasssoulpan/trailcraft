@@ -108,8 +108,14 @@
   padding: 0 var(--space-4);
 }
 
+/* Fills the header row so the whole strip is the hit target, not just the
+ * chevron and the few characters of the title -- clicking the empty space
+ * beside a group name is the obvious gesture and used to do nothing. The
+ * `actions` slot still sits at the right end via the header's
+ * space-between. */
 .section__toggle {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: var(--space-2);
   border: none;
