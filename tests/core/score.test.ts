@@ -5,6 +5,7 @@ import { createTrack, type Track, type TrackMeta } from '../../src/core/model/tr
 import { computeCumDist } from '../../src/core/geo/distance'
 import { parseGpx } from '../../src/core/parsers/gpx'
 import { parseFit } from '../../src/core/parsers/fit'
+import { dataDir, hasFixture } from '../testData'
 import {
   calculateSpi,
   computePerformance,
@@ -263,7 +264,7 @@ describe('computePerformance: applicable path', () => {
 // invariants are asserted here (finite, in-range, monotonic with effort) to
 // avoid pinning brittle exact values.
 
-const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
+
 const suppDir = join(dataDir, '补充测试轨迹数据')
 
 function bufFrom(b: Buffer): ArrayBuffer {
@@ -330,7 +331,7 @@ function computeReferenceStylePI(t: Track): number | undefined {
   return calculateSpi(kmeV2, hours, 1.0)?.score
 }
 
-describe.skipIf(!existsSync(dataDir))('computePerformance on real recordings', () => {
+describe('computePerformance on real recordings', () => {
   it('reports PI (TrailCraft ascent) and reference-style PI for every real GPX/FIT recording, both finite and in [0,1000]', async () => {
     const gpxFiles = [
       '468分张家口市越野跑20240713070047.gpx',

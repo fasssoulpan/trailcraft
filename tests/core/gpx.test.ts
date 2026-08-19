@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseGpx } from '../../src/core/parsers/gpx'
+import { dataDir, hasFixture } from '../testData'
 
 const fixturesDir = new URL('../fixtures/', import.meta.url)
 const mini = readFileSync(new URL('mini.gpx', fixturesDir), 'utf-8')
@@ -129,17 +130,21 @@ describe('parseGpx', () => {
   })
 })
 
-const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
-describe.skipIf(!existsSync(dataDir))('parseGpx real data', () => {
-  it('5k-point file parses < 2s', () => {
-    const xml = readFileSync(join(dataDir, '速攀129新望京20240912160539.gpx'), 'utf-8')
+
+// Committed in samples/; the 330k-point recording is not -- see tests/testData.ts.
+const SMALL_GPX = '速攀129新望京20240912160539.gpx'
+const BIG_GPX = '越野跑20250912200059.gpx'
+
+describe('parseGpx real data', () => {
+  it.skipIf(!hasFixture(SMALL_GPX))('5k-point file parses < 2s', () => {
+    const xml = readFileSync(join(dataDir, SMALL_GPX), 'utf-8')
     const t0 = performance.now()
     const r = parseGpx(xml, 'real.gpx')
     expect(performance.now() - t0).toBeLessThan(2000)
     expect(r.points.lon.length).toBe(5038)
   })
-  it('330k-point file parses correctly', () => {
-    const xml = readFileSync(join(dataDir, '越野跑20250912200059.gpx'), 'utf-8')
+  it.skipIf(!hasFixture(BIG_GPX))('330k-point file parses correctly', () => {
+    const xml = readFileSync(join(dataDir, BIG_GPX), 'utf-8')
     const r = parseGpx(xml, 'big.gpx')
     expect(r.points.lon.length).toBe(330062)
   })

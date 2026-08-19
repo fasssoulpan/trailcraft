@@ -1,0 +1,7 @@
+# Sample tracks are fixtures, not source: never rewrite their line endings.
+# The parse tests assert exact point counts against them, and a CRLF round
+# trip on a checkout under a different OS is not something a fixture should
+# be exposed to.
+samples/** -text
+*.fit binary
+*.docx binary

@@ -7,6 +7,7 @@ import { synthesizeTimeline } from '../../src/cesium/trackGeometry'
 import { parseGpx } from '../../src/core/parsers/gpx'
 import { parseKml } from '../../src/core/parsers/kml'
 import { parseFit } from '../../src/core/parsers/fit'
+import { dataDir, hasFixture } from '../testData'
 
 /** 起点经纬度,后面各用例在此基础上按恒定步长挪动生成一条直线轨迹。 */
 const LON0 = 116.0
@@ -167,14 +168,22 @@ describe('classifyTrack', () => {
 // ---- 真实数据(P2 §3.1 里程碑 Q1 验收:四条真实样本 100% 正确,本测试额外
 // 覆盖到 8 条:2 FIT 实跑 + 2 KML 规划 + 4 GPX 实跑) -----------------------
 
-const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
-const suppDir = join(dataDir, '补充测试轨迹数据')
+
+const SUPP = '补充测试轨迹数据'
+const suppDir = join(dataDir, SUPP)
 
 function bufFrom(b: Buffer): ArrayBuffer {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
 }
 
-describe.skipIf(!existsSync(suppDir))('classifyTrack real data', () => {
+const MAIN_DIR_GPX = [
+  '468分张家口市越野跑20240713070047.gpx',
+  '620崇礼68 20240712170018.gpx',
+  '690分20240921065926.gpx',
+  '大五台9个半20240615055824.gpx',
+]
+
+describe.skipIf(!hasFixture(SUPP))('classifyTrack real data', () => {
   it('both supplementary real COROS FIT recordings classify as recorded', async () => {
     for (const f of ['张家口市_越野跑20260710080013.fit', '张家口市_越野跑20260725084217.fit']) {
       const buf = readFileSync(join(suppDir, f))
@@ -193,14 +202,10 @@ describe.skipIf(!existsSync(suppDir))('classifyTrack real data', () => {
     }
   })
 
-  it('four main-directory real GPX recordings classify as recorded', () => {
-    const files = [
-      '468分张家口市越野跑20240713070047.gpx',
-      '620崇礼68 20240712170018.gpx',
-      '690分20240921065926.gpx',
-      '大五台9个半20240615055824.gpx',
-    ]
-    for (const f of files) {
+  // Tens of MB each, so not committed to samples/ -- this case runs only
+  // against the full local corpus (see tests/testData.ts).
+  it.skipIf(!hasFixture(MAIN_DIR_GPX[0]))('four main-directory real GPX recordings classify as recorded', () => {
+    for (const f of MAIN_DIR_GPX) {
       const xml = readFileSync(join(dataDir, f), 'utf-8')
       const t = parseGpx(xml, f)
       const r = classifyTrack(t)

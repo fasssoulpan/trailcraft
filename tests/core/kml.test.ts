@@ -6,6 +6,7 @@ import { parseFit } from '../../src/core/parsers/fit'
 import { checkpointsFromWaypoints } from '../../src/core/pipeline/checkpointImport'
 import { computeCumDist } from '../../src/core/geo/distance'
 import { detectCrs } from '../../src/core/crs/detect'
+import { dataDir, hasFixture } from '../testData'
 
 const lineKml = `<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>线路</name><LineString><coordinates>
  116.19,39.99,116
@@ -163,10 +164,11 @@ describe('parseKmlWaypoints', () => {
   })
 })
 
-const dataDir = process.env.TRAILCRAFT_TESTDATA ?? 'C:/Users/Administrator/Desktop/越野跑地图软件开发/测试'
-const suppDir = join(dataDir, '补充测试轨迹数据')
 
-describe.skipIf(!existsSync(suppDir))('parseKml real data (崇礼172.8km race KML)', () => {
+const SUPP = '补充测试轨迹数据'
+const suppDir = join(dataDir, SUPP)
+
+describe.skipIf(!hasFixture(SUPP))('parseKml real data (崇礼172.8km race KML)', () => {
   const chongliKml = readFileSync(join(suppDir, '路线-崇礼_172_8km-7944m20260706090026.kml'), 'utf-8')
   const siLingKml = readFileSync(join(suppDir, '路线-四灵反穿20260811095617.kml'), 'utf-8')
 
