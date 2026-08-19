@@ -24,17 +24,30 @@ import type { RadarRingSet } from './radarMath'
 import type { RadarTargetSet } from './radarTargets'
 import { drawRadar, drawNextCheckpointReadout } from './radarRender'
 
-const HUD_CHIP_BG = 'rgba(11, 12, 16, 0.55)'
+/*
+ * Overlay palette. These are deliberate duplicates of the `--overlay-*`
+ * design tokens in src/index.css: a 2D canvas context cannot resolve CSS
+ * custom properties, and this painter runs headless during deterministic
+ * frame export where no element is in the document to compute them from.
+ *
+ * The duplication is therefore load-bearing rather than accidental, and the
+ * two copies MUST be changed together -- the on-screen HUD (.hud-overlay*,
+ * .checkpoint-card* in App.css) is what the user composes the shot against,
+ * and this is what actually lands in the MP4. If they drift, the preview
+ * silently stops predicting the export. The token block in index.css carries
+ * the matching pointer back here.
+ */
+const HUD_CHIP_BG = 'rgba(11, 12, 16, 0.55)' // = --overlay-bg-soft
 const HUD_CHIP_BORDER = 'rgba(255, 255, 255, 0.35)'
-const HUD_LABEL_COLOR = '#d1d5db'
-const HUD_VALUE_COLOR = '#f8fafc'
+const HUD_LABEL_COLOR = '#d1d5db' // = --overlay-text-muted
+const HUD_VALUE_COLOR = '#f8fafc' // = --overlay-text-strong
 const HUD_TEXT_GAP_PX = 4
 
-const CARD_BG = 'rgba(11, 12, 16, 0.82)'
+const CARD_BG = 'rgba(11, 12, 16, 0.82)' // = --overlay-bg-card
 const CARD_BORDER = 'rgba(255, 255, 255, 0.35)'
-const CARD_NAME_COLOR = '#f8fafc'
-const CARD_META_COLOR = '#d1d5db'
-const CARD_CUTOFF_COLOR = '#fca5a5'
+const CARD_NAME_COLOR = '#f8fafc' // = --overlay-text-strong
+const CARD_META_COLOR = '#d1d5db' // = --overlay-text-muted
+const CARD_CUTOFF_COLOR = '#fca5a5' // = --overlay-danger
 const CARD_META_GAP_PX = 8
 const CARD_LEFT_BORDER_BASE_PX = 4
 const CARD_LINE_GAP_BASE_PX = { kindToName: 4, nameToMeta: 6 }

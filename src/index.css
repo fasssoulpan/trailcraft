@@ -55,10 +55,60 @@
   --color-warning-bg: rgba(240, 180, 41, 0.14);
   --color-danger: #f0645c;
   --color-danger-bg: rgba(240, 100, 92, 0.14);
+  /* Neutral-informational blue. Distinct from --color-primary on purpose:
+   * primary is an action colour, this one encodes *data* (a planned track,
+   * a flat gradient bucket) and must not read as "clickable". */
+  --color-info: #60a5fa;
+  --color-info-bg: rgba(96, 165, 250, 0.16);
 
   --color-code-bg: #1b2118;
   --color-overlay-scrim: rgba(6, 8, 5, 0.55);
   --color-shadow: rgba(0, 0, 0, 0.4) 0 10px 20px -6px, rgba(0, 0, 0, 0.3) 0 4px 8px -2px;
+
+
+  /* ---- map/globe overlay chrome (deliberately theme-invariant) --------
+   * The fly-mode HUD, checkpoint card, fly controls, keyframe editor and
+   * hover readout do not sit on --color-surface -- they float over the
+   * Cesium globe / satellite imagery, which is dark in both themes. They
+   * therefore do NOT get redefined by [data-theme="light"] below: flipping
+   * them would put pale chrome on dark imagery and, worse, would desync the
+   * on-screen preview from the exported video.
+   *
+   * That last point is the binding constraint. src/overlay/captureDraw.ts
+   * repaints this same chrome onto the export canvas frame by frame, and it
+   * cannot read CSS custom properties -- it carries its own copies of these
+   * literals (HUD_CHIP_BG, HUD_LABEL_COLOR, HUD_VALUE_COLOR, CARD_BG,
+   * CARD_META_COLOR, CARD_CUTOFF_COLOR ...). The two sets must stay equal or
+   * "what you previewed" stops being "what you exported". Change a value
+   * here and you must change its twin there in the same commit. */
+  --overlay-canvas-bg: #0b0c10;
+  --overlay-bg-soft: rgba(11, 12, 16, 0.55);   /* = captureDraw HUD_CHIP_BG */
+  --overlay-bg: rgba(11, 12, 16, 0.78);
+  --overlay-bg-card: rgba(11, 12, 16, 0.82);   /* = captureDraw CARD_BG */
+  --overlay-bg-strong: rgba(11, 12, 16, 0.92);
+  --overlay-border: rgba(255, 255, 255, 0.12);
+  --overlay-border-strong: rgba(255, 255, 255, 0.18);
+  --overlay-chip-bg: rgba(255, 255, 255, 0.08);
+  --overlay-text: #f3f4f6;
+  --overlay-text-strong: #f8fafc;              /* = captureDraw *_VALUE/NAME */
+  --overlay-text-muted: #d1d5db;               /* = captureDraw *_LABEL/META */
+  --overlay-text-dim: #9aa0a6;
+  --overlay-danger: #fca5a5;                   /* = captureDraw CARD_CUTOFF  */
+  --overlay-accent: #38bdf8;
+  --overlay-accent-contrast: #0b0c10;
+  --overlay-marker: #f97316;
+  --overlay-marker-active: #facc15;
+  --overlay-scrim: rgba(0, 0, 0, 0.55);
+  --overlay-scrim-strong: rgba(0, 0, 0, 0.78);
+  --overlay-scrim-soft: rgba(0, 0, 0, 0.5);
+  /* Hairline ring that keeps a marker legible over bright snow or dark
+   * forest alike -- brighter than --overlay-border on purpose. */
+  --overlay-marker-ring: rgba(255, 255, 255, 0.7);
+  /* Dev-only map diagnostic badge (ui/MapDebugBadge.tsx) -- amber so it can
+   * never be mistaken for product chrome. */
+  --overlay-debug: #ffd166;
+  --overlay-debug-bg: rgba(255, 209, 102, 0.16);
+  --overlay-debug-border: rgba(255, 209, 102, 0.5);
 
   /* ---- spacing scale (4px base) -------------------------------------- */
   --space-1: 4px;
@@ -96,18 +146,16 @@
   --duration-base: 200ms;
   --easing-standard: ease;
 
-  /* ---- legacy aliases (see file header; removed in the purge commit) - */
-  --text: var(--color-text-muted);
-  --text-h: var(--color-text);
-  --bg: var(--color-bg);
-  --border: var(--color-border);
-  --code-bg: var(--color-code-bg);
-  --accent: var(--color-primary);
-  --accent-bg: var(--color-primary-bg);
-  --accent-border: var(--color-primary-border);
-  --social-bg: var(--color-surface-raised);
-  --shadow: var(--color-shadow);
-  --muted: var(--color-text-muted);
+  /* ---- spacing half-steps ---------------------------------------------
+   * The bulk of App.css's pre-existing paddings/gaps already land exactly
+   * on the 4px scale above; these three don't (6/10/14px), and rounding
+   * them onto the nearest 4px step during the purge commit's mechanical
+   * value->token sweep would have been a silent size change disguised as a
+   * refactor. Kept as their own named steps instead so that sweep is exact
+   * -- new code should still reach for the plain 4px steps first. */
+  --space-1-5: 6px;
+  --space-2-5: 10px;
+  --space-3-5: 14px;
 
   font: var(--font-size-lg)/145% var(--font-family);
   letter-spacing: 0.18px;
@@ -148,6 +196,8 @@
   --color-warning-bg: rgba(161, 92, 7, 0.12);
   --color-danger: #dc2626;
   --color-danger-bg: rgba(220, 38, 38, 0.1);
+  --color-info: #2563eb;
+  --color-info-bg: rgba(37, 99, 235, 0.1);
 
   --color-code-bg: #eef1e9;
   --color-overlay-scrim: rgba(30, 36, 25, 0.35);
@@ -179,6 +229,8 @@
     --color-warning-bg: rgba(161, 92, 7, 0.12);
     --color-danger: #dc2626;
     --color-danger-bg: rgba(220, 38, 38, 0.1);
+    --color-info: #2563eb;
+    --color-info-bg: rgba(37, 99, 235, 0.1);
     --color-code-bg: #eef1e9;
     --color-overlay-scrim: rgba(30, 36, 25, 0.35);
     --color-shadow: rgba(30, 36, 25, 0.12) 0 10px 20px -6px, rgba(30, 36, 25, 0.08) 0 4px 8px -2px;
