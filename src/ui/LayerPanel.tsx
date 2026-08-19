@@ -1,7 +1,6 @@
 import { useAppStore } from '../state/appStore'
 import type { BasemapStyle } from '../state/basemapPref'
 import { layerAvailabilityForMode } from './layerAvailability'
-import { Section } from './primitives/Section'
 import { Field } from './primitives/Field'
 import { SegmentedControl } from './primitives/SegmentedControl'
 
@@ -49,7 +48,13 @@ export function LayerPanel() {
   const availability = layerAvailabilityForMode(mode)
 
   return (
-    <Section title="图层" description="切换底图样式，以及等高线、距离雷达这两个仅巡游模式可用的叠加层。">
+    /* Lives in the sidebar's pinned header next to ModeSwitch rather than in
+     * a task group of its own: the basemap you want is a function of the
+     * mode you're in (3D satellite for 巡游, flat plan view for 规划), so
+     * splitting them put two halves of one decision at opposite ends of a
+     * scrolling column. No Section wrapper here -- a titled, describable
+     * card would out-weigh the mode switch it sits under. */
+    <div className="layer-panel">
       <Field label="底图">
         <SegmentedControl
           value={currentStyle}
@@ -80,6 +85,6 @@ export function LayerPanel() {
           onChange={(e) => setRadarEnabled(e.target.checked)}
         />
       </Field>
-    </Section>
+    </div>
   )
 }

@@ -1,6 +1,6 @@
 /**
- * Which of the sidebar's five task groups (数据/规划/分析/输出/视图, see
- * App.tsx) are expanded is a UI preference, exactly like `mode.ts`'s
+ * Which of the sidebar's four task groups (数据/规划/分析/输出, see App.tsx)
+ * are expanded is a UI preference, exactly like `mode.ts`'s
  * 规划/巡游 mode, `theme.ts`'s theme choice, and `layout.ts`'s splitter
  * sizes: it's "this device's last-used state", not project data and not an
  * undo-able edit. Persisted to localStorage with every access wrapped in
@@ -8,11 +8,16 @@
  * the Node test environment).
  *
  * Defaults open the two groups almost every session touches first (数据:
- * get a track in; 规划: edit it) and collapse the other three (分析/输出:
- * used once you already have a track shaped the way you want; 视图: rarely
- * touched after the first pick) -- this is what actually fixes the "ten
- * always-open panels in one scroll" problem the redesign brief called out,
- * rather than just relabelling it.
+ * get a track in; 规划: edit it) and collapse the other two (分析/输出: used
+ * once you already have a track shaped the way you want) -- this is what
+ * actually fixes the "ten always-open panels in one scroll" problem the
+ * redesign brief called out, rather than just relabelling it.
+ *
+ * There is deliberately no 视图 group: basemap/contour/radar now sit in the
+ * pinned header beside the mode switch, because which basemap you want is a
+ * function of which mode you are in -- the user asked for the two to live
+ * together. A stale `view` key from an older build is simply ignored by the
+ * key-by-key merge in loadSidebarGroups.
  */
 
 export interface SidebarGroupState {
@@ -20,7 +25,6 @@ export interface SidebarGroupState {
   plan: boolean
   analysis: boolean
   output: boolean
-  view: boolean
 }
 
 const STORAGE_KEY = 'trailcraft:sidebar-groups:v1'
@@ -30,7 +34,6 @@ export const DEFAULT_SIDEBAR_GROUPS: SidebarGroupState = {
   plan: true,
   analysis: false,
   output: false,
-  view: false,
 }
 
 const GROUP_KEYS = Object.keys(DEFAULT_SIDEBAR_GROUPS) as (keyof SidebarGroupState)[]

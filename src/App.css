@@ -103,6 +103,24 @@
   flex: 1 0 auto;
 }
 
+/* Basemap + overlay toggles, pinned under ModeSwitch (App.tsx). Styled as a
+ * continuation of the mode row rather than as a card: no border, no title,
+ * tighter than a task group, so the header reads as one cluster of "where am
+ * I looking" controls instead of two competing panels. */
+.layer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* The overlay checkboxes are secondary to the basemap choice above them --
+ * they only apply in 巡游 mode -- so they read one step quieter. */
+.layer-panel .field--inline {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 .app-layout__main {
   flex: 1 1 auto;
   min-width: 0;

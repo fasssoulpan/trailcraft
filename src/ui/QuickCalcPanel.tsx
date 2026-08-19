@@ -27,7 +27,7 @@ export function QuickCalcPanel() {
   return (
     <>
       <Button className="qc-entry-button" onClick={() => setOpen(true)}>
-        速算模式
+        表现分速算
       </Button>
       {open && <QuickCalcModal onClose={() => setOpen(false)} />}
     </>
@@ -84,11 +84,11 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
         className="perf-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="速算模式"
+        aria-label="表现分速算"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="perf-modal__header">
-          <h3 className="perf-modal__title">速算模式</h3>
+          <h3 className="perf-modal__title">表现分速算</h3>
           <Button variant="ghost" size="sm" className="perf-modal__close" onClick={onClose} aria-label="关闭">
             ×
           </Button>

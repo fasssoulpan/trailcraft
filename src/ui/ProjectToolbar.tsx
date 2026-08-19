@@ -137,7 +137,10 @@ export function ProjectToolbar() {
   }
 
   return (
-    <Section title="工程" description="保存、打开或导入导出整份工程（含全部轨迹、CP、配速参数），也可单独导出某条轨迹的 GPX。">
+    <Section
+      title="工程存档"
+      description="「工程」= 这个软件里的一份存档：把当前所有轨迹、CP 点、配速与关门设置打包成一份，下次打开接着用。保存/打开走浏览器本地存储；导出 JSON 是存成文件，用来备份或换一台电脑；导出 GPX 则是把某一条轨迹单独给手表或别的软件用。"
+    >
       <div className="project-toolbar">
         <input
           type="text"

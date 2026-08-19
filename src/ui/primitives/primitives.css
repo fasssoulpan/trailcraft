@@ -5,11 +5,21 @@
  * popup form). Scoped to those containers rather than a bare `button`/
  * `input` element selector so MapLibre's and Cesium's own bundled widget
  * CSS inside `.app-layout__map` is never touched by this reset.
+ *
+ * The container scopes are wrapped in `:where()` so they contribute nothing
+ * to specificity, leaving the reset at (0,0,1) -- a bare element selector.
+ * Without it `.app-layout__sidebar button` scores (0,1,1) and outranks the
+ * `.btn` primitive at (0,1,0), so every Button in the sidebar silently took
+ * the reset's `font: inherit` (16px) instead of .btn's own 13px, and its
+ * `background` instead of .btn--secondary's. That is why the export buttons'
+ * labels were larger than the text around them and wrapped onto two lines.
+ * It also overrode `background: transparent` on .section__toggle and the
+ * icon buttons, which were drawn as raised cards against their own design.
+ * A reset must lose to the components built on top of it; `:where()` is what
+ * guarantees that regardless of nesting depth.
  */
 
-.app-layout__sidebar button,
-.perf-modal button,
-.map-cp-form button {
+:where(.app-layout__sidebar, .perf-modal, .map-cp-form) button {
   font: inherit;
   color: var(--color-text);
   background: var(--color-surface-raised);
@@ -22,15 +32,11 @@
     background var(--duration-fast) var(--easing-standard);
 }
 
-.app-layout__sidebar button:hover:not(:disabled),
-.perf-modal button:hover:not(:disabled),
-.map-cp-form button:hover:not(:disabled) {
+:where(.app-layout__sidebar, .perf-modal, .map-cp-form) button:hover:not(:disabled) {
   border-color: var(--color-primary);
 }
 
-.app-layout__sidebar button:disabled,
-.perf-modal button:disabled,
-.map-cp-form button:disabled {
+:where(.app-layout__sidebar, .perf-modal, .map-cp-form) button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

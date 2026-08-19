@@ -182,6 +182,10 @@ function App() {
                 ◂
               </button>
             </div>
+            {/* Basemap + overlays sit with the mode switch, not in a group of
+              * their own: which basemap you want follows directly from which
+              * mode you're in. */}
+            <LayerPanel />
           </div>
           {/* Grouped by task rather than stacked flat -- ten always-present
            * panels in one scroll was the core usability problem this
@@ -224,7 +228,6 @@ function App() {
             variant="group"
             collapsible
             title="分析"
-            description="查看完整表现报告，或不依赖已导入轨迹直接按数字速算。"
             open={groups.analysis}
             onOpenChange={(open) => setGroupOpen('analysis', open)}
           >
@@ -242,19 +245,6 @@ function App() {
             <ExportPanel />
           </Section>
 
-          <Section
-            variant="group"
-            collapsible
-            title="视图"
-            description="切换底图样式；等高线与距离雷达是仅巡游模式可用的叠加层。"
-            open={groups.view}
-            onOpenChange={(open) => setGroupOpen('view', open)}
-            actions={
-              mode === 'plan' ? <span className="section__badge">等高线/雷达需切换到巡游模式</span> : undefined
-            }
-          >
-            <LayerPanel />
-          </Section>
         </aside>
       )}
       {!sizes.sidebarCollapsed && (
