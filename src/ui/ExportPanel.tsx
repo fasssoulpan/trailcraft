@@ -236,7 +236,7 @@ export function ExportPanel() {
       </div>
 
       <div className="export-panel__row">
-        <Button variant="primary" disabled={!activeTrack || busy} onClick={handleExportWebPage}>
+        <Button disabled={!activeTrack || busy} onClick={handleExportWebPage}>
           导出交互网页(HTML)
         </Button>
         {webPageOversized && webPageRemedy === 'route' && (
