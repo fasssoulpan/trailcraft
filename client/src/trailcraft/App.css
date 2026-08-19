@@ -1,0 +1,1812 @@
+@import './ui/primitives/primitives.css';
+
+.app-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-layout__sidebar {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+  text-align: left;
+}
+
+/* The sidebar is a column flex container, so its children default to
+ * flex-shrink: 1 -- once the open groups are collectively taller than the
+ * viewport, the browser compresses every child instead of letting the
+ * container scroll. Combined with .section--group's `overflow: hidden` that
+ * squeezed the closed groups down to a few pixels: their headers were
+ * clipped to a sliver and the toggle button lost almost all of its hit area,
+ * so the groups below the first open one could not be expanded or even
+ * clicked. Pinning the children to their natural height is what lets the
+ * `overflow-y: auto` above actually do its job. */
+.app-layout__sidebar > * {
+  flex: 0 0 auto;
+}
+
+/* Collapsed state of .app-layout__sidebar (App.tsx) -- a thin always-visible
+ * edge strip with just the restore affordance, so the sidebar's whole
+ * width goes back to the map instead of leaving a dead empty panel. Its
+ * width (App.tsx's SIDEBAR_COLLAPSED_WIDTH, layout.ts) is far below
+ * SIDEBAR_MIN, so it never needs to participate in sidebarMax's "leave room
+ * for MAP_MIN_WIDTH" math the way the expanded sidebar does. */
+.app-layout__sidebar-collapsed {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 16px;
+  border-right: 1px solid var(--color-border);
+}
+
+.app-layout__sidebar-collapsed-toggle,
+.app-layout__sidebar-collapse-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Theme toggle (ui/ThemeToggle.tsx) -- lives in the same pinned header row
+ * as ModeSwitch, same 28x28 icon-button footprint as the sidebar's own
+ * collapse button so the row reads as one family of controls. */
+.theme-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--color-primary);
+}
+
+/* Houses ModeSwitch plus its new collapse button side by side, still inside
+ * the sticky pinned header (see .app-layout__sidebar-pinned below). */
+/* Wraps rather than clips. .segmented carries `overflow: hidden` (it needs
+ * it so the active option's background stays inside the rounded border), so
+ * a mode switch allowed to shrink below its content silently cut the second
+ * label in half -- "巡游模式" rendered as "巡游" with the theme toggle sitting
+ * on top of the missing glyphs. At a narrow sidebar width the icon buttons
+ * now drop to a second line instead. */
+.app-layout__sidebar-pinned-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-layout__sidebar-pinned-row .mode-switch {
+  /* Grows into spare room but never shrinks past its own labels -- see the
+   * clipping note on the row above. */
+  flex: 1 0 auto;
+}
+
+/* Basemap + overlay toggles, pinned under ModeSwitch (App.tsx). Styled as a
+ * continuation of the mode row rather than as a card: no border, no title,
+ * tighter than a task group, so the header reads as one cluster of "where am
+ * I looking" controls instead of two competing panels. */
+.layer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* The overlay checkboxes are secondary to the basemap choice above them --
+ * they only apply in 巡游 mode -- so they read one step quieter. */
+.layer-panel .field--inline {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.app-layout__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout__map {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.app-layout__profile {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-border);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Always-visible toggle row for the profile pane -- same idiom as
+ * .app-layout__segments-toggle below (SegmentTable's own collapse control),
+ * not a third style. When collapsed this is the pane's only child, and
+ * .app-layout__profile has no explicit height set in that state (App.tsx),
+ * so flex: 0 0 auto here sizes the whole pane down to just this row. */
+.app-layout__profile-toggle {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.app-layout__profile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Draggable dividers between sidebar|map and map|profile (App.tsx +
+ * ui/Splitter.tsx). A few px wide/tall rather than 1px -- a hairline hit
+ * target is unusable with a mouse -- with a subtle hover/active highlight
+ * as the drag affordance. */
+.app-splitter {
+  flex: 0 0 auto;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.app-splitter:hover,
+.app-splitter--dragging {
+  background: var(--color-primary-bg);
+}
+
+.app-splitter--vertical {
+  width: 6px;
+  cursor: col-resize;
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+}
+
+.app-splitter--horizontal {
+  height: 6px;
+  cursor: row-resize;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-layout__segments {
+  flex: 0 0 auto;
+  max-height: 45%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+}
+
+.app-layout__segments-toggle {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.app-layout__segments-body {
+  padding: 0 16px 12px;
+  overflow-y: auto;
+}
+
+.import-panel__input-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.import-panel__status-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-panel__status {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.import-panel__error {
+  color: var(--color-danger);
+}
+
+.import-panel__crs-prompt {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.track-list--empty {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.track-list__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.track-list__item--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.track-list__name {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.track-list__crs-badge {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--color-code-bg);
+}
+
+.track-list__style-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  cursor: default;
+}
+
+.track-list__style-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.track-list__color-input {
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.track-list__width-input {
+  width: 48px;
+}
+
+.track-list__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  cursor: default;
+}
+
+.track-list__locate,
+.track-list__remove {
+  align-self: flex-start;
+}
+
+/* 实跑/规划判别徽章 + 手动覆盖下拉(P2 §3.1,里程碑 Q1)。三态用三种色相
+ * 区分,uncertain 额外加粗——判别为 uncertain 会挡住 Q3 的表现分功能,必须
+ * 比另外两态更抓眼球,提示用户去手动选一个。 */
+.track-list__kind-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.track-list__kind-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.track-list__kind-badge--recorded {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.track-list__kind-badge--planned {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.track-list__kind-badge--uncertain {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.track-list__kind-select {
+  font-size: 12px;
+}
+
+.toolbox-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbox-panel__row--history {
+  flex-direction: row;
+  gap: 8px;
+}
+
+.toolbox-panel__field-label {
+  font-size: 13px;
+}
+
+.toolbox-panel__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.toolbox-panel__join-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.toolbox-panel__join-item label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbox-panel__message {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 0;
+}
+
+.toolbox-panel__draw-readout {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.toolbox-panel__draw-warning {
+  color: var(--color-text);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.cp-panel__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.cp-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cp-panel__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.cp-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cp-panel__row--meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  gap: 10px;
+}
+
+.cp-panel__row--actions {
+  gap: 4px;
+}
+
+.cp-panel__ordinal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary-bg);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cp-panel__name {
+  flex: 1 1 auto;
+  min-width: 60px;
+}
+
+.cp-panel__anchor-index {
+  color: var(--color-text-muted);
+}
+
+.cp-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  flex: 1 1 auto;
+}
+
+.cp-panel__remove {
+  margin-left: auto;
+}
+
+.cp-panel__hint--privacy {
+  opacity: 0.75;
+}
+
+.cp-panel__hint--warn {
+  color: var(--color-danger);
+}
+
+.cp-panel__batch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+}
+
+.cp-panel__batch-pick {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cp-panel__batch-pick input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.cp-panel__batch-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cp-panel__photo-row {
+  align-items: center;
+}
+
+.cp-panel__photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-panel__photo-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.cp-panel__photo-remove {
+  font-size: 12px;
+}
+
+.cp-panel__photo-pick {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cp-panel__photo-pick input[type='file'] {
+  /* 用 <label> 承载点击目标(和视觉一致的按钮外观),原生 file input 只保留
+   * 可访问性/可点击性,不需要自己再画一个丑陋的默认文件选择器控件。 */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.cp-panel__photo-status {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.cp-panel__photo-status--error {
+  color: var(--color-danger);
+}
+
+.segment-table {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.segment-table--empty {
+  color: var(--color-text-muted);
+  padding: 8px 0;
+}
+
+.segment-table__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.segment-table__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.segment-table__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+  max-width: 60ch;
+}
+
+.segment-table__calibrate {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.segment-table__scroll {
+  overflow-x: auto;
+}
+
+.segment-table__table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.segment-table__table th,
+.segment-table__table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.segment-table__table th:first-child,
+.segment-table__table td:first-child {
+  text-align: left;
+}
+
+.segment-table__table tfoot td {
+  font-weight: 600;
+  background: var(--color-primary-bg);
+}
+
+/* 2D plan-mode map hover readout (trackLayer.ts#syncHoverReadout) -- a
+ * MapLibre Popup anchored to the hover marker, showing the same distance /
+ * elevation / ascent / gradient line ProfileCanvas.tsx draws at its own
+ * hover cursor (src/ui/hudStats.ts#formatHoverParts). Same dark-chrome +
+ * text-shadow treatment as .hud-overlay below, deliberately NOT tied to the
+ * app's --bg/--text theme vars: this sits on top of the map's own basemap
+ * imagery (the light OSM plan view, or the dark/busy Esri satellite view),
+ * not the app chrome, so it needs to stay legible against either one on its
+ * own rather than following the app's light/dark theme.
+ *
+ * pointer-events: none is required on both the outer popup and its inner
+ * content box -- MapLibre's own popup CSS already sets it on the outer
+ * `.maplibregl-popup` wrapper, but re-enables `pointer-events: auto` on
+ * `.maplibregl-popup-content` (so a popup's close button/links stay
+ * clickable in the general case). Without overriding that here, this
+ * popup's DOM would sit on top of the map canvas at the exact point the
+ * cursor is likely to be and swallow the `mousemove` events MapView.tsx's
+ * own hover-detection listener depends on, making hover flicker on/off as
+ * the cursor crosses the popup. */
+.hover-readout-popup {
+  pointer-events: none;
+}
+
+.hover-readout-popup .maplibregl-popup-content {
+  pointer-events: none;
+  padding: 4px 9px;
+  background: var(--overlay-bg-card);
+  color: var(--overlay-text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.hover-readout-popup .maplibregl-popup-tip {
+  display: none;
+}
+
+.map-cp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-width: 180px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+}
+
+.map-cp-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-cp-form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.segment-table__finish {
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.segment-table__status--green {
+  color: var(--color-success);
+}
+
+.segment-table__status--yellow {
+  color: var(--color-warning);
+}
+
+.segment-table__status--red {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.project-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.project-toolbar__name {
+  font-weight: 500;
+}
+
+.project-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.project-toolbar__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.project-toolbar__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* Planning / flythrough toggle (ui/ModeSwitch.tsx), sitting right above
+ * ProjectToolbar so it reads as the same header area. Visuals now come from
+ * the shared SegmentedControl primitive (primitives.css's .segmented) --
+ * .mode-switch itself only needs to override the primitive's own
+ * `width: fit-content` so it fills the pinned row (see the `flex: 1 1 auto`
+ * rule above). */
+.mode-switch {
+  width: auto;
+}
+
+/* 3D flythrough view (ui/FlyView.tsx). Dark background so the loading/error
+ * overlay reads correctly before the Cesium canvas (also dark) attaches --
+ * an empty white pane while several MB downloads would look broken. */
+.fly-view {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: var(--overlay-canvas-bg);
+}
+
+.fly-view__container {
+  width: 100%;
+  height: 100%;
+}
+
+.fly-view__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--overlay-text);
+  background: var(--overlay-bg-strong);
+}
+
+.fly-view__overlay--error {
+  color: var(--overlay-danger);
+}
+
+/* Small and unobtrusive per the brief -- this exists to explain a possible
+ * flat-terrain downgrade, not to compete for attention with the 3D view. */
+.fly-view__badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--overlay-text);
+  background: var(--overlay-scrim);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Flythrough playback controls (ui/FlyControls.tsx), an overlay bar docked
+ * to the bottom of the 3D viewport -- dark chrome matching fly-view's own
+ * overlay/badge palette (this sits on the same dark canvas they do), while
+ * the row/button layout mirrors toolbox-panel's idiom. */
+.fly-controls {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--overlay-text);
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.fly-controls--disabled {
+  align-items: center;
+  text-align: center;
+}
+
+.fly-controls__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fly-controls__row--options {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.fly-controls__play {
+  flex: 0 0 auto;
+  min-width: 56px;
+}
+
+.fly-controls__scrubber {
+  flex: 1;
+  min-width: 80px;
+}
+
+.fly-controls__mileage {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--overlay-text);
+}
+
+.fly-controls__group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.fly-controls__chip {
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--overlay-text);
+  background: var(--overlay-chip-bg);
+  border: 1px solid var(--overlay-border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.fly-controls__chip--active {
+  color: var(--overlay-accent-contrast);
+  background: var(--overlay-accent);
+  border-color: var(--overlay-accent);
+  font-weight: 600;
+}
+
+.fly-controls__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--overlay-text-muted);
+}
+
+.fly-controls__hint--error {
+  color: var(--overlay-danger);
+}
+
+/* Video recording row (ui/FlyControls.tsx, milestone N5) -- same chip/row
+ * idiom as the transport/options rows above it. Wraps (P2 §3.4 Q5) now that
+ * this row can hold up to three groups (ratio selector, resolution -- only
+ * for ratios offering more than one -- and the export button) side by side,
+ * same reasoning `--options` above already applies to its own two groups. */
+.fly-controls__row--record {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.fly-controls__record-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--overlay-text-muted);
+}
+
+/* Export progress bar (ui/FlyControls.tsx, P2 §3.4 milestone Q4) -- only
+ * rendered while the deterministic renderer's prefetch/rendering phases are
+ * in progress (both report a meaningful index/total; the fallback's
+ * MediaRecorder path and the encoder-finalize/save phases don't have a
+ * frame count to show progress against). */
+.fly-controls__export-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--overlay-border);
+  overflow: hidden;
+}
+
+.fly-controls__export-progress-bar {
+  height: 100%;
+  background: var(--overlay-accent);
+  transition: width 0.15s linear;
+}
+
+/* Keyframe timeline editor (ui/KeyframeEditor.tsx, 方案 V2.1 §5.5, milestone
+ * P3-R3) -- same dark-chrome panel idiom as .fly-controls (rgba(11,12,16,..)
+ * background, 1px translucent-white border, 8px radius, 13px base font), but
+ * docked to the opposite corner (top-right, mirroring .hud-overlay's
+ * top-left) so its own variable height (fields only show once a keyframe is
+ * selected) never collides with .fly-controls' bottom bar the way stacking
+ * both along the same edge would. */
+.keyframe-editor {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 1;
+  width: 320px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--overlay-text);
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.keyframe-editor--collapsed {
+  width: auto;
+}
+
+.keyframe-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.keyframe-editor__toggle {
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--overlay-text);
+  background: var(--overlay-chip-bg);
+  border: 1px solid var(--overlay-border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* The scrubbable timeline strip -- keyframe markers and the playhead are
+ * absolutely positioned children keyed by mileage fraction (left: N%), same
+ * "compute a % and let CSS place it" technique .fly-controls__export-progress
+ * already uses for its bar fill. */
+.keyframe-editor__timeline {
+  position: relative;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--overlay-chip-bg);
+  border: 1px solid var(--overlay-border);
+  cursor: pointer;
+}
+
+.keyframe-editor__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--overlay-accent);
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.keyframe-editor__marker {
+  position: absolute;
+  top: 3px;
+  width: 14px;
+  height: 22px;
+  padding: 0;
+  transform: translateX(-7px);
+  background: var(--overlay-marker);
+  border: 1px solid var(--overlay-marker-ring);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+.keyframe-editor__marker--active {
+  background: var(--overlay-marker-active);
+}
+
+.keyframe-editor__row {
+  flex-wrap: wrap;
+}
+
+.keyframe-editor__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.keyframe-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--overlay-text-muted);
+}
+
+.keyframe-editor__field input,
+.keyframe-editor__field select {
+  padding: 3px 6px;
+  font-size: 12px;
+  color: var(--overlay-text);
+  background: var(--overlay-chip-bg);
+  border: 1px solid var(--overlay-border-strong);
+  border-radius: 4px;
+}
+
+.keyframe-editor__field--range {
+  grid-column: 1 / -1;
+}
+
+.keyframe-editor__templates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--overlay-border);
+}
+
+/* Composable overlay layer (ui/FlyOverlayLayer.tsx), milestone N4 -- covers
+ * the whole 3D viewport above the Cesium canvas but below fly-controls'
+ * bottom bar (later in DOM order, so it naturally stacks on top at the
+ * same z-index -- see that file's own doc comment on why fly-controls is a
+ * sibling, not a child, of this layer). Pointer-events pass through to the
+ * canvas by default; individual overlay children opt back in if they ever
+ * need to be interactive (none do yet). */
+.fly-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Flythrough HUD (ui/HudOverlay.tsx), milestone N4 -- a row of stat chips
+ * docked to the top-left of the 3D viewport. Same dark-chrome palette as
+ * fly-controls/fly-view__badge (this sits on the same dark canvas they
+ * do), but deliberately unobtrusive: it must stay legible over satellite
+ * imagery of any brightness without competing for attention with the
+ * scene itself. text-shadow (not a solid backing panel per stat, just on
+ * the numbers) is what keeps it legible against bright/busy imagery
+ * without needing a full opaque background. */
+.hud-overlay {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-overlay__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 9px;
+  background: var(--overlay-bg-soft);
+  border: 1px solid var(--overlay-border);
+  border-radius: 6px;
+}
+
+.hud-overlay__label {
+  font-size: 11px;
+  color: var(--overlay-text-muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.hud-overlay__value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--overlay-text-strong);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.hud-overlay__unit {
+  font-size: 11px;
+  color: var(--overlay-text-muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Checkpoint approach card (ui/CheckpointCard.tsx), milestone N4 -- slides
+ * in from the right as the flythrough camera nears a checkpoint on the
+ * active track, docked below the top-right corner so it never overlaps the
+ * top-left HUD or the bottom fly-controls bar. Re-mounted (via its `key`,
+ * see CheckpointCard.tsx) on every new checkpoint so this animation replays
+ * each time, not just on the very first card of a flythrough. */
+@keyframes checkpoint-card-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.checkpoint-card {
+  position: absolute;
+  right: 8px;
+  top: 48px;
+  z-index: 1;
+  width: 220px;
+  padding: 10px 12px;
+  color: var(--overlay-text);
+  background: var(--overlay-bg-card);
+  border: 1px solid var(--overlay-border);
+  border-left: 4px solid var(--overlay-accent);
+  border-radius: 8px;
+  font-size: 13px;
+  animation: checkpoint-card-slide-in 0.25s ease-out;
+}
+
+.checkpoint-card__kind {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.checkpoint-card__name {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--overlay-text-strong);
+}
+
+.checkpoint-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--overlay-text-muted);
+}
+
+.checkpoint-card__cutoff {
+  color: var(--overlay-danger);
+}
+
+/* CP 卡片实景照片淡入(方案 V2.1 §5.5)。`opacity` 单独做一条动画(而不是
+ * 复用 checkpoint-card-slide-in),因为照片是可选的、比卡片本体晚出现一拍
+ * 才合理——整张卡片一滑入就同时甩出一张图,视觉上比图片慢半拍淡入要突兀。 */
+@keyframes checkpoint-card-photo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.checkpoint-card__photo {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  animation: checkpoint-card-photo-fade-in 0.4s ease-out;
+}
+
+/* Distance radar (ui/RadarOverlay.tsx), milestone N6 commit 4 -- a
+ * concentric range-ring scope PLUS the next-checkpoint text readout beside
+ * it (P1 follow-up resolving §3.7's open question, see
+ * overlay/radarTargets.ts's own file comment: rings stay as a scale
+ * reference, the next checkpoint ahead is the primary readout). Docked to
+ * the bottom-right, high enough above fly-controls' bottom bar to clear it
+ * even at its tallest (two rows plus the optional synthetic-timeline hint)
+ * and far enough from checkpoint-card (top-right) and hud-overlay (top-left)
+ * that neither can collide with it -- widened to fit the readout, but the
+ * HEIGHT and bottom offset are unchanged from the ring-only box, so this
+ * widening cannot introduce a new collision with anything that box already
+ * cleared. */
+.radar-overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 140px;
+  z-index: 1;
+  width: 310px;
+  height: 150px;
+  pointer-events: none;
+}
+
+.radar-overlay__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Dev-only map diagnostic readout -- see src/ui/MapDebugBadge.tsx. */
+.map-debug-badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  max-width: 520px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--overlay-scrim-strong);
+  color: var(--overlay-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  word-break: break-all;
+  pointer-events: none;
+}
+.map-debug-badge strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--overlay-debug);
+}
+
+.map-debug-badge__verdict {
+  margin-bottom: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--overlay-debug-bg);
+  color: var(--overlay-debug);
+  font-weight: 700;
+}
+
+.map-debug-badge__actions {
+  margin-top: 6px;
+  pointer-events: auto;
+}
+.map-debug-badge__actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--overlay-debug);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--overlay-debug);
+  font: inherit;
+  cursor: pointer;
+}
+
+.map-debug-badge__toggle {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 2px 8px;
+  border: 1px solid var(--overlay-debug-border);
+  border-radius: 4px;
+  background: var(--overlay-scrim-soft);
+  color: var(--overlay-debug);
+  font-size: 11px;
+  cursor: pointer;
+}
+.map-debug-badge__close {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--overlay-debug-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--overlay-debug);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* Keeps the plan/flythrough toggle visible no matter how far the panel
+ * column below it is scrolled -- see the comment at its usage in App.tsx. */
+.app-layout__sidebar-pinned {
+  position: sticky;
+  top: -16px; /* cancels the sidebar's own 16px padding-top */
+  z-index: 4;
+  margin: -16px -16px 0;
+  padding: 16px 16px 12px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Fixed dark-chrome colour, NOT var(--color-text-muted) -- this sits inside
+ * .fly-controls on top of the 3D canvas (see that rule's own comment) and
+ * must not swing with the app's light/dark theme toggle the way every
+ * sibling label in this same bar (.fly-controls__hint etc.) already
+ * doesn't. (Previously read `var(--color-text-muted)`, a token that was never
+ * actually defined, so the var(--overlay-text-dim) fallback always rendered -- this keeps
+ * that exact rendered colour, just without a phantom var() reference.) */
+.fly-controls__eta {
+  margin-left: 8px;
+  align-self: center;
+  color: var(--overlay-text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 表现报告面板(P2 §3.3,里程碑 Q3)。侧边栏里只放一个入口按钮 -- 报告本身
+ * 是一个可关闭的浮层,不是常驻分区(见 PerformancePanel.tsx 文件注释:侧边
+ * 栏已经挤到 P1 要把模式切换钉住,不能再添一块常驻空间)。 */
+.perf-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.perf-entry__button {
+  align-self: flex-start;
+}
+
+.perf-entry__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.perf-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--color-overlay-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.perf-modal {
+  width: min(720px, 100%);
+  max-height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: var(--color-shadow);
+  overflow: hidden;
+}
+
+.perf-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.perf-modal__title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+.perf-modal__close {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  width: 28px;
+  height: 28px;
+  line-height: 1;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.perf-modal__body {
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.perf-modal__gate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perf-modal__gate-title {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.perf-modal__gate-text {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.perf-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.perf-modal__section-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 6px;
+}
+
+/* 诚实性要求(P2 §5):不能叫"ITRA 积分",必须在界面上可见地声明这是社区
+ * 反向推导的估算模型,而不是官方成绩——这段文案必须一直显示,不是可折叠
+ * 的小字。 */
+.perf-disclaimer {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-primary-border);
+  border-radius: 6px;
+  background: var(--color-primary-bg);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.perf-score {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.perf-score__value {
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.perf-score__level {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.perf-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.perf-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.perf-metric__label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.perf-metric__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.perf-modal__audit-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.perf-grade-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perf-bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 120px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.perf-bar-row__label {
+  color: var(--color-text-muted);
+}
+
+.perf-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--color-code-bg);
+  overflow: hidden;
+}
+
+.perf-bar__fill {
+  height: 100%;
+}
+
+.perf-bar__fill--uphill {
+  background: var(--color-danger);
+}
+
+.perf-bar__fill--flat {
+  background: var(--color-info);
+}
+
+.perf-bar__fill--downhill {
+  background: var(--color-success);
+}
+
+.perf-bar-row__value {
+  color: var(--color-text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.perf-table-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.perf-table th,
+.perf-table td {
+  padding: 5px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.perf-table th:first-child,
+.perf-table td:first-child {
+  text-align: left;
+}
+
+.perf-table thead th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--color-bg);
+}
+
+.perf-env-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ── 行动建议 (P3-R5) -- each item is one evidence-grounded sentence from
+ * `core/perf/insights.ts`; no bullet decoration beyond a left accent bar so
+ * it doesn't visually compete with the data tables above it. ── */
+.perf-insights-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perf-insights-list__item {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-primary-bg);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* ── Quick calculator (速算模式) -- reuses .perf-modal/.perf-table/etc above,
+ * these are only the pieces specific to its preset picker and inputs. ── */
+
+.qc-entry-button {
+  align-self: flex-start;
+}
+
+.qc-preset-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.qc-preset-tab {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qc-preset-tab--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-text);
+}
+
+.qc-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.qc-preset-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.qc-preset-item:hover {
+  border-color: var(--color-primary);
+}
+
+.qc-preset-item__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.qc-preset-item__spec {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.qc-field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.qc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.qc-field input[type='number'] {
+  width: 100px;
+}
+
+.qc-field--time {
+  flex: 1 1 auto;
+}
+
+.qc-time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qc-time-inputs input[type='number'] {
+  width: 60px;
+}
+
+/* P3-R1 路书导出套件(ui/ExportPanel.tsx)——高差图 SVG/PNG、Excel 路书、
+ * 配速卡的控件集中在这一个面板里,沿用其它侧边栏面板(.pace-panel/
+ * .cp-panel)同款的深色面板节奏:分隔线 + 统一的 12px 间距。 */
+.export-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.export-panel__title {
+  margin: 0;
+}
+
+.export-panel__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.export-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.export-panel__row button {
+  flex: 1 1 auto;
+}
+
+.export-panel__pace-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.export-panel__subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.export-panel__columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.export-panel__column {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}

@@ -1,0 +1,301 @@
+/* 山脊工作台：近黑地图舞台、山径橙锚点、清爽任务组。避免营销卡片堆叠。 */
+:root {
+  --tc-ridge-orange: #e56a35;
+  --tc-moss: #83a65a;
+  --tc-violet: #9c91c7;
+  --tc-ink: #10140f;
+  --tc-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.trailcraft-brand {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--color-text);
+}
+
+.trailcraft-brand__mark {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0.35rem 0.6rem rgba(229, 106, 53, 0.23));
+  outline: 1px solid rgba(229, 106, 53, 0.22);
+  outline-offset: 0.2rem;
+  border-radius: 0.45rem;
+}
+
+.trailcraft-brand__name {
+  display: grid;
+  min-width: 0;
+  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: -0.065em;
+  line-height: 1.05;
+}
+
+.trailcraft-brand__name small {
+  margin-top: 0.2rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.trailcraft-brand::after {
+  width: 1.2rem;
+  height: 0.24rem;
+  margin-left: 0.1rem;
+  content: "";
+  border-top: 1px solid var(--tc-ridge-orange);
+  border-bottom: 1px solid rgba(229, 106, 53, 0.36);
+  transform: skewX(-34deg);
+  opacity: 0.88;
+}
+
+.app-layout__sidebar {
+  background:
+    linear-gradient(170deg, rgba(131, 166, 90, 0.08), transparent 10rem),
+    var(--color-surface) !important;
+  border-right: 1px solid color-mix(in srgb, var(--color-border) 78%, var(--tc-ridge-orange)) !important;
+}
+
+.app-layout__sidebar-pinned {
+  border-bottom-color: color-mix(in srgb, var(--color-border) 72%, var(--tc-ridge-orange)) !important;
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent) !important;
+  backdrop-filter: blur(14px);
+}
+
+.app-layout__sidebar-pinned-row {
+  min-height: 3.15rem;
+  gap: 0.45rem !important;
+}
+
+.section--group {
+  position: relative;
+  overflow: clip;
+  margin: 0.55rem 0.75rem !important;
+  border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent) !important;
+  border-radius: 0.7rem !important;
+  background: color-mix(in srgb, var(--color-surface-raised) 88%, transparent) !important;
+  box-shadow: 0 0.65rem 1.8rem rgba(0, 0, 0, 0.1);
+  transition: border-color 180ms var(--tc-ease-out), transform 180ms var(--tc-ease-out), background 180ms var(--tc-ease-out);
+}
+
+.section--group::before {
+  position: absolute;
+  top: 0.85rem;
+  bottom: 0.85rem;
+  left: 0;
+  width: 0.18rem;
+  content: "";
+  border-radius: 0 999px 999px 0;
+  background: var(--tc-ridge-orange);
+  opacity: 0;
+  transition: opacity 180ms var(--tc-ease-out);
+}
+
+.section--group:has(.section__toggle[aria-expanded="true"]) {
+  border-color: color-mix(in srgb, var(--tc-ridge-orange) 34%, var(--color-border)) !important;
+  background: linear-gradient(135deg, rgba(229, 106, 53, 0.08), transparent 38%), var(--color-surface-raised) !important;
+}
+
+.section--group:has(.section__toggle[aria-expanded="true"])::before { opacity: 1; }
+
+.section__header { min-height: 2.6rem; }
+.section__toggle { width: 100%; padding-block: 0.68rem !important; }
+.section__title { font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; font-weight: 750 !important; letter-spacing: -0.01em; }
+.section__description { max-width: 32ch; line-height: 1.55 !important; color: var(--color-text-muted) !important; }
+
+.section__title,
+.field__label,
+.import-panel__input-label,
+.track-list__style-label {
+  text-transform: uppercase;
+}
+
+.import-panel {
+  position: relative;
+  padding: 0.82rem;
+  border: 1px dashed color-mix(in srgb, var(--tc-ridge-orange) 48%, var(--color-border));
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(118deg, rgba(229, 106, 53, 0.09), transparent 56%),
+    repeating-linear-gradient(0deg, transparent 0 1.25rem, rgba(131, 166, 90, 0.08) 1.25rem 1.3rem);
+}
+
+.import-panel::before {
+  display: block;
+  margin-bottom: 0.42rem;
+  content: "TRACK INGEST · LOCAL WORKSPACE";
+  color: var(--tc-ridge-orange);
+  font: 700 0.57rem/1 var(--font-family-mono);
+  letter-spacing: 0.14em;
+}
+
+.import-panel input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0.45rem;
+  color: var(--color-text-muted);
+  font: 600 0.68rem/1.2 var(--font-family-mono);
+}
+
+.import-panel input[type="file"]::file-selector-button {
+  margin-right: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--tc-ridge-orange) 66%, var(--color-border));
+  border-radius: 0.35rem;
+  color: #fff6ef;
+  background: linear-gradient(135deg, #cc5427, var(--tc-ridge-orange));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0.28rem 0.65rem rgba(229, 106, 53, 0.2);
+  font: 800 0.66rem/1 var(--font-family-mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: transform 140ms var(--tc-ease-out), filter 140ms var(--tc-ease-out);
+}
+
+.import-panel input[type="file"]::file-selector-button:hover { filter: brightness(1.1); }
+.import-panel input[type="file"]::file-selector-button:active { transform: scale(0.97); }
+
+.app-layout__map {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(229, 106, 53, 0.07), transparent 38%),
+    var(--tc-ink) !important;
+}
+
+.maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 0.45rem !important;
+  background: rgba(16, 20, 15, 0.84) !important;
+  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.25) !important;
+  backdrop-filter: blur(10px);
+}
+
+.maplibregl-ctrl-group button { transition: background 140ms var(--tc-ease-out), transform 140ms var(--tc-ease-out); }
+.maplibregl-ctrl-group button:hover { background-color: rgba(229, 106, 53, 0.16) !important; }
+.maplibregl-ctrl-group button:active { transform: scale(0.96); }
+
+.app-layout:has(.track-list--empty) .app-layout__map::after {
+  position: absolute;
+  z-index: 2;
+  top: 1.25rem;
+  right: 1.25rem;
+  width: min(24rem, 48vw);
+  height: min(15rem, 34vh);
+  content: "";
+  pointer-events: none;
+  opacity: 0.34;
+  background:
+    radial-gradient(ellipse 86% 44% at 50% 52%, transparent 47%, rgba(229, 106, 53, 0.72) 48% 48.5%, transparent 49.5%),
+    radial-gradient(ellipse 72% 36% at 50% 52%, transparent 47%, rgba(131, 166, 90, 0.72) 48% 48.5%, transparent 49.5%),
+    radial-gradient(ellipse 58% 28% at 50% 52%, transparent 47%, rgba(156, 145, 199, 0.62) 48% 48.5%, transparent 49.5%);
+  mask-image: linear-gradient(to bottom, #000 0 72%, transparent 100%);
+}
+
+.track-list--empty {
+  position: relative;
+  min-height: 2.75rem;
+  padding: 0.7rem 0.72rem 0.55rem 2.45rem !important;
+  border-left: 1px solid rgba(131, 166, 90, 0.66);
+  color: var(--color-text-muted) !important;
+  font-family: var(--font-family-mono);
+  font-size: 0.68rem !important;
+}
+
+.track-list--empty::before {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.45rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  content: "";
+  border: 1px solid var(--tc-ridge-orange);
+  border-radius: 44% 56% 48% 52%;
+  box-shadow: 0 0 0 0.23rem rgba(229, 106, 53, 0.1), inset 0 0 0 0.18rem var(--color-surface-raised);
+}
+
+.track-list--empty::after {
+  position: absolute;
+  top: 1.12rem;
+  left: 0.73rem;
+  width: 0.72rem;
+  content: "────";
+  color: var(--tc-moss);
+  font: 700 0.45rem/1 var(--font-family-mono);
+  letter-spacing: -0.2em;
+  transform: rotate(-32deg);
+}
+
+.button,
+.field input:not([type="file"]),
+.field select,
+.track-list__kind-select,
+.track-list__width-input {
+  border-radius: 0.35rem !important;
+  font-family: var(--font-family-mono);
+}
+
+@media (max-width: 760px) {
+  .app-layout__main { width: 100%; }
+  .app-layout__map { min-height: 100dvh; }
+  .app-layout__profile { display: none !important; }
+  .app-layout__segments { position: fixed; right: 0.55rem; bottom: 6.85rem; left: auto; z-index: 30; width: auto; max-width: calc(100vw - 1.1rem); }
+  .app-layout__segments-body { max-height: min(42dvh, 21rem); overflow: auto; }
+  .app-layout__segments-toggle { border: 1px solid color-mix(in srgb, var(--tc-ridge-orange) 48%, var(--color-border)) !important; border-radius: 999px !important; background: rgba(16, 20, 15, 0.92) !important; box-shadow: 0 0.7rem 1.4rem rgba(0, 0, 0, 0.28); backdrop-filter: blur(10px); }
+  .app-layout__sidebar {
+    position: fixed !important;
+    z-index: 50;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.5rem;
+    width: auto !important;
+    max-height: min(76dvh, 42rem);
+    padding: 0.55rem 0.45rem 0.85rem !important;
+    gap: 0.45rem !important;
+    border: 1px solid color-mix(in srgb, var(--tc-ridge-orange) 42%, var(--color-border)) !important;
+    border-radius: 1rem 1rem 0.78rem 0.78rem;
+    box-shadow: 0 -1.1rem 3rem rgba(0, 0, 0, 0.38);
+    background: linear-gradient(145deg, rgba(229, 106, 53, 0.13), transparent 28%), var(--color-surface) !important;
+  }
+  .app-layout__sidebar-collapsed {
+    position: fixed !important;
+    z-index: 50;
+    right: 0.6rem;
+    bottom: 3.85rem;
+    left: auto;
+    width: auto !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .app-layout__sidebar-collapsed-toggle {
+    display: inline-flex;
+    width: auto !important;
+    height: 2.6rem !important;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0 0.85rem !important;
+    border-color: color-mix(in srgb, var(--tc-ridge-orange) 55%, var(--color-border)) !important;
+    border-radius: 999px !important;
+    background: rgba(16, 20, 15, 0.94) !important;
+    box-shadow: 0 0.75rem 1.6rem rgba(0, 0, 0, 0.32);
+  }
+  .app-layout__sidebar-collapsed-toggle::after { content: "路线工具"; font: 700 0.72rem/1 "Noto Sans SC", "Microsoft YaHei", sans-serif; letter-spacing: 0.02em; }
+  .app-layout__sidebar-collapse-btn { display: none; }
+  .trailcraft-brand__name { display: none; }
+  .trailcraft-brand { flex: 0 0 auto; }
+  .trailcraft-brand__mark { width: 2.15rem; height: 2.15rem; }
+  .app-layout__sidebar-pinned-row { min-height: 3.4rem; }
+  .section--group { margin-inline: 0.55rem !important; }
+  .section__description { max-width: 48ch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section--group, .section--group::before, .maplibregl-ctrl-group button { transition: none !important; }
+}

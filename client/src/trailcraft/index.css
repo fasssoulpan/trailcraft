@@ -1,0 +1,265 @@
+/*
+ * TrailCraft design tokens -- the one file that owns every visual decision
+ * (colour, spacing, radius, type, elevation, motion). Every other stylesheet
+ * in the app (App.css and friends) is meant to consume these custom
+ * properties rather than hardcode its own hex/px values -- see App.css's
+ * own header comment for the purge that enforces this.
+ *
+ * Two themes share the same token *names* -- components never need to know
+ * which theme is active, they just read --color-bg/--color-text/etc. Dark
+ * is the default (:root, no attribute needed): TrailCraft's primary surface
+ * is a satellite map / 3D flythrough, and the fly-mode HUD, checkpoint card,
+ * radar and captured video (src/overlay/captureDraw.ts) are all already
+ * dark chrome designed to sit over imagery -- a light *default* would mean
+ * the chrome around the map fights the map on every load. `[data-theme=
+ * "light"]` (state/theme.ts, toggled by ui/ThemeToggle.tsx) overrides the
+ * same names for users who prefer it -- light is a first-class theme here,
+ * not an afterthought, just not the default.
+ *
+ * Palette: neither reference this pass was pointed at fits verbatim --
+ * itra-perf-fjxerg9i.manus.space is a cycling-report shadcn/ui page (light,
+ * blue primary) and guizang-sports-skill is a lime-on-black telemetry
+ * screen. TrailCraft is a trail-running *planner*: the primary accent below
+ * is a trail-blaze orange (the colour used on physical trail markers
+ * worldwide, including Chinese ultra courses) rather than either reference's
+ * hue, paired with a slightly green-cast neutral scale (forest/terrain,
+ * not a flat grey or a cycling-app blue-grey). Success/warning/danger stay
+ * close to their conventional hues so existing red=danger/green=success
+ * reasoning elsewhere in the app (track-kind badges, cutoff warnings)
+ * doesn't have to be relearned.
+ *
+ * Legacy names (--bg/--text/--text-h/--border/--accent/--accent-bg/
+ * --accent-border/--code-bg/--shadow/--social-bg) are kept as aliases onto
+ * the new role tokens so the pre-existing App.css keeps working unchanged
+ * through commits 1-3 of this redesign; the purge commit (4) rewrites
+ * App.css onto the role names directly and drops the aliases.
+ */
+
+:root {
+  /* ---- colour roles (dark, default) -------------------------------- */
+  --color-bg: #10140f;
+  --color-surface: #171d15;
+  --color-surface-raised: #212820;
+  --color-border: #2d362a;
+  --color-text: #e9ede4;
+  --color-text-muted: #9aa693;
+
+  --color-primary: #e2913f;
+  --color-primary-bg: rgba(226, 145, 63, 0.16);
+  --color-primary-border: rgba(226, 145, 63, 0.45);
+  --color-primary-contrast: #1a1206;
+
+  --color-success: #4ade80;
+  --color-success-bg: rgba(74, 222, 128, 0.14);
+  --color-warning: #f0b429;
+  --color-warning-bg: rgba(240, 180, 41, 0.14);
+  --color-danger: #f0645c;
+  --color-danger-bg: rgba(240, 100, 92, 0.14);
+  /* Neutral-informational blue. Distinct from --color-primary on purpose:
+   * primary is an action colour, this one encodes *data* (a planned track,
+   * a flat gradient bucket) and must not read as "clickable". */
+  --color-info: #60a5fa;
+  --color-info-bg: rgba(96, 165, 250, 0.16);
+
+  --color-code-bg: #1b2118;
+  --color-overlay-scrim: rgba(6, 8, 5, 0.55);
+  --color-shadow: rgba(0, 0, 0, 0.4) 0 10px 20px -6px, rgba(0, 0, 0, 0.3) 0 4px 8px -2px;
+
+
+  /* ---- map/globe overlay chrome (deliberately theme-invariant) --------
+   * The fly-mode HUD, checkpoint card, fly controls, keyframe editor and
+   * hover readout do not sit on --color-surface -- they float over the
+   * Cesium globe / satellite imagery, which is dark in both themes. They
+   * therefore do NOT get redefined by [data-theme="light"] below: flipping
+   * them would put pale chrome on dark imagery and, worse, would desync the
+   * on-screen preview from the exported video.
+   *
+   * That last point is the binding constraint. src/overlay/captureDraw.ts
+   * repaints this same chrome onto the export canvas frame by frame, and it
+   * cannot read CSS custom properties -- it carries its own copies of these
+   * literals (HUD_CHIP_BG, HUD_LABEL_COLOR, HUD_VALUE_COLOR, CARD_BG,
+   * CARD_META_COLOR, CARD_CUTOFF_COLOR ...). The two sets must stay equal or
+   * "what you previewed" stops being "what you exported". Change a value
+   * here and you must change its twin there in the same commit. */
+  --overlay-canvas-bg: #0b0c10;
+  --overlay-bg-soft: rgba(11, 12, 16, 0.55);   /* = captureDraw HUD_CHIP_BG */
+  --overlay-bg: rgba(11, 12, 16, 0.78);
+  --overlay-bg-card: rgba(11, 12, 16, 0.82);   /* = captureDraw CARD_BG */
+  --overlay-bg-strong: rgba(11, 12, 16, 0.92);
+  --overlay-border: rgba(255, 255, 255, 0.12);
+  --overlay-border-strong: rgba(255, 255, 255, 0.18);
+  --overlay-chip-bg: rgba(255, 255, 255, 0.08);
+  --overlay-text: #f3f4f6;
+  --overlay-text-strong: #f8fafc;              /* = captureDraw *_VALUE/NAME */
+  --overlay-text-muted: #d1d5db;               /* = captureDraw *_LABEL/META */
+  --overlay-text-dim: #9aa0a6;
+  --overlay-danger: #fca5a5;                   /* = captureDraw CARD_CUTOFF  */
+  --overlay-accent: #38bdf8;
+  --overlay-accent-contrast: #0b0c10;
+  --overlay-marker: #f97316;
+  --overlay-marker-active: #facc15;
+  --overlay-scrim: rgba(0, 0, 0, 0.55);
+  --overlay-scrim-strong: rgba(0, 0, 0, 0.78);
+  --overlay-scrim-soft: rgba(0, 0, 0, 0.5);
+  /* Hairline ring that keeps a marker legible over bright snow or dark
+   * forest alike -- brighter than --overlay-border on purpose. */
+  --overlay-marker-ring: rgba(255, 255, 255, 0.7);
+  /* Dev-only map diagnostic badge (ui/MapDebugBadge.tsx) -- amber so it can
+   * never be mistaken for product chrome. */
+  --overlay-debug: #ffd166;
+  --overlay-debug-bg: rgba(255, 209, 102, 0.16);
+  --overlay-debug-border: rgba(255, 209, 102, 0.5);
+
+  /* ---- spacing scale (4px base) -------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ---- radius ---------------------------------------------------------*/
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* ---- type scale -------------------------------------------------- */
+  --font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: ui-monospace, Consolas, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-display: 40px;
+
+  /* ---- elevation ----------------------------------------------------- */
+  --shadow-sm: rgba(0, 0, 0, 0.3) 0 1px 3px;
+  --shadow-md: var(--color-shadow);
+
+  /* ---- motion ---------------------------------------------------------*/
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --easing-standard: ease;
+
+  /* ---- spacing half-steps ---------------------------------------------
+   * The bulk of App.css's pre-existing paddings/gaps already land exactly
+   * on the 4px scale above; these three don't (6/10/14px), and rounding
+   * them onto the nearest 4px step during the purge commit's mechanical
+   * value->token sweep would have been a silent size change disguised as a
+   * refactor. Kept as their own named steps instead so that sweep is exact
+   * -- new code should still reach for the plain 4px steps first. */
+  --space-1-5: 6px;
+  --space-2-5: 10px;
+  --space-3-5: 14px;
+
+  font: var(--font-size-lg)/145% var(--font-family);
+  letter-spacing: 0.18px;
+  color-scheme: dark light;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: var(--font-size-lg);
+  }
+}
+
+/* Light theme -- same token names, a genuinely different (not just
+ * inverted) palette: a faint green-tinted neutral scale rather than plain
+ * white/grey, echoing the reference's "clean paper" feel while keeping
+ * TrailCraft's own trail-blaze primary. Darkened relative to its dark-theme
+ * value for AA contrast against the light surfaces below. */
+:root[data-theme='light'] {
+  --color-bg: #f4f6f1;
+  --color-surface: #ffffff;
+  --color-surface-raised: #fbfcf9;
+  --color-border: #dbe2d5;
+  --color-text: #1e2419;
+  --color-text-muted: #5c6656;
+
+  --color-primary: #b5591d;
+  --color-primary-bg: rgba(181, 89, 29, 0.1);
+  --color-primary-border: rgba(181, 89, 29, 0.4);
+  --color-primary-contrast: #fff8f0;
+
+  --color-success: #16a34a;
+  --color-success-bg: rgba(22, 163, 74, 0.1);
+  --color-warning: #a15c07;
+  --color-warning-bg: rgba(161, 92, 7, 0.12);
+  --color-danger: #dc2626;
+  --color-danger-bg: rgba(220, 38, 38, 0.1);
+  --color-info: #2563eb;
+  --color-info-bg: rgba(37, 99, 235, 0.1);
+
+  --color-code-bg: #eef1e9;
+  --color-overlay-scrim: rgba(30, 36, 25, 0.35);
+  --color-shadow: rgba(30, 36, 25, 0.12) 0 10px 20px -6px, rgba(30, 36, 25, 0.08) 0 4px 8px -2px;
+
+  color-scheme: light;
+}
+
+/* No explicit choice yet (first visit, before ThemeToggle/theme.ts ever ran)
+ * -- respect the OS preference for that one paint instead of forcing dark,
+ * matching prior behaviour of this file. main.tsx calls applyTheme() with
+ * the persisted (or default-dark) choice before the first render, so this
+ * branch only ever affects the very first, pre-hydration paint. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-bg: #f4f6f1;
+    --color-surface: #ffffff;
+    --color-surface-raised: #fbfcf9;
+    --color-border: #dbe2d5;
+    --color-text: #1e2419;
+    --color-text-muted: #5c6656;
+    --color-primary: #b5591d;
+    --color-primary-bg: rgba(181, 89, 29, 0.1);
+    --color-primary-border: rgba(181, 89, 29, 0.4);
+    --color-primary-contrast: #fff8f0;
+    --color-success: #16a34a;
+    --color-success-bg: rgba(22, 163, 74, 0.1);
+    --color-warning: #a15c07;
+    --color-warning-bg: rgba(161, 92, 7, 0.12);
+    --color-danger: #dc2626;
+    --color-danger-bg: rgba(220, 38, 38, 0.1);
+    --color-info: #2563eb;
+    --color-info-bg: rgba(37, 99, 235, 0.1);
+    --color-code-bg: #eef1e9;
+    --color-overlay-scrim: rgba(30, 36, 25, 0.35);
+    --color-shadow: rgba(30, 36, 25, 0.12) 0 10px 20px -6px, rgba(30, 36, 25, 0.08) 0 4px 8px -2px;
+    color-scheme: light;
+  }
+}
+
+/* Metrics (HUD, stat tiles, split tables, readouts) must not jitter as
+ * digit widths change between frames/updates -- apply to any numeric
+ * readout across the app rather than each panel re-declaring it. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+/* Visible focus ring everywhere, themed with the primary role so it reads
+ * consistently whether the control sits on a light or dark surface. Browsers
+ * already suppress this for pointer interaction via :focus-visible. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

@@ -203,7 +203,14 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+  vitePluginStorageProxy(),
+];
 
 export default defineConfig({
   plugins,
@@ -216,9 +223,24 @@ export default defineConfig({
   },
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
+  optimizeDeps: {
+    exclude: ["maplibre-gl"],
+  },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("maplibre-gl")) return "maplibre";
+          if (id.includes("@turf")) return "geo";
+          if (id.includes("exceljs") || id.includes("xlsx")) return "exports";
+          if (id.includes("react") || id.includes("zustand")) return "ui-vendor";
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port: 3000,

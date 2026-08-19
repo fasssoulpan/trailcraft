@@ -1,0 +1,28 @@
+/* 山脊工作台：内部预览状态必须可见但不能盖住地图操作。 */
+.manus-internal-preview {
+  position: fixed;
+  z-index: 10000;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  margin: 0;
+  max-width: min(29rem, calc(100vw - 1.5rem));
+  padding: 0.5rem 0.72rem;
+  border: 1px solid rgba(229, 106, 53, 0.52);
+  border-radius: 0.5rem;
+  color: #f7d8c7;
+  background: rgba(17, 23, 19, 0.9);
+  box-shadow: 0 0.6rem 1.8rem rgba(0, 0, 0, 0.28);
+  font: 500 0.75rem/1.35 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+@media (max-width: 640px) {
+  .manus-internal-preview {
+    right: 0.5rem;
+    bottom: 0.5rem;
+    max-width: calc(100vw - 1rem);
+    font-size: 0.68rem;
+  }
+}
