@@ -84,6 +84,10 @@ export function MapView() {
   const loadedRef = useRef(false)
   const [overlayMap, setOverlayMap] = useState<MapLibreMap | null>(null)
   const [, setMapFrame] = useState(0)
+  // The map has its own WebGL worker and can fail independently of React on
+  // constrained phones. Keep an explicit, readable bootstrap state so users
+  // never mistake an uninitialised canvas for an intentional black screen.
+  const [mapStatus, setMapStatus] = useState<'loading' | 'waiting' | 'ready' | 'error'>('loading')
   // Basemap tile/source failures are common (OSM's CDN is unreliable from
   // mainland China) and should surface once as a small diagnostic notice,
   // not spam one per failed tile.
@@ -180,17 +184,26 @@ export function MapView() {
     const container = containerRef.current
     if (!container) return
 
-    const map = new MapLibreMap({
-      container,
-      // The store's persisted value is already correct at this point --
-      // loadBasemapStyle('plan') runs synchronously at store creation (see
-      // appStore.ts), so the very first render already has the right style,
-      // with no async load/race to worry about here.
-      style: styleSpecForBasemap(planBasemapStyle),
-      center: DEFAULT_CENTER,
-      zoom: DEFAULT_ZOOM,
-    })
-    map.addControl(new NavigationControl(), 'top-right')
+    let map: MapLibreMap
+    try {
+      map = new MapLibreMap({
+        container,
+        // The store's persisted value is already correct at this point --
+        // loadBasemapStyle('plan') runs synchronously at store creation (see
+        // appStore.ts), so the very first render already has the right style,
+        // with no async load/race to worry about here.
+        style: styleSpecForBasemap(planBasemapStyle),
+        center: DEFAULT_CENTER,
+        zoom: DEFAULT_ZOOM,
+      })
+      map.addControl(new NavigationControl(), 'top-right')
+    } catch {
+      setMapStatus('error')
+      return
+    }
+    const bootstrapTimer = window.setTimeout(() => {
+      setMapStatus((status) => status === 'loading' ? 'waiting' : status)
+    }, 6000)
     mapRef.current = map
     setOverlayMap(map)
     // Dev-only debugging handle. The map instance is otherwise reachable only
@@ -244,6 +257,8 @@ export function MapView() {
     const handleStyleLoad = () => {
       const isInitial = !loadedRef.current
       loadedRef.current = true
+      window.clearTimeout(bootstrapTimer)
+      setMapStatus('ready')
       syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id, { skipFit: !isInitial })
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
       syncHoverReadout(
@@ -525,6 +540,7 @@ export function MapView() {
       if (rafId != null) cancelAnimationFrame(rafId)
       if (clickTimeoutId != null) clearTimeout(clickTimeoutId)
       if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame)
+      window.clearTimeout(bootstrapTimer)
       ro.disconnect()
       map.off('style.load', handleStyleLoad)
       map.off('error', handleError)
@@ -650,6 +666,23 @@ export function MapView() {
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {mapStatus !== 'ready' && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute', inset: 0, zIndex: 3, display: 'grid', placeItems: 'center',
+            padding: 24, color: '#243027', background: '#e6ece3', textAlign: 'center', pointerEvents: mapStatus === 'error' ? 'auto' : 'none',
+          }}
+        >
+          <div style={{ maxWidth: 280, display: 'grid', gap: 8 }}>
+            <strong style={{ fontSize: 15 }}>{mapStatus === 'error' ? '地图未能启动' : mapStatus === 'waiting' ? '地图仍在加载' : '正在初始化平面地图'}</strong>
+            <span style={{ fontSize: 12, lineHeight: 1.5, color: '#5b6c60' }}>
+              {mapStatus === 'error' ? '此设备的地图图形能力不可用。可重新加载页面，或继续导入路线后再试。' : '正在连接底图与地图图形服务；路线导入不会上传到服务器。'}
+            </span>
+            {mapStatus === 'error' && <button type="button" onClick={() => window.location.reload()} style={{ justifySelf: 'center', border: 0, borderRadius: 6, padding: '8px 12px', color: '#fff', background: '#b5591d', cursor: 'pointer' }}>重新加载</button>}
+          </div>
+        </div>
+      )}
       {overlayMap ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
       {tileErrorShown && (
         <div

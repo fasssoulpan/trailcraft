@@ -68,6 +68,12 @@ function App() {
     return gain
   }, [activeTrack])
   const checkpointCount = useMemo(() => cps.filter((cp) => cp.trackId === activeTrackId).length, [cps, activeTrackId])
+  // `mode` is persisted so its prior value can be briefly available before
+  // the mount effect resets it. The workflow stage is deliberately not
+  // persisted; it is the authority for which rendering engine is allowed to
+  // mount. This prevents a mobile refresh from constructing Cesium under
+  // step 01 and leaving a full-screen black canvas on constrained devices.
+  const canvasMode: 'plan' | 'fly' = stage === 'tour' ? 'fly' : 'plan'
 
   useEffect(() => {
     // Workflow stage is intentionally session-local and starts at 01. The
@@ -181,12 +187,12 @@ function App() {
         <nav className={`route-brief__steps route-brief__steps--${stage}`} aria-label="路线工作步骤">
           {STAGES.map((item) => <button key={item.id} type="button" className={stage === item.id ? 'is-active' : ''} onClick={() => activateStage(item.id)}><span>{item.kicker}</span>{item.label}</button>)}
         </nav>
-        <section className={`route-brief__workspace${mode === 'fly' ? ' route-brief__workspace--fly' : ''}`}>
+        <section className={`route-brief__workspace${canvasMode === 'fly' ? ' route-brief__workspace--fly' : ''}`}>
           <div className="route-brief__canvas">
-            {mode === 'fly' ? <FlyView /> : <MapView />}
-            <MapCanvasModeSwitch mode={mode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
-            {mode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
-            {import.meta.env.DEV && mode === 'plan' ? <MapDebugBadge /> : null}
+            {canvasMode === 'fly' ? <FlyView /> : <MapView />}
+            <MapCanvasModeSwitch mode={canvasMode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
+            {canvasMode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
+            {import.meta.env.DEV && canvasMode === 'plan' ? <MapDebugBadge /> : null}
           </div>
           <aside className={`route-brief__insight${insightOpen ? ' is-open' : ''}`}>
             <button type="button" className="route-brief__insight-toggle" onClick={() => setInsightOpen((open) => !open)} aria-expanded={insightOpen}>{insightOpen ? '收起操作区' : '打开操作区'}</button>
