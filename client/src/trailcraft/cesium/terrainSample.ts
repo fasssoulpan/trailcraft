@@ -26,8 +26,8 @@ import {
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
   sampleTerrainMostDetailed,
-  type TerrainProvider,
-} from 'cesium'
+} from './runtime'
+import type { Cartographic as CesiumCartographic, TerrainProvider } from 'cesium'
 import type { Track } from '../core/model/track'
 import { ESRI_TERRAIN_URL, maptilerTerrainUrl, selectTerrain, type TerrainSource } from './terrainSelection'
 
@@ -109,10 +109,10 @@ export async function sampleTrackElevation(
   // tile-request failures (rejectOnTileFail left at its default `false`) are
   // set to `undefined` by Cesium itself either way; both cases collapse to
   // the same "not finite -> undefined" check below.
-  const cartographics = new Array<Cartographic>(n)
+  const cartographics = new Array<CesiumCartographic>(n)
   for (let i = 0; i < n; i++) cartographics[i] = Cartographic.fromDegrees(lon[i], lat[i], NaN)
 
-  let sampled: Cartographic[]
+  let sampled: CesiumCartographic[]
   try {
     sampled = await sampleTerrainMostDetailed(terrain.provider, cartographics)
   } catch (err) {

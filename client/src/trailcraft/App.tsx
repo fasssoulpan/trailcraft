@@ -1,7 +1,7 @@
-/* 山脊工作台：地图优先、紧凑任务分组；内部预览先保证二维路线流稳定可用。 */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+/* 路线简报：浅色平台导航、四步任务轨道与地图/巡游主画布。 */
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapView } from './map/MapView'
-import { ModeSwitch } from './ui/ModeSwitch'
+import { FlyView } from './ui/FlyView'
 import { LayerPanel } from './ui/LayerPanel'
 import { ImportPanel } from './ui/ImportPanel'
 import { TrackList } from './ui/TrackList'
@@ -13,363 +13,162 @@ import { ExportPanel } from './ui/ExportPanel'
 import { SegmentTable } from './ui/SegmentTable'
 import { ProjectToolbar } from './ui/ProjectToolbar'
 import { ProfileCanvas } from './profile/ProfileCanvas'
-import { Splitter } from './ui/Splitter'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
-import { clamp, loadLayoutSizes, saveLayoutSizes, SIDEBAR_COLLAPSED_WIDTH, type LayoutSizes } from './state/layout'
-import {
-  loadSidebarGroups,
-  saveSidebarGroups,
-  type SidebarGroupState,
-} from './state/sidebarGroups'
 import { MapDebugBadge } from './ui/MapDebugBadge'
-import { ThemeToggle } from './ui/ThemeToggle'
-import { Section } from './ui/primitives/Section'
 import './App.css'
+import './RouteBrief.css'
 
-// Minimums/maximums for the two user-resizable panes. The map itself has no
-// explicit min/max here -- it's whatever's left over from flex:1 auto once
-// the sidebar and profile take their share -- but MAP_MIN_WIDTH/HEIGHT are
-// exactly the numbers the splitters subtract when computing THEIR maximums,
-// which is what actually keeps the map from being squeezed to nothing (the
-// zero-height-canvas bug fixed alongside this: see src/map/trackLayer.ts).
-const SIDEBAR_MIN = 220
-const SIDEBAR_MAX = 560
-const PROFILE_MIN = 120
-const PROFILE_MAX = 480
-const MAP_MIN_WIDTH = 280
-const MAP_MIN_HEIGHT = 160
-const SPLITTER_SIZE = 6
-const MOBILE_BREAKPOINT_PX = 760
+type ToolView = 'workbench' | 'library'
+type WorkflowStage = 'import' | 'edit' | 'analyse' | 'tour'
 
-function FlyViewMigrationNotice() {
-  return (
-    <section
-      aria-labelledby="fly-migration-title"
-      style={{
-        display: 'grid',
-        minHeight: '100%',
-        placeItems: 'center',
-        padding: '2rem',
-        color: 'var(--text-primary)',
-        background: 'radial-gradient(circle at 50% 35%, rgba(229, 106, 53, 0.16), transparent 42%), var(--color-bg)',
-      }}
-    >
-      <div style={{ maxWidth: '30rem', textAlign: 'center' }}>
-        <p style={{ margin: '0 0 0.75rem', color: 'var(--accent)', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em' }}>
-          INTERNAL PREVIEW
-        </p>
-        <h2 id="fly-migration-title" style={{ margin: 0, fontSize: '1.35rem' }}>三维巡游正在迁移验证</h2>
-        <p style={{ margin: '0.8rem 0 0', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-          为优先保障二维轨迹规划、导入和本地分析稳定可用，Cesium 三维地形与 MP4 导出将在下一轮内部验证后恢复。
-        </p>
-      </div>
-    </section>
-  )
+const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
+  { id: 'import', label: '导入与校验', kicker: '01' },
+  { id: 'edit', label: '路线编辑', kicker: '02' },
+  { id: 'analyse', label: '赛前分析', kicker: '03' },
+  { id: 'tour', label: '输出与巡游', kicker: '04' },
+]
+
+const TOOL_CARDS = [
+  { title: '路线工作台', detail: '导入、校验、编辑并输出路线工程。', state: '可用', tool: 'workbench' as const },
+  { title: '三维巡游', detail: '沿当前路线检查地形、镜头与关键帧。', state: '可用', tool: 'tour' as const },
+  { title: '赛前简报', detail: '汇总路线距离、爬升、CP 与风险。', state: '即将推出', tool: undefined },
+  { title: '补给与配速', detail: '基于地形与关门时间生成执行策略。', state: '即将推出', tool: undefined },
+  { title: '表现工具', detail: '分析实跑记录、训练负荷与恢复线索。', state: '即将推出', tool: undefined },
+]
+
+function formatDistance(meters: number | undefined) {
+  if (!meters || !Number.isFinite(meters)) return '—'
+  return `${(meters / 1000).toFixed(1)} km`
 }
 
 function App() {
-  // Collapsed by default: the map should get the majority of the vertical
-  // space by default, and the segment table (a full data table) is heavy
-  // enough that it deserves to be an explicit ask, not always-on real estate.
+  const [toolView, setToolView] = useState<ToolView>('workbench')
+  const [stage, setStage] = useState<WorkflowStage>('import')
+  const [insightOpen, setInsightOpen] = useState(true)
+  const [profileOpen, setProfileOpen] = useState(true)
   const [segmentsOpen, setSegmentsOpen] = useState(false)
-  const [isNarrow, setIsNarrow] = useState(false)
-  const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
-  const mode = useAppStore((s) => s.mode)
   const sourceMemory = useAppStore((s) => s.sourceMemory)
-  // 首次挂载后本地写入还没触发时,不应该把"空对象"的初始 state 覆盖回
-  // IndexedDB,把加载完成前那次 useEffect(依赖 sourceMemory)误当作"用户
-  // 清空了记忆"而写坏已保存的数据。
+  const tracks = useAppStore((s) => s.tracks)
+  const activeTrackId = useAppStore((s) => s.activeTrackId)
+  const cps = useAppStore((s) => s.cps)
+  const mode = useAppStore((s) => s.mode)
+  const setMode = useAppStore((s) => s.setMode)
   const hydrated = useRef(false)
 
-  const [sizes, setSizes] = useState<LayoutSizes>(() => loadLayoutSizes())
-  // Which of the five task groups below (数据/规划/分析/输出/视图) are
-  // expanded -- see state/sidebarGroups.ts for why this is a persisted UI
-  // preference rather than component state that resets every reload.
-  const [groups, setGroups] = useState<SidebarGroupState>(() => loadSidebarGroups())
-  function setGroupOpen(key: keyof SidebarGroupState, open: boolean) {
-    setGroups((g) => {
-      const next = { ...g, [key]: open }
-      saveSidebarGroups(next)
-      return next
-    })
-  }
-  // Mirrors `sizes` for the splitters' onCommit handlers, which only know
-  // the dimension they themselves just changed and need the *other*
-  // dimension's current value to persist the full { sidebarWidth,
-  // profileHeight } pair without going stale across renders.
-  const sizesRef = useRef(sizes)
-  sizesRef.current = sizes
-
-  const appLayoutRef = useRef<HTMLDivElement | null>(null)
-  const mainRef = useRef<HTMLDivElement | null>(null)
-  const segmentsRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    const media = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`)
-    const syncViewport = () => setIsNarrow(media.matches)
-    syncViewport()
-    media.addEventListener('change', syncViewport)
-    return () => media.removeEventListener('change', syncViewport)
-  }, [])
-
-  const sidebarCollapsed = isNarrow ? !mobileToolsOpen : sizes.sidebarCollapsed
-
-  // Collapsing/restoring never touches sizes.sidebarWidth/profileHeight --
-  // it only flips the boolean, so the numeric size a pane restores to is
-  // always whatever it was before it was collapsed, never a default.
-  function toggleSidebar() {
-    if (isNarrow) {
-      setMobileToolsOpen((open) => !open)
-      return
-    }
-    setSizes((s) => {
-      const next = { ...s, sidebarCollapsed: !s.sidebarCollapsed }
-      saveLayoutSizes(next)
-      return next
-    })
-  }
-  function toggleProfile() {
-    setSizes((s) => {
-      const next = { ...s, profileCollapsed: !s.profileCollapsed }
-      saveLayoutSizes(next)
-      return next
-    })
-  }
-
-  const sidebarMax = () => {
-    const el = appLayoutRef.current
-    if (!el) return SIDEBAR_MAX
-    return Math.min(SIDEBAR_MAX, el.clientWidth - MAP_MIN_WIDTH - SPLITTER_SIZE)
-  }
-  const profileMax = () => {
-    const el = mainRef.current
-    if (!el) return PROFILE_MAX
-    const segmentsH = segmentsRef.current?.clientHeight ?? 0
-    return Math.min(PROFILE_MAX, el.clientHeight - MAP_MIN_HEIGHT - SPLITTER_SIZE - segmentsH)
-  }
-
-  // A size restored from a previous, larger window (or just never validated
-  // yet) could violate this window's constraints -- re-clamp once real
-  // layout is available. Runs once on mount; deliberately not on every
-  // window resize (that's a separate concern from "the user dragged a
-  // splitter" and the flex layout + MapView's own ResizeObserver already
-  // keep the map itself correct as the window resizes).
-  useLayoutEffect(() => {
-    setSizes((prev) => {
-      const sidebarWidth = clamp(prev.sidebarWidth, SIDEBAR_MIN, sidebarMax())
-      const profileHeight = clamp(prev.profileHeight, PROFILE_MIN, profileMax())
-      if (sidebarWidth === prev.sidebarWidth && profileHeight === prev.profileHeight) return prev
-      return { ...prev, sidebarWidth, profileHeight }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const activeTrack = useMemo(() => tracks.find((track) => track.id === activeTrackId), [tracks, activeTrackId])
+  const distance = activeTrack?.points.cumDist?.[activeTrack.points.cumDist.length - 1]
+  const elevationGain = useMemo(() => {
+    const elevations = activeTrack?.points.ele
+    if (!elevations || elevations.length < 2) return undefined
+    let gain = 0
+    for (let index = 1; index < elevations.length; index += 1) gain += Math.max(0, elevations[index] - elevations[index - 1])
+    return gain
+  }, [activeTrack])
+  const checkpointCount = useMemo(() => cps.filter((cp) => cp.trackId === activeTrackId).length, [cps, activeTrackId])
 
   useEffect(() => {
     let cancelled = false
     loadSourceMemory()
-      .then((m) => {
-        if (cancelled) return
-        if (Object.keys(m).length > 0) useAppStore.setState({ sourceMemory: m })
+      .then((memory) => {
+        if (!cancelled && Object.keys(memory).length > 0) useAppStore.setState({ sourceMemory: memory })
         hydrated.current = true
       })
-      .catch(() => {
-        hydrated.current = true
-      })
-    return () => {
-      cancelled = true
-    }
+      .catch(() => { hydrated.current = true })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    if (!hydrated.current) return
-    void saveSourceMemory(sourceMemory)
+    if (hydrated.current) void saveSourceMemory(sourceMemory)
   }, [sourceMemory])
 
-  return (
-    <div className="app-layout" ref={appLayoutRef}>
-      {sidebarCollapsed ? (
-        // Collapsed to a thin always-visible strip -- see App.css's own
-        // comment on this class for why the map's minimums don't need to
-        // account for this width (it's far below SIDEBAR_MIN already).
-        <aside className="app-layout__sidebar-collapsed" style={{ width: SIDEBAR_COLLAPSED_WIDTH }}>
-          <button
-            type="button"
-            className="app-layout__sidebar-collapsed-toggle"
-            onClick={toggleSidebar}
-            aria-expanded={false}
-            aria-label={isNarrow ? '打开路线工具' : '展开侧边栏'}
-          >
-            ▸
-          </button>
-        </aside>
-      ) : (
-        <aside
-          className="app-layout__sidebar"
-          style={{ width: sizes.sidebarWidth, flexBasis: sizes.sidebarWidth }}
-        >
-          {/* Pinned, not scrolled away with the rest of the panels: this is the
-           * app's primary mode toggle, and burying it at the top of a long
-           * scrolling column made it unfindable once any track was loaded. */}
-          <div className="app-layout__sidebar-pinned">
-            <div className="app-layout__sidebar-pinned-row">
-              <div className="trailcraft-brand" aria-label="TrailCraft 越野跑路线工作台">
-                <img className="trailcraft-brand__mark" src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" />
-                <span className="trailcraft-brand__name">TrailCraft<small>路线工作台</small></span>
-              </div>
-              <ModeSwitch />
-              <ThemeToggle />
-              <button
-                type="button"
-                className="app-layout__sidebar-collapse-btn"
-                onClick={toggleSidebar}
-                aria-expanded={true}
-                aria-label="收起侧边栏"
-              >
-                ◂
-              </button>
-            </div>
-            {/* Basemap + overlays sit with the mode switch, not in a group of
-              * their own: which basemap you want follows directly from which
-              * mode you're in. */}
-            <LayerPanel />
-          </div>
-          {/* Grouped by task rather than stacked flat -- ten always-present
-           * panels in one scroll was the core usability problem this
-           * redesign set out to fix. Only the group relevant to what the
-           * user is doing needs to be open (state/sidebarGroups.ts persists
-           * which ones are); every panel keeps its own title+description
-           * header underneath (Section, primitives/Section.tsx) so the
-           * grouping adds a layer of navigation without hiding what each
-           * control does. */}
-          <Section
-            variant="group"
-            collapsible
-            title="数据"
-            description="导入轨迹，校验坐标系，保存本机工作区。"
-            open={groups.data}
-            onOpenChange={(open) => setGroupOpen('data', open)}
-          >
-            <ImportPanel />
-            <TrackList />
-            <ProjectToolbar />
-          </Section>
+  function activateStage(next: WorkflowStage) {
+    setToolView('workbench')
+    setStage(next)
+    setMode(next === 'tour' ? 'fly' : 'plan')
+    if (next !== 'import') setInsightOpen(true)
+  }
 
-          <Section
-            variant="group"
-            collapsible
-            title="规划"
-            description="编辑当前路线，设置 CP、配速与关门预警。"
-            open={groups.plan}
-            onOpenChange={(open) => setGroupOpen('plan', open)}
-            actions={
-              mode === 'fly' ? <span className="section__badge">手绘路线仅规划模式可用</span> : undefined
-            }
-          >
-            <ToolboxPanel />
-            <CpPanel />
-            <PacePanel />
-          </Section>
+  function openTool(tool: 'workbench' | 'tour') {
+    if (tool === 'tour') activateStage('tour')
+    else activateStage('import')
+  }
 
-          <Section
-            variant="group"
-            collapsible
-            title="分析"
-            open={groups.analysis}
-            onOpenChange={(open) => setGroupOpen('analysis', open)}
-          >
-            <PerformancePanel />
-          </Section>
+  function renderInsight() {
+    if (stage === 'import') {
+      return <><StageHeader number="01" title="导入与校验" description="导入路线后，先确认坐标与高程是否可信。" /><div className="route-brief__primary-task"><span>下一步</span><strong>导入并校验路线</strong><p>支持 GPX、KML、FIT；全程仅在当前浏览器处理。</p><label htmlFor="trailcraft-route-import">选择路线文件 <b aria-hidden="true">→</b></label></div><ImportPanel /><div className="route-brief__secondary-tools"><TrackList /><ProjectToolbar /><LayerPanel /></div></>
+    }
+    if (stage === 'edit') {
+      return <><StageHeader number="02" title="路线编辑" description="沿活动路线设置 CP、配速与关门判断。" /><ToolboxPanel /><CpPanel /><PacePanel /><LayerPanel /></>
+    }
+    if (stage === 'analyse') {
+      return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel /><LayerPanel /></>
+    }
+    return <><StageHeader number="04" title="输出与巡游" description="从当前路线进入三维地形、镜头与输出流程。" /><ExportPanel /><div className="route-brief__tour-note"><strong>三维巡游</strong><span>{activeTrack ? '已绑定当前活动路线。' : '先导入并选择一条路线。'}</span></div></>
+  }
 
-          <Section
-            variant="group"
-            collapsible
-            title="输出"
-            description="输出高差图、路书、交互网页与配速卡。"
-            open={groups.output}
-            onOpenChange={(open) => setGroupOpen('output', open)}
-          >
-            <ExportPanel />
-          </Section>
-
-        </aside>
-      )}
-      {!sidebarCollapsed && (
-        <Splitter
-          orientation="vertical"
-          value={sizes.sidebarWidth}
-          min={SIDEBAR_MIN}
-          getMax={sidebarMax}
-          onChange={(sidebarWidth) => setSizes((s) => ({ ...s, sidebarWidth }))}
-          onCommit={(sidebarWidth) => saveLayoutSizes({ ...sizesRef.current, sidebarWidth })}
-          label="调整侧边栏宽度"
-        />
-      )}
-      <div className="app-layout__main" ref={mainRef}>
-        <div className="app-layout__map">
-          {/* Only one of these is ever mounted -- switching modes must
-           * genuinely destroy the previous engine (MapLibre's WebGL context
-           * and tile fetching, or Cesium's Viewer) rather than just hiding
-           * it, so two GPU-backed map engines are never running at once. */}
-          {mode === 'plan' ? <MapView /> : <FlyViewMigrationNotice />}
-          {import.meta.env.DEV && mode === 'plan' ? <MapDebugBadge /> : null}
-        </div>
-        <div className="app-layout__segments" ref={segmentsRef}>
-          <button
-            type="button"
-            className="app-layout__segments-toggle"
-            onClick={() => setSegmentsOpen((v) => !v)}
-          >
-            {segmentsOpen ? '▾ 收起分段表' : '▸ 展开分段表'}
-          </button>
-          {segmentsOpen && (
-            <div className="app-layout__segments-body">
-              <SegmentTable />
-            </div>
-          )}
-        </div>
-        {!sizes.profileCollapsed && (
-          <Splitter
-            orientation="horizontal"
-            value={sizes.profileHeight}
-            min={PROFILE_MIN}
-            getMax={profileMax}
-            invert
-            onChange={(profileHeight) => setSizes((s) => ({ ...s, profileHeight }))}
-            onCommit={(profileHeight) => saveLayoutSizes({ ...sizesRef.current, profileHeight })}
-            label="调整高程剖面图高度"
-          />
-        )}
-        <div
-          className="app-layout__profile"
-          // Collapsed: no explicit height/flexBasis, so flex:0 0 auto (see
-          // App.css) sizes this down to just the toggle button's own content
-          // height instead of a hard-coded number -- see layout.ts's
-          // SIDEBAR_COLLAPSED_WIDTH doc comment for why the profile pane
-          // doesn't have an equivalent constant.
-          style={sizes.profileCollapsed ? undefined : { height: sizes.profileHeight, flexBasis: sizes.profileHeight }}
-        >
-          {/* Same always-visible-toggle idiom as .app-layout__segments-toggle
-           * above (SegmentTable's own collapse control) rather than a
-           * separate style. */}
-          <button
-            type="button"
-            className="app-layout__profile-toggle"
-            onClick={toggleProfile}
-            aria-expanded={!sizes.profileCollapsed}
-            aria-label={sizes.profileCollapsed ? '展开高程剖面图' : '收起高程剖面图'}
-          >
-            {sizes.profileCollapsed ? '▸ 展开高程剖面图' : '▾ 收起高程剖面图'}
-          </button>
-          {!sizes.profileCollapsed && (
-            <div className="app-layout__profile-body">
-              <ProfileCanvas />
-            </div>
-          )}
-        </div>
+  if (toolView === 'library') {
+    return (
+      <div className="tool-platform">
+        <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} onTour={() => activateStage('tour')} />
+        <main className="tool-library" id="main-content">
+          <section className="tool-library__hero">
+            <div><p className="eyebrow">TRAILCRAFT TOOLS</p><h1>为每一段山路，找到下一步。</h1><p>从路线校验到三维巡游，所有工具围绕一次更从容的出发。</p></div>
+            <img src="/manus-storage/trailcraft-hero-ridge_fafb23ee.jpg" alt="山脊与云雾中的越野跑路线地貌" />
+          </section>
+          <section className="tool-library__grid" aria-label="TrailCraft 工具库">
+            {TOOL_CARDS.map((card) => (
+              <article className={`tool-card${card.tool ? ' tool-card--active' : ''}`} key={card.title}>
+                <span className="tool-card__state">{card.state}</span><h2>{card.title}</h2><p>{card.detail}</p>
+                {card.tool ? <button type="button" onClick={() => openTool(card.tool)}>打开工具 <span aria-hidden="true">→</span></button> : <span className="tool-card__coming">规划中</span>}
+              </article>
+            ))}
+          </section>
+        </main>
       </div>
+    )
+  }
+
+  return (
+    <div className="tool-platform">
+      <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} onTour={() => activateStage('tour')} />
+      <main className="route-brief" id="main-content">
+        <section className="route-brief__intro">
+          <div><p className="eyebrow">ROUTE WORKBENCH</p><h1>{activeTrack ? activeTrack.meta.name : '从一条路线开始。'}</h1><p>{activeTrack ? '路线已载入。选择下一步，把数据变成赛前决定。' : '导入 GPX、KML 或 FIT；文件仅在当前浏览器中处理。'}</p></div>
+          <div className="route-brief__metrics" aria-label="当前路线摘要">
+            <Metric label="路线" value={activeTrack ? '已载入' : '待导入'} /><Metric label="距离" value={formatDistance(distance)} /><Metric label="爬升" value={elevationGain === undefined ? '待校验' : `+${Math.round(elevationGain)} m`} /><Metric label="CP" value={activeTrack ? `${checkpointCount} 个` : '—'} />
+          </div>
+        </section>
+        <nav className={`route-brief__steps route-brief__steps--${stage}`} aria-label="路线工作步骤">
+          {STAGES.map((item) => <button key={item.id} type="button" className={stage === item.id ? 'is-active' : ''} onClick={() => activateStage(item.id)}><span>{item.kicker}</span>{item.label}</button>)}
+        </nav>
+        <section className={`route-brief__workspace${mode === 'fly' ? ' route-brief__workspace--fly' : ''}`}>
+          <div className="route-brief__canvas">
+            {mode === 'fly' ? <FlyView /> : <MapView />}
+            {mode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
+            {import.meta.env.DEV && mode === 'plan' ? <MapDebugBadge /> : null}
+          </div>
+          <aside className={`route-brief__insight${insightOpen ? ' is-open' : ''}`}>
+            <button type="button" className="route-brief__insight-toggle" onClick={() => setInsightOpen((open) => !open)} aria-expanded={insightOpen}>{insightOpen ? '收起操作区' : '打开操作区'}</button>
+            {insightOpen && <div className="route-brief__insight-body">{renderInsight()}</div>}
+          </aside>
+        </section>
+        <section className="route-brief__data-band">
+          <div className="route-brief__data-band-head"><span>高程与分段</span><div><button type="button" onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? '收起高程' : '展开高程'}</button><button type="button" onClick={() => setSegmentsOpen((open) => !open)}>{segmentsOpen ? '收起分段' : '查看分段'}</button></div></div>
+          {profileOpen && <div className="route-brief__profile"><ProfileCanvas /></div>}
+          {segmentsOpen && <div className="route-brief__segments"><SegmentTable /></div>}
+        </section>
+      </main>
     </div>
   )
 }
+
+function PlatformNav({ view, onWorkbench, onLibrary, onTour }: { view: ToolView; onWorkbench: () => void; onLibrary: () => void; onTour: () => void }) {
+  return <header className="platform-nav"><button className="platform-nav__brand" type="button" onClick={onWorkbench} aria-label="返回 TrailCraft 路线工作台"><img src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" /><span>TrailCraft<small>ROUTE BRIEF</small></span></button><nav aria-label="主要导航"><button type="button" className={view === 'workbench' ? 'is-current' : ''} onClick={onWorkbench}>路线工作台</button><button type="button" className={view === 'library' ? 'is-current' : ''} onClick={onLibrary}>工具库</button><button type="button" onClick={onTour}>三维巡游</button></nav><span className="platform-nav__status">本地优先 · 现有图源</span></header>
+}
+
+function Metric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }
+function StageHeader({ number, title, description }: { number: string; title: string; description: string }) { return <header className="stage-header"><span>{number}</span><div><h2>{title}</h2><p>{description}</p></div></header> }
+function RouteCanvasGuide() { return <div className="route-canvas-guide"><span className="route-canvas-guide__code">ROUTE / 00</span><svg viewBox="0 0 440 112" aria-hidden="true"><path d="M8 96 C65 88 74 36 128 52 S202 95 244 63 S305 14 352 40 S390 80 432 15" /><circle cx="8" cy="96" r="4" /><circle cx="432" cy="15" r="5" /></svg><div><strong>路线画布已就绪</strong><span>导入后将自动检查坐标、距离与高程。</span><label htmlFor="trailcraft-route-import">导入并校验路线 <b aria-hidden="true">→</b></label></div></div> }
 
 export default App

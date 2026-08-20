@@ -25,15 +25,13 @@ import {
   ConstantPositionProperty,
   HeadingPitchRange,
   HeightReference,
-  Math as CesiumMath,
+  CesiumMath,
   Matrix4,
   NearFarScalar,
   Transforms,
   VerticalOrigin,
-  type Clock,
-  type Entity,
-  type Viewer,
-} from 'cesium'
+} from './runtime'
+import type { Clock, Entity, HeightReference as CesiumHeightReference, Viewer } from 'cesium'
 import type { Track } from '../core/model/track'
 import { buildPositionArray, synthesizeTimeline, RENDER_MAX_3D } from './trackGeometry'
 import {
@@ -129,9 +127,12 @@ const ORBIT_WHEEL_ZOOM_FACTOR = 1.2
 const ELEVATIONLESS_CLEARANCE_M = 50
 
 function effectiveGroundHeightM(viewer: Viewer, lon: number, lat: number, pointHeightM: number, hasElevation: boolean): number {
-  if (hasElevation) return pointHeightM
   const terrainH = viewer.scene.globe.getHeight(Cartographic.fromDegrees(lon, lat))
-  return terrainH !== undefined ? Math.max(pointHeightM, terrainH) : pointHeightM + ELEVATIONLESS_CLEARANCE_M
+  // GPS/barometric track elevation and streamed terrain elevation can use
+  // different vertical datums. Even a track with recorded elevation must not
+  // force the camera under a terrain tile that has already resolved higher.
+  if (terrainH !== undefined) return Math.max(pointHeightM, terrainH)
+  return hasElevation ? pointHeightM : pointHeightM + ELEVATIONLESS_CLEARANCE_M
 }
 
 // ---- Moving marker ------------------------------------------------------
@@ -183,7 +184,7 @@ function markerImage(): string {
   return markerImageCache
 }
 
-function buildMarkerEntityOptions(position: TrackPathPoint, heightReference: HeightReference): Entity.ConstructorOptions {
+function buildMarkerEntityOptions(position: TrackPathPoint, heightReference: CesiumHeightReference): Entity.ConstructorOptions {
   return {
     id: FLYTHROUGH_MARKER_ENTITY_ID,
     position: Cartesian3.fromDegrees(position.lon, position.lat, position.height),
@@ -334,7 +335,7 @@ export class FlythroughEngine {
     const heightReference = this.hasElevationColumn ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND
     this.markerEntity = viewer.entities.add(
       buildMarkerEntityOptions(
-        { ...initialSample.position, height: this.markerAbsoluteHeight(initialSample.position) },
+        { ...initialSample.position, height: initialSample.position.height + MARKER_CLEARANCE_M },
         heightReference,
       ),
     )
@@ -384,7 +385,9 @@ export class FlythroughEngine {
   pause(): void {
     if (this.destroyed) return
     this.playing = false
-    this.viewer.scene.requestRenderMode = true
+    // FlyView keeps a live Cesium scene while the 3D workspace is open so
+    // terrain/imagery arrivals remain visible after playback pauses.
+    this.viewer.scene.requestRenderMode = false
     this.viewer.scene.requestRender()
   }
 
@@ -497,7 +500,7 @@ export class FlythroughEngine {
         // last frame -- also what puts requestRenderMode back to true
         // without the caller having to notice mileage saturated.
         this.playing = false
-        this.viewer.scene.requestRenderMode = true
+        this.viewer.scene.requestRenderMode = false
       } else {
         this.mileageM = next
       }
@@ -507,10 +510,6 @@ export class FlythroughEngine {
     }
 
     this.applyFrame()
-  }
-
-  private markerAbsoluteHeight(position: TrackPathPoint): number {
-    return this.hasElevationColumn ? position.height + MARKER_CLEARANCE_M : position.height
   }
 
   /** Whether the *specific* render point `sample` brackets has real
@@ -528,10 +527,18 @@ export class FlythroughEngine {
 
   private applyFrame(): void {
     const sample = sampleAtMileage(this.path, this.mileageM)
+    const hasElevation = this.hasElevationAt(sample)
+    const groundHeight = effectiveGroundHeightM(
+      this.viewer,
+      sample.position.lon,
+      sample.position.lat,
+      sample.position.height,
+      hasElevation,
+    )
     const markerCartesian = Cartesian3.fromDegrees(
       sample.position.lon,
       sample.position.lat,
-      this.markerAbsoluteHeight(sample.position),
+      groundHeight + MARKER_CLEARANCE_M,
     )
     this.markerEntity.position = new ConstantPositionProperty(markerCartesian)
 
@@ -554,10 +561,10 @@ export class FlythroughEngine {
 
     switch (this.cameraMode) {
       case 'follow':
-        this.applyFollowCamera(sample, cameraConfig)
+        this.applyFollowCamera(sample, cameraConfig, groundHeight)
         break
       case 'orbit':
-        this.applyOrbitCamera(sample)
+        this.applyOrbitCamera(sample, groundHeight)
         break
       case 'free':
         break // camera left entirely to the user
@@ -593,15 +600,7 @@ export class FlythroughEngine {
    * template sweep the heading offset through 360 degrees and get an
    * actual orbit-look, with no separate "look at" computation needed here.
    */
-  private applyFollowCamera(sample: PathSample, cameraConfig: CameraKeyframeConfig): void {
-    const hasElevation = this.hasElevationAt(sample)
-    const groundHeight = effectiveGroundHeightM(
-      this.viewer,
-      sample.position.lon,
-      sample.position.lat,
-      sample.position.height,
-      hasElevation,
-    )
+  private applyFollowCamera(sample: PathSample, cameraConfig: CameraKeyframeConfig, groundHeight: number): void {
     const groundPoint: TrackPathPoint = { lon: sample.position.lon, lat: sample.position.lat, height: groundHeight }
     const positionHeadingDeg = sample.headingDeg + cameraConfig.headingOffsetDeg
     const pose = followCameraOffset(groundPoint, positionHeadingDeg, {
@@ -619,15 +618,7 @@ export class FlythroughEngine {
     })
   }
 
-  private applyOrbitCamera(sample: PathSample): void {
-    const hasElevation = this.hasElevationAt(sample)
-    const groundHeight = effectiveGroundHeightM(
-      this.viewer,
-      sample.position.lon,
-      sample.position.lat,
-      sample.position.height,
-      hasElevation,
-    )
+  private applyOrbitCamera(sample: PathSample, groundHeight: number): void {
     const origin = Cartesian3.fromDegrees(sample.position.lon, sample.position.lat, groundHeight)
     const transform = Transforms.eastNorthUpToFixedFrame(origin)
     this.viewer.camera.lookAtTransform(

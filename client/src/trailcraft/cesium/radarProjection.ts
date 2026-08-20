@@ -16,7 +16,8 @@
  * exact reasoning `ui/HudOverlay.tsx`/`ui/CheckpointCard.tsx` already
  * document for their own `FlythroughProgressInfo` type-only imports.
  */
-import { Cartesian2, Cartesian3, SceneTransforms, type Scene, type Viewer } from 'cesium'
+import { Cartesian2, Cartesian3, SceneTransforms } from './runtime'
+import type { Scene, Viewer } from 'cesium'
 import { FLYTHROUGH_MARKER_ENTITY_ID } from './flythrough'
 
 /**

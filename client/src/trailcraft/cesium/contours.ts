@@ -66,8 +66,8 @@ import {
   LabelStyle,
   Material,
   VerticalOrigin,
-  type Viewer,
-} from 'cesium'
+} from './runtime'
+import type { LabelCollection as CesiumLabelCollection, Viewer } from 'cesium'
 import { contourLabelPlacements, type ContourHeightGrid } from './contourLabels'
 import { contourSpacingForCameraHeight } from './contourSpacing'
 import { contourPresetForStyle } from './contourPreset'
@@ -171,7 +171,7 @@ export function attachContours(viewer: Viewer, initialStyle: BasemapStyle): Cont
   let appliedStyle: BasemapStyle | undefined
   // Created lazily: a viewer that never turns contours on should not carry a
   // primitive at all, and FlyView attaches this handle on every viewer.
-  let labels: LabelCollection | undefined
+  let labels: CesiumLabelCollection | undefined
 
   function clearLabels(): void {
     if (!labels) return

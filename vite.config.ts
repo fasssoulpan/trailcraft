@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -203,6 +204,52 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
+const CESIUM_BASE_URL = "cesium";
+const CESIUM_BUILD_DIR = path.join(PROJECT_ROOT, "node_modules", "cesium", "Build", "Cesium");
+
+/**
+ * vite-plugin-static-copy flattens paths differently in dev and production.
+ * Cesium resolves JSON, Web Worker and widget URLs directly from
+ * `CESIUM_BASE_URL`, so serve the source build tree verbatim while developing;
+ * the static-copy targets below produce this same `/cesium/*` shape on build.
+ */
+function vitePluginCesiumDevAssets(): Plugin {
+  const contentTypes: Record<string, string> = {
+    ".css": "text/css; charset=utf-8",
+    ".gif": "image/gif",
+    ".glsl": "text/plain; charset=utf-8",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".wasm": "application/wasm",
+  };
+
+  return {
+    name: "trailcraft-cesium-dev-assets",
+    enforce: "pre",
+    configureServer(server: ViteDevServer) {
+      const serveCesiumAsset = (req: Parameters<ViteDevServer["middlewares"]["use"]>[0], res: Parameters<ViteDevServer["middlewares"]["use"]>[1], next: Parameters<ViteDevServer["middlewares"]["use"]>[2]) => {
+        if (!req.url || req.method !== "GET") return next();
+        const relativePath = decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "");
+        const filePath = path.resolve(CESIUM_BUILD_DIR, relativePath);
+        if (!filePath.startsWith(`${CESIUM_BUILD_DIR}${path.sep}`) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return next();
+        res.setHeader("Content-Type", contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        fs.createReadStream(filePath).pipe(res);
+      };
+      // Vite's SPA fallback sits early in the Connect stack in this template.
+      // Insert the mounted Cesium handler at index 0 rather than registering
+      // another ordinary middleware behind that fallback.
+      const stack = server.middlewares as unknown as { stack: Array<{ route: string; handle: typeof serveCesiumAsset }> };
+      stack.stack.unshift({ route: `/${CESIUM_BASE_URL}`, handle: serveCesiumAsset });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -210,6 +257,21 @@ const plugins = [
   vitePluginManusRuntime(),
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
+  vitePluginCesiumDevAssets(),
+  viteStaticCopy({
+    targets: [
+      {
+        src: "../node_modules/cesium/Build/Cesium/Cesium.js",
+        dest: CESIUM_BASE_URL,
+        rename: { stripBase: true },
+      },
+      ...["Workers", "ThirdParty", "Assets", "Widgets"].map((dir) => ({
+      src: `../node_modules/cesium/Build/Cesium/${dir}`,
+      dest: CESIUM_BASE_URL,
+      rename: { stripBase: 5 },
+      })),
+    ],
+  }),
 ];
 
 export default defineConfig({
@@ -223,6 +285,9 @@ export default defineConfig({
   },
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
+  define: {
+    CESIUM_BASE_URL: JSON.stringify(`/${CESIUM_BASE_URL}`),
+  },
   optimizeDeps: {
     exclude: ["maplibre-gl"],
   },

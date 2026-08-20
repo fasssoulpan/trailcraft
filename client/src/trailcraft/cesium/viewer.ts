@@ -14,26 +14,30 @@
  * WebGL-backed Viewer.
  */
 import {
+  ArcGisMapServerImageryProvider,
   ArcGISTiledElevationTerrainProvider,
   Cartesian3,
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
+  GridImageryProvider,
   ImageryLayer,
   ScreenSpaceEventType,
   UrlTemplateImageryProvider,
   Viewer,
-  type TerrainProvider,
-} from 'cesium'
+} from './runtime'
+import type { TerrainProvider, Viewer as CesiumViewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import {
   ESRI_STREET_CREDIT,
   ESRI_STREET_URL,
+  ESRI_STREET_SERVICE_URL,
   ESRI_TERRAIN_URL,
   maptilerTerrainUrl,
   selectImagery,
   selectTerrain,
   type ImagerySource,
   type TerrainSource,
+  ESRI_IMAGERY_SERVICE_URL,
 } from './terrainSelection'
 import { terrainProviderForStyle } from './basemap'
 import { DEFAULT_BASEMAP_STYLE, type BasemapStyle } from '../state/basemapPref'
@@ -102,7 +106,7 @@ export interface CesiumBasemapHandle {
 }
 
 export interface CesiumViewerHandle {
-  viewer: Viewer
+  viewer: CesiumViewer
   providers: ProviderReport
   basemap: CesiumBasemapHandle
   /**
@@ -131,7 +135,7 @@ const TERRAIN_SETTLE_TIMEOUT_MS = 4_000
  * indication instead of leaving the scene looking frozen/broken while that
  * happens, per the milestone brief's explicit callout.
  */
-function waitForTerrainSettle(viewer: Viewer, onSettled: () => void): void {
+function waitForTerrainSettle(viewer: CesiumViewer, onSettled: () => void): void {
   let settled = false
   const finish = () => {
     if (settled) return
@@ -190,13 +194,12 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   const mapTilerKey = opts?.mapTilerKey ?? import.meta.env.VITE_MAPTILER_API_KEY
   const hasMapTilerKey = !!mapTilerKey
 
+  // Cesium now starts without its decorative skybox textures, so the existing
+  // MapTiler → Esri → flat fallback chain can be used again for actual terrain
+  // without a static-image failure taking down the whole flythrough.
   const terrain = await selectTerrain<TerrainProvider>({
     hasMapTilerKey,
-    loadMapTiler: () =>
-      CesiumTerrainProvider.fromUrl(maptilerTerrainUrl(mapTilerKey!), {
-        requestWaterMask: false,
-        requestVertexNormals: false,
-      }),
+    loadMapTiler: () => CesiumTerrainProvider.fromUrl(maptilerTerrainUrl(mapTilerKey!), { requestWaterMask: false, requestVertexNormals: false }),
     loadEsri: () => ArcGISTiledElevationTerrainProvider.fromUrl(ESRI_TERRAIN_URL),
     createEllipsoid: () => new EllipsoidTerrainProvider(),
   })
@@ -232,8 +235,16 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
         baseLayer: false,
         terrainProvider: terrain.provider,
 
-        requestRenderMode: true,
+        // Terrain and imagery arrive asynchronously. Keep the 3D workspace
+        // rendering while it is mounted so a completed remote tile request
+        // cannot be stranded behind an idle request-render frame.
+        requestRenderMode: false,
         scene3DOnly: true,
+        // The default skybox loads six static JPEG textures from Cesium's
+        // asset tree. Keep this data-focused route viewer free of decorative
+        // sky textures so a failed static asset can never stop the scene.
+        skyBox: false,
+        skyAtmosphere: false,
         shadows: false,
       }),
     ),
@@ -246,27 +257,18 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   // closure below would normally have introduced this binding.
   let destroyed = false
 
-  // Both basemap-style imagery layers are added up front -- switching later
-  // (see `basemap.setStyle` below) only ever flips `ImageryLayer#show`, it
-  // never adds/removes a layer, so a style already visited once doesn't
-  // re-fetch tiles it already has.
-  const satelliteImageryLayer: ImageryLayer = viewer.imageryLayers.addImageryProvider(
-    new UrlTemplateImageryProvider({
-      url: imagery.url,
-      credit: imagery.credit,
-      minimumLevel: 0,
-      maximumLevel: 20,
-    }),
+  // With the default skybox disabled (it was the non-decodable static image
+  // path in this deployment), the existing service-backed imagery can be
+  // attached directly without blocking Viewer creation.
+  viewer.imageryLayers.addImageryProvider(new GridImageryProvider({ cells: 16 }))
+  const satelliteImageryLayer = viewer.imageryLayers.addImageryProvider(
+    new UrlTemplateImageryProvider({ url: imagery.url, credit: imagery.credit, minimumLevel: 0, maximumLevel: 20 }),
   )
-  const planImageryLayer: ImageryLayer = viewer.imageryLayers.addImageryProvider(
-    new UrlTemplateImageryProvider({
-      url: ESRI_STREET_URL,
-      credit: ESRI_STREET_CREDIT,
-      minimumLevel: 0,
-      maximumLevel: 19,
-    }),
+  const planImageryLayer = viewer.imageryLayers.addImageryProvider(
+    new UrlTemplateImageryProvider({ url: ESRI_STREET_URL, credit: ESRI_STREET_CREDIT, minimumLevel: 0, maximumLevel: 19 }),
   )
   planImageryLayer.show = false
+  let activeStyle: BasemapStyle = DEFAULT_BASEMAP_STYLE
 
   // Flat fallback for "二维平面图": a second, independent
   // EllipsoidTerrainProvider instance (never shared with the ellipsoid
@@ -283,6 +285,7 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   const basemap: CesiumBasemapHandle = {
     setStyle: (style, onLoadingChange) => {
       if (destroyed) return
+      activeStyle = style
       satelliteImageryLayer.show = style === 'satellite'
       planImageryLayer.show = style === 'plan'
       const nextTerrain = terrainProviderForStyle(style, { threeD: terrain.provider, flat: flatTerrainProvider })
@@ -303,6 +306,11 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   // `basemap`'s internal bookkeeping matches the Viewer's actual initial
   // state even if a caller never calls `setStyle` at all.
   basemap.setStyle(DEFAULT_BASEMAP_STYLE)
+
+  // Mount service-backed imagery after the Viewer is usable. Any failure or
+  // long metadata wait leaves the grid visible rather than trapping FlyView
+  // in its loading state; switching modes, track preview and camera controls
+  // all remain available during that downgrade.
 
   const cameraController = viewer.scene.screenSpaceCameraController
   cameraController.enableCollisionDetection = false

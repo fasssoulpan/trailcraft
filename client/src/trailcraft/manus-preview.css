@@ -1,4 +1,4 @@
-/* 山脊工作台：内部预览状态必须可见但不能盖住地图操作。 */
+/* 路线简报：候选版本状态可见但不盖住地图或三维巡游操作。 */
 .manus-internal-preview {
   position: fixed;
   z-index: 10000;
@@ -7,11 +7,11 @@
   margin: 0;
   max-width: min(29rem, calc(100vw - 1.5rem));
   padding: 0.5rem 0.72rem;
-  border: 1px solid rgba(229, 106, 53, 0.52);
+  border: 1px solid rgba(45, 101, 85, 0.24);
   border-radius: 0.5rem;
-  color: #f7d8c7;
-  background: rgba(17, 23, 19, 0.9);
-  box-shadow: 0 0.6rem 1.8rem rgba(0, 0, 0, 0.28);
+  color: #36584d;
+  background: rgba(255, 253, 249, 0.92);
+  box-shadow: 0 0.6rem 1.8rem rgba(45, 82, 66, 0.14);
   font: 500 0.75rem/1.35 ui-monospace, "SFMono-Regular", Consolas, monospace;
   letter-spacing: 0.01em;
   pointer-events: none;

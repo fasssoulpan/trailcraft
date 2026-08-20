@@ -81,7 +81,8 @@ export interface ImagerySelectionResult {
 // that most XYZ tile schemes (including this app's own OSM basemap in
 // map/MapView.tsx) use. Getting this wrong silently renders scrambled
 // imagery rather than failing loudly, so it's worth this explicit callout.
-const ESRI_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+const ESRI_IMAGERY_SERVICE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+const ESRI_IMAGERY_URL = `${ESRI_IMAGERY_SERVICE_URL}/tile/{z}/{y}/{x}`
 const ESRI_IMAGERY_CREDIT = 'Esri, Maxar, Earthstar Geographics'
 const ESRI_TERRAIN_URL = 'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer'
 
@@ -94,7 +95,8 @@ const ESRI_TERRAIN_URL = 'https://elevation3d.arcgis.com/arcgis/rest/services/Wo
 // `contours.ts`'s per-basemap colour presets an imagery background that's
 // genuinely different from the satellite style, not just flatter terrain
 // under the same photo.
-const ESRI_STREET_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+const ESRI_STREET_SERVICE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer'
+const ESRI_STREET_URL = `${ESRI_STREET_SERVICE_URL}/tile/{z}/{y}/{x}`
 const ESRI_STREET_CREDIT = 'Esri, HERE, Garmin, FAO, NOAA, USGS'
 
 export function maptilerTerrainUrl(key: string): string {
@@ -120,4 +122,4 @@ export function selectImagery(mapTilerKey: string | undefined): ImagerySelection
   return { url: ESRI_IMAGERY_URL, credit: ESRI_IMAGERY_CREDIT, source: 'esri' }
 }
 
-export { ESRI_IMAGERY_URL, ESRI_IMAGERY_CREDIT, ESRI_TERRAIN_URL, ESRI_STREET_URL, ESRI_STREET_CREDIT }
+export { ESRI_IMAGERY_SERVICE_URL, ESRI_IMAGERY_URL, ESRI_IMAGERY_CREDIT, ESRI_TERRAIN_URL, ESRI_STREET_SERVICE_URL, ESRI_STREET_URL, ESRI_STREET_CREDIT }

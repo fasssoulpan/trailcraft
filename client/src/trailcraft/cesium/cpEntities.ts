@@ -16,7 +16,8 @@
  * lookup + entity CRUD) that there's nothing worth extracting into a pure
  * module the way trackGeometry.ts exists for track rendering.
  */
-import { Cartesian2, Cartesian3, Color, ConstantPositionProperty, ConstantProperty, HeightReference, LabelStyle, NearFarScalar, VerticalOrigin, type Entity, type Viewer } from 'cesium'
+import { Cartesian2, Cartesian3, Color, ConstantPositionProperty, ConstantProperty, HeightReference, LabelStyle, NearFarScalar, VerticalOrigin } from './runtime'
+import type { Cartesian3 as CesiumCartesian3, Entity, Viewer } from 'cesium'
 import type { CheckPoint } from '../core/model/checkpoint'
 import { CP_KIND_COLORS } from '../core/model/checkpoint'
 import type { Track } from '../core/model/track'
@@ -55,7 +56,7 @@ function cpEntityId(cpId: string): string {
  * `Cartesian3.fromDegrees` here is irrelevant -- Cesium overrides it with
  * the terrain height at render time regardless of what's passed in.
  */
-function resolvePosition(track: Track, cp: CheckPoint): Cartesian3 | undefined {
+function resolvePosition(track: Track, cp: CheckPoint): CesiumCartesian3 | undefined {
   const { lon, lat } = track.points
   if (cp.anchorIndex < 0 || cp.anchorIndex >= lon.length) return undefined
   return Cartesian3.fromDegrees(lon[cp.anchorIndex], lat[cp.anchorIndex], 0)
@@ -74,7 +75,7 @@ function labelText(cp: CheckPoint, ordinal: number): string {
  * background circle because they sit on the light OSM basemap, not
  * imagery, so that approach alone wouldn't read here.
  */
-function buildCpEntity(id: string, position: Cartesian3, color: string, text: string): Entity.ConstructorOptions {
+function buildCpEntity(id: string, position: CesiumCartesian3, color: string, text: string): Entity.ConstructorOptions {
   return {
     id,
     position,
@@ -113,7 +114,7 @@ function needsUpdate(prev: CpEntityInfo, cp: CheckPoint, ordinal: number, track:
   )
 }
 
-function applyCpUpdate(entity: Entity, position: Cartesian3, color: string, text: string): void {
+function applyCpUpdate(entity: Entity, position: CesiumCartesian3, color: string, text: string): void {
   entity.position = new ConstantPositionProperty(position)
   if (entity.point) entity.point.color = new ConstantProperty(Color.fromCssColorString(color))
   if (entity.label) entity.label.text = new ConstantProperty(text)

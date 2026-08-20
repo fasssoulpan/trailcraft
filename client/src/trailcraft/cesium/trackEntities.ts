@@ -29,10 +29,9 @@ import {
   NearFarScalar,
   PolylineGlowMaterialProperty,
   VerticalOrigin,
-  Math as CesiumMath,
-  type Entity,
-  type Viewer,
-} from 'cesium'
+  CesiumMath,
+} from './runtime'
+import type { Cartesian3 as CesiumCartesian3, Entity, Viewer } from 'cesium'
 import type { Track } from '../core/model/track'
 import { buildPositionArray, synthesizeTimeline, RENDER_MAX_3D } from './trackGeometry'
 import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
@@ -41,14 +40,14 @@ import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 
 interface TrackGeometry {
   /** Ground positions for every render point, same order as trackGeometry's `idx`. */
-  positions: Cartesian3[]
+  positions: CesiumCartesian3[]
   /** Full-precision index of each render position (see trackGeometry.ts). */
   idx: Uint32Array
   /** Per-render-point playback time in seconds from start (N3 will consume this). */
   times: number[]
   syntheticTimeline: boolean
-  startPos: Cartesian3
-  finishPos: Cartesian3
+  startPos: CesiumCartesian3
+  finishPos: CesiumCartesian3
 }
 
 // Keyed on the Track object itself (not its id): P0's Track is immutable --
@@ -135,7 +134,7 @@ function finishId(trackId: string): string {
  * fills never have to worry about (2D markers sit on a light OSM basemap,
  * not imagery).
  */
-function buildMarkerEntity(id: string, position: Cartesian3, color: string, text: string): Entity.ConstructorOptions {
+function buildMarkerEntity(id: string, position: CesiumCartesian3, color: string, text: string): Entity.ConstructorOptions {
   return {
     id,
     position,

@@ -5,18 +5,17 @@
  * localStorage with every access wrapped in try/catch, same reasoning as
  * those modules (localStorage doesn't exist in the Node test environment).
  *
- * Dark is the default (see src/index.css's own header comment for why) --
- * `loadTheme()` only ever returns 'light' if the user (or a previous
- * session) explicitly chose it.
+ * Light is the default for the public Route Brief platform; dark imagery
+ * remains isolated inside the 3D canvas and its own overlay controls.
  */
 
 export type Theme = 'dark' | 'light'
 
 const STORAGE_KEY = 'trailcraft:theme:v1'
 
-export const DEFAULT_THEME: Theme = 'dark'
+export const DEFAULT_THEME: Theme = 'light'
 
-/** Reads the persisted theme, falling back to 'dark' whenever localStorage
+/** Reads the persisted theme, falling back to 'light' whenever localStorage
  * is unavailable, empty, or holds anything other than exactly
  * 'dark'/'light'. */
 export function loadTheme(): Theme {

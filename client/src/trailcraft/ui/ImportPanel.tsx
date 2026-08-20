@@ -111,6 +111,7 @@ export function ImportPanel() {
         <label className="import-panel__input-label">
           导入轨迹文件
           <input
+            id="trailcraft-route-import"
             type="file"
             multiple
             accept={ACCEPT}

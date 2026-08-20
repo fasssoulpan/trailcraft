@@ -14,6 +14,7 @@ import { CheckpointCard, type CheckpointCardHandle } from './CheckpointCard'
 import { RadarOverlay, type RadarOverlayHandle } from './RadarOverlay'
 import { getHudTrackStats } from './hudStats'
 import { buildRadarTargets } from '../overlay/radarTargets'
+import { loadCesiumRuntime } from '../cesium/loader'
 
 type ViewState =
   | { status: 'loading' }
@@ -287,7 +288,7 @@ export function FlyView() {
     // CpEntitiesModule/FlythroughModule/ContoursModule/
     // RadarProjectionModule/FrameExportModule comment above) or `cesium`/
     // `mp4-muxer` would re-enter the main bundle.
-    Promise.all([
+    loadCesiumRuntime().then(() => Promise.all([
       import('../cesium/viewer'),
       import('../cesium/trackEntities'),
       import('../cesium/cpEntities'),
@@ -295,7 +296,7 @@ export function FlyView() {
       import('../cesium/contours'),
       import('../cesium/radarProjection'),
       import('../cesium/frameExport'),
-    ])
+    ]))
       .then(([viewerMod, entitiesMod, cpMod, flythroughMod, contoursMod, radarProjectionMod, frameExportMod]) => {
         chunkFailed = false
         entitiesModRef.current = entitiesMod
