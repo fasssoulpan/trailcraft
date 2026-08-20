@@ -189,7 +189,7 @@ function PlatformNav({ view, onWorkbench, onLibrary }: { view: ToolView; onWorkb
 }
 
 function MapCanvasModeSwitch({ mode, onPlan, onFly }: { mode: 'plan' | 'fly'; onPlan: () => void; onFly: () => void }) {
-  return <div className="map-mode-switch" role="group" aria-label="地图视图"><button type="button" className={mode === 'plan' ? 'is-active' : ''} onClick={onPlan}>2D 地图</button><button type="button" className={mode === 'fly' ? 'is-active' : ''} onClick={onFly}>3D 巡游</button></div>
+  return <div className="map-mode-switch" role="group" aria-label="地图引擎视图"><button type="button" className={mode === 'plan' ? 'is-active' : ''} onClick={onPlan}>平面路线图</button><button type="button" className={mode === 'fly' ? 'is-active' : ''} onClick={onFly}>三维巡游</button></div>
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }

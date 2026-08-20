@@ -5,8 +5,8 @@ import { Field } from './primitives/Field'
 import { SegmentedControl } from './primitives/SegmentedControl'
 
 const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
-  { value: 'satellite', label: '3D 卫星图' },
-  { value: 'plan', label: '二维平面图' },
+  { value: 'satellite', label: '卫星地形' },
+  { value: 'plan', label: '道路底图' },
 ]
 
 /**
@@ -55,7 +55,7 @@ export function LayerPanel() {
      * scrolling column. No Section wrapper here -- a titled, describable
      * card would out-weigh the mode switch it sits under. */
     <div className="layer-panel">
-      <Field label="底图">
+      <Field label="底图样式" hint="仅切换影像样式，不改变平面路线图/三维巡游模式">
         <SegmentedControl
           value={currentStyle}
           options={BASEMAP_OPTIONS}
