@@ -43,7 +43,6 @@ import {
   type TerrainSource,
   ESRI_IMAGERY_SERVICE_URL,
 } from './terrainSelection'
-import { terrainProviderForStyle } from './basemap'
 import { DEFAULT_BASEMAP_STYLE, type BasemapStyle } from '../state/basemapPref'
 
 // Cesium resolves its own worker/asset URLs relative to this global at
@@ -328,6 +327,11 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
       }),
     ),
   )
+  // Satellite and road imagery are both draped over the same terrain. A
+  // modest exaggeration makes relief readable at the route framing distance;
+  // the ellipsoid fallback deliberately remains flat and is disclosed in UI.
+  viewer.scene.verticalExaggeration = terrain.source === 'ellipsoid' ? 1 : 1.65
+  viewer.scene.verticalExaggerationRelativeHeight = 0
 
   // Declared here (rather than down by `destroy` below, where it would
   // otherwise naturally sit) so `basemap.setStyle`'s self-guard can close
@@ -350,13 +354,6 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   addPolarMarkers(viewer)
   let activeStyle: BasemapStyle = DEFAULT_BASEMAP_STYLE
 
-  // Flat fallback for "二维平面图": a second, independent
-  // EllipsoidTerrainProvider instance (never shared with the ellipsoid
-  // `selectTerrain` may itself have already fallen back to for the "3D"
-  // style -- see this constant's own doc comment on `CesiumBasemapHandle`)
-  // so the two styles are always genuinely distinct providers to assign,
-  // even in that degraded case.
-  const flatTerrainProvider = new EllipsoidTerrainProvider()
   const basemapCredit: Record<BasemapStyle, string> = {
     satellite: imagery.credit,
     plan: ESRI_STREET_CREDIT,
@@ -368,7 +365,9 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
       activeStyle = style
       satelliteImageryLayer.show = style === 'satellite'
       planImageryLayer.show = style === 'plan'
-      const nextTerrain = terrainProviderForStyle(style, { threeD: terrain.provider, flat: flatTerrainProvider })
+      // Imagery style must not silently change the viewing dimension. The
+      // road map is still draped across the selected 3D terrain provider.
+      const nextTerrain = terrain.provider
       if (viewer.terrainProvider !== nextTerrain) {
         viewer.terrainProvider = nextTerrain
         onLoadingChange?.(true)

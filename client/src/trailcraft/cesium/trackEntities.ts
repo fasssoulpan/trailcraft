@@ -200,6 +200,12 @@ const knownEntities = new WeakMap<Viewer, Map<string, TrackEntityGroup>>()
 // exists for Cesium too, not just MapLibre.
 const pendingFlyTo = new WeakMap<Viewer, string>()
 
+/** A real terrain provider supports the ground-clamped glow route. When the
+ * viewer has honestly fallen back to a flat ellipsoid, the elevated plain
+ * line is the single reliable route representation. They are alternatives,
+ * never two decorative lines to draw at once. */
+export type TrackRenderMode = 'terrain' | 'flat'
+
 function removeGroup(viewer: Viewer, group: TrackEntityGroup): void {
   viewer.entities.remove(group.line)
   viewer.entities.remove(group.safetyLine)
@@ -224,7 +230,12 @@ function removeGroup(viewer: Viewer, group: TrackEntityGroup): void {
  *   `pendingFlyTo`, matching the 2D view's "fit the newest track" behaviour
  *   documented on `trackLayer.ts`'s `pendingFit`.
  */
-export function syncTrackEntities(viewer: Viewer, tracks: Track[], activeTrackId?: string): void {
+export function syncTrackEntities(
+  viewer: Viewer,
+  tracks: Track[],
+  activeTrackId?: string,
+  renderMode: TrackRenderMode = 'terrain',
+): void {
   let known = knownEntities.get(viewer)
   if (!known) {
     known = new Map()
@@ -242,11 +253,14 @@ export function syncTrackEntities(viewer: Viewer, tracks: Track[], activeTrackId
   let newestTrackId: string | undefined
   tracks.forEach((track, i) => {
     const { color, opacity, width } = trackStyle(track, i, activeTrackId)
+    const showGroundLine = renderMode === 'terrain'
     const existing = known!.get(track.id)
 
     if (existing && existing.track === track) {
       applyLineStyle(existing.line, color, opacity, width)
       applyLineStyle(existing.safetyLine, color, opacity, Math.max(width + 1.5, 5))
+      existing.line.show = showGroundLine
+      existing.safetyLine.show = !showGroundLine
       return
     }
 
@@ -277,6 +291,8 @@ export function syncTrackEntities(viewer: Viewer, tracks: Track[], activeTrackId
         depthFailMaterial: Color.WHITE.withAlpha(Math.max(opacity, 0.65)),
       },
     })
+    line.show = showGroundLine
+    safetyLine.show = !showGroundLine
     const start = viewer.entities.add(buildMarkerEntity(startId(track.id), geometry.startPos, START_COLOR, '起点'))
     const finish = viewer.entities.add(buildMarkerEntity(finishId(track.id), geometry.finishPos, FINISH_COLOR, '终点'))
 

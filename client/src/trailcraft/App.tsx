@@ -55,6 +55,7 @@ function App() {
   const cps = useAppStore((s) => s.cps)
   const mode = useAppStore((s) => s.mode)
   const setMode = useAppStore((s) => s.setMode)
+  const setFlythroughCameraMode = useAppStore((s) => s.setFlythroughCameraMode)
   const hydrated = useRef(false)
 
   const activeTrack = useMemo(() => tracks.find((track) => track.id === activeTrackId), [tracks, activeTrackId])
@@ -87,6 +88,10 @@ function App() {
     setToolView('workbench')
     setStage(next)
     setMode(next === 'tour' ? 'fly' : 'plan')
+    // Enter a route tour in the readable oblique-orbit view. Users can still
+    // deliberately choose 自由 later, but a persisted free camera must not
+    // make a fresh 3D entry look like a flat map.
+    if (next === 'tour') setFlythroughCameraMode('orbit')
     if (next !== 'import') setInsightOpen(true)
   }
 

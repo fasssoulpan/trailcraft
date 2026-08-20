@@ -432,7 +432,10 @@ export function syncHoverMarker(map: MapLibreMap, tracks: Track[], hover?: Hover
     // placing the marker. _update() itself already no-ops until _map is
     // set, so calling setLngLat() first (before the marker is attached to
     // any map) is safe.
-    marker = new Marker({ color: '#1d4ed8' }).setLngLat([lon, lat]).addTo(map)
+    const element = document.createElement('div')
+    element.className = 'hover-location-dot'
+    element.setAttribute('aria-hidden', 'true')
+    marker = new Marker({ element, anchor: 'center' }).setLngLat([lon, lat]).addTo(map)
     hoverMarkers.set(map, marker)
   } else {
     marker.setLngLat([lon, lat])
@@ -496,8 +499,10 @@ export function syncHoverReadout(map: MapLibreMap, tracks: Track[], hover?: Hove
     popup = new Popup({
       closeButton: false,
       closeOnClick: false,
-      anchor: 'top',
-      offset: 16,
+      // The compact dot stays on the route; this readout deliberately opens
+      // above-right so it does not cover a branch or the next section of line.
+      anchor: 'bottom-left',
+      offset: [18, -16],
       className: 'hover-readout-popup',
     })
       .setLngLat([lon, lat])

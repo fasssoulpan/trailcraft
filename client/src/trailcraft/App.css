@@ -709,6 +709,18 @@
   display: none;
 }
 
+/* Keep the measured point small and put its numeric readout beside the route,
+ * so neither obscures a turn, a branch, or the active line itself. */
+.hover-location-dot {
+  width: 11px;
+  height: 11px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #1d4ed8;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
 .map-cp-form {
   display: flex;
   flex-direction: column;
@@ -849,6 +861,29 @@
   border-radius: 4px;
   pointer-events: none;
 }
+
+/* An honest visible state for the remote-terrain fallback. It stays clear of
+ * the top HUD and playback dock and does not intercept canvas gestures. */
+.fly-view__terrain-warning {
+  position: absolute;
+  z-index: 3;
+  top: 58px;
+  right: 12px;
+  max-width: min(320px, calc(100% - 24px));
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 7px;
+  color: #fef3c7;
+  background: rgba(67, 42, 8, 0.88);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.fly-view__terrain-warning strong { color: #fbbf24; font-size: 12px; }
 
 /* Flythrough playback controls (ui/FlyControls.tsx), an overlay bar docked
  * to the bottom of the 3D viewport -- dark chrome matching fly-view's own
@@ -1393,7 +1428,8 @@
 .perf-modal__backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  /* Covers on-canvas controls (z 26) and sticky platform navigation (z 80). */
+  z-index: 1000;
   background: var(--color-overlay-scrim);
   display: flex;
   align-items: center;

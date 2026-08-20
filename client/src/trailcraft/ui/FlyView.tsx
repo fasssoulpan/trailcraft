@@ -348,7 +348,12 @@ export function FlyView() {
         // store update. Also flies to the newest track the very first time
         // it appears, same as syncTrackLayers does for the 2D map (see
         // trackEntities.ts's `pendingFlyTo`).
-        entitiesModRef.current?.syncTrackEntities(h.viewer, tracksRef.current, activeTrackIdRef.current)
+        entitiesModRef.current?.syncTrackEntities(
+          h.viewer,
+          tracksRef.current,
+          activeTrackIdRef.current,
+          h.providers.terrain === 'ellipsoid' ? 'flat' : 'terrain',
+        )
         cpModRef.current?.syncCpEntities(h.viewer, cpsRef.current, tracksRef.current, activeTrackIdRef.current)
         // Same "first build inline, subsequent changes via effect" split as
         // the track/CP sync above, and for the identical reason: the
@@ -413,7 +418,7 @@ export function FlyView() {
     const h = viewerHandleRef.current
     const mod = entitiesModRef.current
     if (!h || !mod) return
-    mod.syncTrackEntities(h.viewer, tracks, activeTrackId)
+    mod.syncTrackEntities(h.viewer, tracks, activeTrackId, h.providers.terrain === 'ellipsoid' ? 'flat' : 'terrain')
   }, [tracks, activeTrackId])
 
   // Re-sync CP entities whenever the CP list, the track list, or the active
@@ -606,6 +611,11 @@ export function FlyView() {
           {basemapLoading
             ? '正在切换底图…'
             : <>地形：{TERRAIN_LABEL[state.providers.terrain]} · 影像：{IMAGERY_LABEL[state.providers.imagery]}</>}
+        </div>
+      )}
+      {state.status === 'ready' && state.providers.terrain === 'ellipsoid' && (
+        <div className="fly-view__terrain-warning" role="status">
+          <strong>平面地形预览</strong><span>三维地形服务当前不可达；路线与巡游可用，但没有真实山体起伏。</span>
         </div>
       )}
       {state.status === 'ready' && (
