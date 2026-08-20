@@ -70,6 +70,14 @@ function App() {
   const checkpointCount = useMemo(() => cps.filter((cp) => cp.trackId === activeTrackId).length, [cps, activeTrackId])
 
   useEffect(() => {
+    // Workflow stage is intentionally session-local and starts at 01. The
+    // map mode is a persisted preference, so reset any old `fly` value here:
+    // a refresh must not mount Cesium under the import stage and bypass the
+    // explicit 第04步 “输出与巡游” entry point.
+    setMode('plan')
+  }, [setMode])
+
+  useEffect(() => {
     let cancelled = false
     loadSourceMemory()
       .then((memory) => {
@@ -91,7 +99,13 @@ function App() {
     // Enter a route tour in the readable oblique-orbit view. Users can still
     // deliberately choose 自由 later, but a persisted free camera must not
     // make a fresh 3D entry look like a flat map.
-    if (next === 'tour') setFlythroughCameraMode('orbit')
+    if (next === 'tour') {
+      setFlythroughCameraMode('orbit')
+      // A tour is an aerial terrain experience, not a continuation of the
+      // user's flat route-planning basemap choice. Keep the 3D scope on
+      // satellite imagery; the independent 2D preference remains untouched.
+      useAppStore.getState().setBasemapStyle('fly', 'satellite')
+    }
     if (next !== 'import') setInsightOpen(true)
   }
 
