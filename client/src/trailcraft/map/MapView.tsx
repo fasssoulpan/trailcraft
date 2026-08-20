@@ -257,8 +257,6 @@ export function MapView() {
     const handleStyleLoad = () => {
       const isInitial = !loadedRef.current
       loadedRef.current = true
-      window.clearTimeout(bootstrapTimer)
-      setMapStatus('ready')
       syncTrackLayers(map, tracksRef.current, activeTrackRef.current?.id, { skipFit: !isInitial })
       syncHoverMarker(map, tracksRef.current, hoverRef.current)
       syncHoverReadout(
@@ -271,6 +269,19 @@ export function MapView() {
       if (drawModeRef.current) syncDrawLayer(map, drawVerticesRef.current, drawCursorRef.current)
     }
     map.on('style.load', handleStyleLoad)
+
+    // A parsed style alone is not enough on phones: WebGL and raster tiles may
+    // still fail after `style.load`. Only remove the compatibility layer once
+    // MapLibre reports a fully rendered idle map with no known tile failure.
+    const handleIdle = () => {
+      if (!tileErrorNoticeShown && map.areTilesLoaded()) {
+        window.clearTimeout(bootstrapTimer)
+        setMapStatus('ready')
+      }
+    }
+    map.on('idle', handleIdle)
+    const handleContextLost = () => setMapStatus('error')
+    map.getCanvas().addEventListener('webglcontextlost', handleContextLost)
 
     // MapLibre never notices its own container being resized -- it keeps
     // rendering at whatever backing-canvas size it had at creation/last
@@ -323,6 +334,7 @@ export function MapView() {
       if (!e.sourceId || !ALL_RASTER_SOURCE_IDS.includes(e.sourceId)) return
       tileErrorNoticeShown = true
       setTileErrorShown(true)
+      setMapStatus('waiting')
     }
     map.on('error', handleError)
 
@@ -543,7 +555,9 @@ export function MapView() {
       window.clearTimeout(bootstrapTimer)
       ro.disconnect()
       map.off('style.load', handleStyleLoad)
+      map.off('idle', handleIdle)
       map.off('error', handleError)
+      map.getCanvas().removeEventListener('webglcontextlost', handleContextLost)
       map.off('mousemove', handleMouseMove)
       map.off('mouseout', handleMouseOut)
       map.off('mousedown', handleMouseDown)
@@ -665,22 +679,29 @@ export function MapView() {
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <StaticMapBackdrop tracks={tracks} activeTrackId={activeTrackId} />
+      <div ref={containerRef} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }} />
       {mapStatus !== 'ready' && (
         <div
           role="status"
           style={{
-            position: 'absolute', inset: 0, zIndex: 3, display: 'grid', placeItems: 'center',
-            padding: 24, color: '#243027', background: '#e6ece3', textAlign: 'center', pointerEvents: mapStatus === 'error' ? 'auto' : 'none',
+            position: 'absolute', inset: 0, zIndex: 3,
           }}
         >
-          <div style={{ maxWidth: 280, display: 'grid', gap: 8 }}>
-            <strong style={{ fontSize: 15 }}>{mapStatus === 'error' ? '地图未能启动' : mapStatus === 'waiting' ? '地图仍在加载' : '正在初始化平面地图'}</strong>
-            <span style={{ fontSize: 12, lineHeight: 1.5, color: '#5b6c60' }}>
-              {mapStatus === 'error' ? '此设备的地图图形能力不可用。可重新加载页面，或继续导入路线后再试。' : '正在连接底图与地图图形服务；路线导入不会上传到服务器。'}
-            </span>
-            {mapStatus === 'error' && <button type="button" onClick={() => window.location.reload()} style={{ justifySelf: 'center', border: 0, borderRadius: 6, padding: '8px 12px', color: '#fff', background: '#b5591d', cursor: 'pointer' }}>重新加载</button>}
-          </div>
+          <StaticMapFallback
+            tracks={tracks}
+            activeTrackId={activeTrackId}
+            state={mapStatus}
+            onRetry={() => {
+              setTileErrorShown(false)
+              setMapStatus('loading')
+              const retryMap = mapRef.current
+              if (retryMap) {
+                retryMap.resize()
+                retryMap.setStyle(styleSpecForBasemap(planBasemapStyle))
+              }
+            }}
+          />
         </div>
       )}
       {overlayMap ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
@@ -754,6 +775,65 @@ export function MapView() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Persistent raster safety layer. A healthy MapLibre canvas paints over it;
+ * a transparent/failed mobile canvas leaves this non-WebGL map visible. */
+function StaticMapBackdrop({ tracks, activeTrackId }: { tracks: Track[]; activeTrackId?: string }) {
+  const track = tracks.find((item) => item.id === activeTrackId) ?? tracks[0]
+  const coords = track ? renderCopy(track).coords.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90) : []
+  const rawBounds = coords.length > 1
+    ? [Math.min(...coords.map(([lon]) => lon)), Math.min(...coords.map(([, lat]) => lat)), Math.max(...coords.map(([lon]) => lon)), Math.max(...coords.map(([, lat]) => lat))] as const
+    : [73, 18, 135, 54] as const
+  const [minLon0, minLat0, maxLon0, maxLat0] = rawBounds
+  const lonPad = Math.max((maxLon0 - minLon0) * 0.16, 0.16)
+  const latPad = Math.max((maxLat0 - minLat0) * 0.16, 0.12)
+  const minLon = Math.max(-180, minLon0 - lonPad)
+  const maxLon = Math.min(180, maxLon0 + lonPad)
+  const minLat = Math.max(-85, minLat0 - latPad)
+  const maxLat = Math.min(85, maxLat0 + latPad)
+  const staticUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${minLon},${minLat},${maxLon},${maxLat}&bboxSR=4326&imageSR=4326&size=960,720&format=png32&f=image`
+  const path = coords.map(([lon, lat]) => `${((lon - minLon) / (maxLon - minLon) * 100).toFixed(2)},${((maxLat - lat) / (maxLat - minLat) * 100).toFixed(2)}`).join(' ')
+
+  return (
+    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden', background: '#cbd7c9' }}>
+      <img src={staticUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      {path && <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="1.55" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.78" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+    </div>
+  )
+}
+
+/** A single-image, non-WebGL fallback for phones where the interactive map
+ * worker or raster tile pyramid cannot be created. */
+function StaticMapFallback({ tracks, activeTrackId, state, onRetry }: { tracks: Track[]; activeTrackId?: string; state: 'loading' | 'waiting' | 'error'; onRetry: () => void }) {
+  const track = tracks.find((item) => item.id === activeTrackId) ?? tracks[0]
+  const coords = track ? renderCopy(track).coords.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90) : []
+  const rawBounds = coords.length > 1
+    ? [Math.min(...coords.map(([lon]) => lon)), Math.min(...coords.map(([, lat]) => lat)), Math.max(...coords.map(([lon]) => lon)), Math.max(...coords.map(([, lat]) => lat))] as const
+    : [73, 18, 135, 54] as const
+  const [minLon0, minLat0, maxLon0, maxLat0] = rawBounds
+  const lonPad = Math.max((maxLon0 - minLon0) * 0.16, 0.16)
+  const latPad = Math.max((maxLat0 - minLat0) * 0.16, 0.12)
+  const minLon = Math.max(-180, minLon0 - lonPad)
+  const maxLon = Math.min(180, maxLon0 + lonPad)
+  const minLat = Math.max(-85, minLat0 - latPad)
+  const maxLat = Math.min(85, maxLat0 + latPad)
+  const staticUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${minLon},${minLat},${maxLon},${maxLat}&bboxSR=4326&imageSR=4326&size=960,720&format=png32&f=image`
+  const path = coords.map(([lon, lat]) => `${((lon - minLon) / (maxLon - minLon) * 100).toFixed(2)},${((maxLat - lat) / (maxLat - minLat) * 100).toFixed(2)}`).join(' ')
+  const heading = state === 'loading' ? '正在初始化平面地图' : state === 'error' ? '此设备暂不支持地图图形服务' : '地图服务响应较慢，已切换兼容预览'
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(145deg, #b7c9b8, #e6ece3)' }}>
+      <img src={staticUrl} alt="卫星地图兼容预览" onError={(event) => { event.currentTarget.style.display = 'none' }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.84 }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,.17) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.17) 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
+      {path && <svg aria-label="导入路线兼容预览" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="1.55" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.78" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+      <div style={{ position: 'absolute', right: 12, bottom: 12, left: 12, display: 'grid', gap: 5, padding: '10px 12px', border: '1px solid rgba(255,255,255,.66)', borderRadius: 8, color: '#f8fbf5', background: 'rgba(21,43,34,.88)', boxShadow: '0 10px 22px rgba(20,42,33,.2)' }}>
+        <strong style={{ fontSize: 13 }}>{heading}</strong>
+        <span style={{ fontSize: 11, lineHeight: 1.45, color: '#dce7de' }}>{coords.length > 1 ? '已在兼容预览中显示当前路线；缩放和编辑将在连接恢复后可用。' : '卫星兼容预览已启用；导入路线后将在此处显示轨迹缩略图。'}</span>
+        <button type="button" onClick={onRetry} style={{ justifySelf: 'start', border: 0, borderRadius: 6, padding: '7px 10px', color: '#1c130d', background: '#f3aa74', fontWeight: 800, cursor: 'pointer' }}>重试交互地图</button>
+      </div>
     </div>
   )
 }
