@@ -30,11 +30,7 @@ const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
 ]
 
 const TOOL_CARDS = [
-  { title: '路线工作台', detail: '导入、校验、编辑并输出路线工程。', state: '可用', tool: 'workbench' as const },
-  { title: '三维巡游', detail: '沿当前路线检查地形、镜头与关键帧。', state: '可用', tool: 'tour' as const },
-  { title: '赛前简报', detail: '汇总路线距离、爬升、CP 与风险。', state: '即将推出', tool: undefined },
-  { title: '补给与配速', detail: '基于地形与关门时间生成执行策略。', state: '即将推出', tool: undefined },
-  { title: '表现工具', detail: '分析实跑记录、训练负荷与恢复线索。', state: '即将推出', tool: undefined },
+  { title: '路线工作台', detail: '导入、校验、编辑、分析并输出路线工程；三维巡游位于第04步。', state: '可用', tool: 'workbench' as const },
 ]
 
 function formatDistance(meters: number | undefined) {
@@ -89,9 +85,8 @@ function App() {
     if (next !== 'import') setInsightOpen(true)
   }
 
-  function openTool(tool: 'workbench' | 'tour') {
-    if (tool === 'tour') activateStage('tour')
-    else activateStage('import')
+  function openTool(tool: 'workbench') {
+    if (tool === 'workbench') activateStage('import')
   }
 
   function renderInsight() {
@@ -110,17 +105,17 @@ function App() {
   if (toolView === 'library') {
     return (
       <div className="tool-platform">
-        <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} onTour={() => activateStage('tour')} />
+        <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} />
         <main className="tool-library" id="main-content">
           <section className="tool-library__hero">
-            <div><p className="eyebrow">TRAILCRAFT TOOLS</p><h1>为每一段山路，找到下一步。</h1><p>从路线校验到三维巡游，所有工具围绕一次更从容的出发。</p></div>
+            <div><p className="eyebrow">TRAILCRAFT TOOLS</p><h1>为每一段山路，找到下一步。</h1><p>当前仅开放路线工作台；从校验到三维巡游均在一次连续流程中完成。</p></div>
             <img src="/manus-storage/trailcraft-hero-ridge_fafb23ee.jpg" alt="山脊与云雾中的越野跑路线地貌" />
           </section>
           <section className="tool-library__grid" aria-label="TrailCraft 工具库">
             {TOOL_CARDS.map((card) => (
               <article className={`tool-card${card.tool ? ' tool-card--active' : ''}`} key={card.title}>
                 <span className="tool-card__state">{card.state}</span><h2>{card.title}</h2><p>{card.detail}</p>
-                {card.tool ? <button type="button" onClick={() => openTool(card.tool)}>打开工具 <span aria-hidden="true">→</span></button> : <span className="tool-card__coming">规划中</span>}
+                <button type="button" onClick={() => openTool(card.tool)}>打开工具 <span aria-hidden="true">→</span></button>
               </article>
             ))}
           </section>
@@ -131,7 +126,7 @@ function App() {
 
   return (
     <div className="tool-platform">
-      <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} onTour={() => activateStage('tour')} />
+      <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} />
       <main className="route-brief" id="main-content">
         <section className="route-brief__intro">
           <div><p className="eyebrow">ROUTE WORKBENCH</p><h1>{activeTrack ? activeTrack.meta.name : '从一条路线开始。'}</h1><p>{activeTrack ? '路线已载入。选择下一步，把数据变成赛前决定。' : '导入 GPX、KML 或 FIT；文件仅在当前浏览器中处理。'}</p></div>
@@ -163,8 +158,8 @@ function App() {
   )
 }
 
-function PlatformNav({ view, onWorkbench, onLibrary, onTour }: { view: ToolView; onWorkbench: () => void; onLibrary: () => void; onTour: () => void }) {
-  return <header className="platform-nav"><button className="platform-nav__brand" type="button" onClick={onWorkbench} aria-label="返回 TrailCraft 路线工作台"><img src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" /><span>TrailCraft<small>ROUTE BRIEF</small></span></button><nav aria-label="主要导航"><button type="button" className={view === 'workbench' ? 'is-current' : ''} onClick={onWorkbench}>路线工作台</button><button type="button" className={view === 'library' ? 'is-current' : ''} onClick={onLibrary}>工具库</button><button type="button" onClick={onTour}>三维巡游</button></nav><span className="platform-nav__status">本地优先 · 现有图源</span></header>
+function PlatformNav({ view, onWorkbench, onLibrary }: { view: ToolView; onWorkbench: () => void; onLibrary: () => void }) {
+  return <header className="platform-nav"><button className="platform-nav__brand" type="button" onClick={onWorkbench} aria-label="返回 TrailCraft 路线工作台"><img src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" /><span>TrailCraft<small>ROUTE BRIEF</small></span></button><nav aria-label="主要导航"><button type="button" className={view === 'workbench' ? 'is-current' : ''} onClick={onWorkbench}>路线工作台</button><button type="button" className={view === 'library' ? 'is-current' : ''} onClick={onLibrary}>工具库</button></nav><span className="platform-nav__status">本地优先 · 现有图源</span></header>
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }

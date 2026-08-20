@@ -268,7 +268,7 @@ const plugins = [
       ...["Workers", "ThirdParty", "Assets", "Widgets"].map((dir) => ({
       src: `../node_modules/cesium/Build/Cesium/${dir}`,
       dest: CESIUM_BASE_URL,
-      rename: { stripBase: 5 },
+      rename: { stripBase: 4 },
       })),
     ],
   }),

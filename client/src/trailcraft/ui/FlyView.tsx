@@ -268,6 +268,11 @@ export function FlyView() {
     engine.setCameraMode(s.flythroughCameraMode)
     engineRef.current = engine
     setSyntheticTimeline(engine.syntheticTimeline)
+    // A persisted “自由” camera mode must not strand a freshly entered
+    // flythrough at the previous global view. Frame the route once after the
+    // engine has created its marker; subsequent free-camera interaction stays
+    // entirely user-controlled.
+    entitiesModRef.current?.flyToTrack(handle.viewer, track)
   }
 
   useEffect(() => {
@@ -453,6 +458,7 @@ export function FlyView() {
     const h = viewerHandleRef.current
     if (!h) return
     rebuildFlythrough(h, activeTrack)
+    if (activeTrack) entitiesModRef.current?.flyToTrack(h.viewer, activeTrack)
     return () => {
       engineRef.current?.destroy()
       engineRef.current = undefined
@@ -616,6 +622,11 @@ export function FlyView() {
           progress={progressInfo}
           onTogglePlay={() => engineRef.current?.togglePlay()}
           onSeek={(progress) => engineRef.current?.seek(progress)}
+          onFocusRoute={() => {
+            const handle = viewerHandleRef.current
+            const entities = entitiesModRef.current
+            if (handle && entities && activeTrack) entities.flyToTrack(handle.viewer, activeTrack)
+          }}
           exportProgress={exportProgress}
           exportMode={exportMode}
           exportModeDetail={exportModeDetail}

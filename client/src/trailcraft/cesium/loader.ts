@@ -9,6 +9,7 @@ declare global {
 }
 
 const RUNTIME_URL = '/cesium/Cesium.js'
+const RUNTIME_LOAD_TIMEOUT_MS = 12_000
 
 export function loadCesiumRuntime(): Promise<CesiumRuntime> {
   if (window.Cesium) return Promise.resolve(window.Cesium)
@@ -16,10 +17,18 @@ export function loadCesiumRuntime(): Promise<CesiumRuntime> {
 
   window.__trailcraftCesiumLoad = new Promise<CesiumRuntime>((resolve, reject) => {
     const script = document.createElement('script')
+    let settled = false
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      fn()
+    }
+    const timeoutId = window.setTimeout(() => finish(() => reject(new Error('Cesium 运行时加载超时'))), RUNTIME_LOAD_TIMEOUT_MS)
     script.async = true
     script.src = RUNTIME_URL
-    script.onload = () => window.Cesium ? resolve(window.Cesium) : reject(new Error('Cesium 运行时未暴露全局对象'))
-    script.onerror = () => reject(new Error('Cesium 运行时资源加载失败'))
+    script.onload = () => finish(() => window.Cesium ? resolve(window.Cesium) : reject(new Error('Cesium 运行时未暴露全局对象')))
+    script.onerror = () => finish(() => reject(new Error('Cesium 运行时资源加载失败')))
     document.head.appendChild(script)
   })
   return window.__trailcraftCesiumLoad

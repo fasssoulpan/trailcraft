@@ -56,6 +56,9 @@ export interface FlyControlsProps {
   progress?: FlythroughProgressInfo
   onTogglePlay: () => void
   onSeek: (progress: number) => void
+  /** Returns the camera to the active route's full range without changing the
+   * selected follow/orbit/free mode. */
+  onFocusRoute: () => void
   /** Video export (P1 §2.1 交付物 8 milestone N5; deterministic pipeline P2
    * §3.4 milestone Q4) -- state/handlers all owned by `FlyView.tsx` (it
    * holds the `viewer`/`engine`/`track` an export is tied to), forwarded
@@ -135,6 +138,7 @@ export function FlyControls({
   progress,
   onTogglePlay,
   onSeek,
+  onFocusRoute,
   exportProgress,
   exportMode,
   exportModeDetail,
@@ -186,6 +190,7 @@ export function FlyControls({
           aria-label="巡游进度"
         />
         <span className="fly-controls__mileage tabular-nums">{formatKm(mileageM)} km</span>
+        <Button variant="overlay" className="fly-controls__focus" onClick={onFocusRoute}>聚焦路线</Button>
       </div>
 
       <div className="fly-controls__row fly-controls__row--options">

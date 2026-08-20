@@ -60,6 +60,29 @@ window.CESIUM_BASE_URL = CESIUM_BASE_URL
 // (src/map/MapView.tsx's DEFAULT_CENTER) so switching modes doesn't jump
 // the view before any track has been loaded.
 const DEFAULT_CENTER = { lon: 104.0, lat: 35.0, height: 8_000_000 }
+const TERRAIN_PROVIDER_TIMEOUT_MS = 4_000
+
+/**
+ * The Viewer must never wait indefinitely for remote terrain metadata before
+ * producing a first frame. A timed-out provider follows the normal fallback
+ * path to the built-in ellipsoid, so the route, grid imagery and camera stay
+ * usable even when a terrain endpoint is slow or blocked.
+ */
+function withProviderTimeout<T>(promise: Promise<T>, providerName: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(`${providerName} 初始化超时`)), TERRAIN_PROVIDER_TIMEOUT_MS)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 /**
  * Which terrain/imagery source actually ended up in use. Surfaced to the
@@ -199,8 +222,11 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
   // without a static-image failure taking down the whole flythrough.
   const terrain = await selectTerrain<TerrainProvider>({
     hasMapTilerKey,
-    loadMapTiler: () => CesiumTerrainProvider.fromUrl(maptilerTerrainUrl(mapTilerKey!), { requestWaterMask: false, requestVertexNormals: false }),
-    loadEsri: () => ArcGISTiledElevationTerrainProvider.fromUrl(ESRI_TERRAIN_URL),
+    loadMapTiler: () => withProviderTimeout(
+      CesiumTerrainProvider.fromUrl(maptilerTerrainUrl(mapTilerKey!), { requestWaterMask: false, requestVertexNormals: false }),
+      'MapTiler 地形',
+    ),
+    loadEsri: () => withProviderTimeout(ArcGISTiledElevationTerrainProvider.fromUrl(ESRI_TERRAIN_URL), 'Esri 地形'),
     createEllipsoid: () => new EllipsoidTerrainProvider(),
   })
 
