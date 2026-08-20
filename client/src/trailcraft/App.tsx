@@ -16,11 +16,13 @@ import { ProfileCanvas } from './profile/ProfileCanvas'
 import { useAppStore } from './state/appStore'
 import { loadSourceMemory, saveSourceMemory } from './state/persist'
 import { MapDebugBadge } from './ui/MapDebugBadge'
+import { ThemeToggle } from './ui/ThemeToggle'
 import './App.css'
 import './RouteBrief.css'
 
 type ToolView = 'workbench' | 'library'
 type WorkflowStage = 'import' | 'edit' | 'analyse' | 'tour'
+type LibraryTool = 'workbench' | 'quick' | 'track'
 
 const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
   { id: 'import', label: '导入与校验', kicker: '01' },
@@ -29,8 +31,10 @@ const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
   { id: 'tour', label: '输出与巡游', kicker: '04' },
 ]
 
-const TOOL_CARDS = [
+const TOOL_CARDS: Array<{ title: string; detail: string; state: string; tool: LibraryTool }> = [
   { title: '路线工作台', detail: '导入、校验、编辑、分析并输出路线工程；三维巡游位于第04步。', state: '可用', tool: 'workbench' as const },
+  { title: '表现分速算', detail: '无需导入轨迹；输入距离、爬升、下降和完赛用时，快速估算表现分与分段配速。', state: '速算', tool: 'quick' },
+  { title: '实跑轨迹表现分析', detail: '选择已导入的实跑轨迹，计算表现分、坡度分布、主要爬坡与逐公里数据。', state: '实跑轨迹', tool: 'track' },
 ]
 
 function formatDistance(meters: number | undefined) {
@@ -44,6 +48,7 @@ function App() {
   const [insightOpen, setInsightOpen] = useState(true)
   const [profileOpen, setProfileOpen] = useState(true)
   const [segmentsOpen, setSegmentsOpen] = useState(false)
+  const [analysisLaunch, setAnalysisLaunch] = useState<'quick' | 'track' | undefined>(undefined)
   const sourceMemory = useAppStore((s) => s.sourceMemory)
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
@@ -85,8 +90,28 @@ function App() {
     if (next !== 'import') setInsightOpen(true)
   }
 
-  function openTool(tool: 'workbench') {
-    if (tool === 'workbench') activateStage('import')
+  function openTool(tool: LibraryTool) {
+    if (tool === 'workbench') {
+      setAnalysisLaunch(undefined)
+      activateStage('import')
+      return
+    }
+    setToolView('workbench')
+    setStage('analyse')
+    setMode('plan')
+    setAnalysisLaunch(tool)
+    setInsightOpen(true)
+  }
+
+  function setCanvasMode(next: 'plan' | 'fly') {
+    if (next === 'fly') {
+      activateStage('tour')
+      return
+    }
+    setToolView('workbench')
+    setMode('plan')
+    setStage(activeTrack ? 'edit' : 'import')
+    setInsightOpen(true)
   }
 
   function renderInsight() {
@@ -97,7 +122,7 @@ function App() {
       return <><StageHeader number="02" title="路线编辑" description="沿活动路线设置 CP、配速与关门判断。" /><ToolboxPanel /><CpPanel /><PacePanel /><LayerPanel /></>
     }
     if (stage === 'analyse') {
-      return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel /><LayerPanel /></>
+      return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel launch={analysisLaunch} onLaunchHandled={() => setAnalysisLaunch(undefined)} /><LayerPanel /></>
     }
     return <><StageHeader number="04" title="输出与巡游" description="从当前路线进入三维地形、镜头与输出流程。" /><ExportPanel /><div className="route-brief__tour-note"><strong>三维巡游</strong><span>{activeTrack ? '已绑定当前活动路线。' : '先导入并选择一条路线。'}</span></div></>
   }
@@ -140,6 +165,7 @@ function App() {
         <section className={`route-brief__workspace${mode === 'fly' ? ' route-brief__workspace--fly' : ''}`}>
           <div className="route-brief__canvas">
             {mode === 'fly' ? <FlyView /> : <MapView />}
+            <MapCanvasModeSwitch mode={mode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
             {mode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
             {import.meta.env.DEV && mode === 'plan' ? <MapDebugBadge /> : null}
           </div>
@@ -159,7 +185,11 @@ function App() {
 }
 
 function PlatformNav({ view, onWorkbench, onLibrary }: { view: ToolView; onWorkbench: () => void; onLibrary: () => void }) {
-  return <header className="platform-nav"><button className="platform-nav__brand" type="button" onClick={onWorkbench} aria-label="返回 TrailCraft 路线工作台"><img src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" /><span>TrailCraft<small>ROUTE BRIEF</small></span></button><nav aria-label="主要导航"><button type="button" className={view === 'workbench' ? 'is-current' : ''} onClick={onWorkbench}>路线工作台</button><button type="button" className={view === 'library' ? 'is-current' : ''} onClick={onLibrary}>工具库</button></nav><span className="platform-nav__status">本地优先 · 现有图源</span></header>
+  return <header className="platform-nav"><button className="platform-nav__brand" type="button" onClick={onWorkbench} aria-label="返回 TrailCraft 路线工作台"><img src="/manus-storage/trailcraft-mark_eda8cf83.png" alt="" /><span>TrailCraft<small>ROUTE BRIEF</small></span></button><nav aria-label="主要导航"><button type="button" className={view === 'workbench' ? 'is-current' : ''} onClick={onWorkbench}>路线工作台</button><button type="button" className={view === 'library' ? 'is-current' : ''} onClick={onLibrary}>工具库</button></nav><div className="platform-nav__actions"><ThemeToggle /><span className="platform-nav__status">本地优先 · 现有图源</span></div></header>
+}
+
+function MapCanvasModeSwitch({ mode, onPlan, onFly }: { mode: 'plan' | 'fly'; onPlan: () => void; onFly: () => void }) {
+  return <div className="map-mode-switch" role="group" aria-label="地图视图"><button type="button" className={mode === 'plan' ? 'is-active' : ''} onClick={onPlan}>2D 地图</button><button type="button" className={mode === 'fly' ? 'is-active' : ''} onClick={onFly}>3D 巡游</button></div>
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }

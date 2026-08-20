@@ -16,13 +16,17 @@
 import {
   ArcGisMapServerImageryProvider,
   ArcGISTiledElevationTerrainProvider,
+  Cartesian2,
   Cartesian3,
   CesiumTerrainProvider,
+  Color,
   EllipsoidTerrainProvider,
   GridImageryProvider,
   ImageryLayer,
+  LabelStyle,
   ScreenSpaceEventType,
   UrlTemplateImageryProvider,
+  VerticalOrigin,
   Viewer,
 } from './runtime'
 import type { TerrainProvider, Viewer as CesiumViewer } from 'cesium'
@@ -61,6 +65,55 @@ window.CESIUM_BASE_URL = CESIUM_BASE_URL
 // the view before any track has been loaded.
 const DEFAULT_CENTER = { lon: 104.0, lat: 35.0, height: 8_000_000 }
 const TERRAIN_PROVIDER_TIMEOUT_MS = 4_000
+
+/**
+ * Some public imagery services contain a visibly untextured polar cap. Rather
+ * than expose a black void, cover only the tiny polar service gap with an
+ * elevated, abstract navigation marker. It is deliberately an entity (not a
+ * raster/image patch), so it has no network dependency and never changes
+ * route data, terrain or imagery attribution.
+ */
+function addPolarMarkers(viewer: CesiumViewer): void {
+  const markerColor = Color.fromCssColorString('#172b3a').withAlpha(0.96)
+  const outlineColor = Color.fromCssColorString('#9fb7c8').withAlpha(0.78)
+  const accentColor = Color.fromCssColorString('#f1a35e')
+  ;[
+    { id: 'trailcraft-polar-north', lat: 90, label: 'N · 北极' },
+    { id: 'trailcraft-polar-south', lat: -90, label: 'S · 南极' },
+  ].forEach((pole) => {
+    viewer.entities.add({
+      id: pole.id,
+      position: Cartesian3.fromDegrees(0, pole.lat, 800),
+      ellipse: {
+        semiMajorAxis: 420_000,
+        semiMinorAxis: 420_000,
+        height: 800,
+        material: markerColor,
+        outline: true,
+        outlineColor,
+        outlineWidth: 2,
+      },
+      point: {
+        pixelSize: 8,
+        color: accentColor,
+        outlineColor: Color.WHITE,
+        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+      label: {
+        text: pole.label,
+        font: '700 13px sans-serif',
+        fillColor: Color.WHITE,
+        outlineColor: Color.BLACK,
+        outlineWidth: 3,
+        style: LabelStyle.FILL_AND_OUTLINE,
+        verticalOrigin: VerticalOrigin.BOTTOM,
+        pixelOffset: new Cartesian2(0, -14),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    })
+  })
+}
 
 /**
  * The Viewer must never wait indefinitely for remote terrain metadata before
@@ -294,6 +347,7 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
     new UrlTemplateImageryProvider({ url: ESRI_STREET_URL, credit: ESRI_STREET_CREDIT, minimumLevel: 0, maximumLevel: 19 }),
   )
   planImageryLayer.show = false
+  addPolarMarkers(viewer)
   let activeStyle: BasemapStyle = DEFAULT_BASEMAP_STYLE
 
   // Flat fallback for "二维平面图": a second, independent

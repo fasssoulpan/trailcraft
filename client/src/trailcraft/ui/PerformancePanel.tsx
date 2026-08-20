@@ -1,4 +1,5 @@
-import { useState } from 'react'
+/* 路线简报设计提醒：表现工具既是第03步分析，也是工具库可直达的真实能力。 */
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import type { Track } from '../core/model/track'
 import type { StatsOptions } from '../core/stats/segments'
@@ -35,7 +36,7 @@ import { StatTile, StatGrid } from './primitives/StatTile'
  * (格式化、坡度分桶、可用性判定)拆出来单测,这个文件本身只做数据取用和
  * JSX 拼装,刻意保持"薄"以降低未测试代码的风险面。
  */
-export function PerformancePanel() {
+export function PerformancePanel({ launch, onLaunchHandled }: { launch?: 'quick' | 'track'; onLaunchHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   const tracks = useAppStore((s) => s.tracks)
   const activeTrackId = useAppStore((s) => s.activeTrackId)
@@ -43,6 +44,13 @@ export function PerformancePanel() {
   const cps = useAppStore((s) => s.cps)
 
   const activeTrack = tracks.find((t) => t.id === activeTrackId)
+
+  useEffect(() => {
+    if (launch === 'track' && activeTrack) {
+      setOpen(true)
+      onLaunchHandled?.()
+    }
+  }, [activeTrack, launch, onLaunchHandled])
 
   return (
     <Section title="表现分析" description="打开完整表现报告（含表现分、坡度分布、主要爬坡、逐公里数据），或不带轨迹直接速算。">
@@ -56,7 +64,7 @@ export function PerformancePanel() {
           <PerformanceModal track={activeTrack} statsOptions={statsOptions} cps={cps} onClose={() => setOpen(false)} />
         )}
 
-        <QuickCalcPanel />
+        <QuickCalcPanel autoOpen={launch === 'quick'} onAutoOpened={onLaunchHandled} />
       </div>
     </Section>
   )

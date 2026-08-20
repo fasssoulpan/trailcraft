@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+/* 路线简报设计提醒：速算可从工具库直接打开，无需导入路线。 */
+import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../state/appStore'
 import { calculateSpi } from '../core/perf/score'
 import { computeKmEffortV2, computeQuickSplits, segmentLengthKm } from '../core/perf/quickCalc'
@@ -22,8 +23,13 @@ import { StatTile, StatGrid } from './primitives/StatTile'
  * `score.ts#calculateSpi` (already tested by `tests/core/score.test.ts`),
  * this file itself only wires state to JSX.
  */
-export function QuickCalcPanel() {
+export function QuickCalcPanel({ autoOpen = false, onAutoOpened }: { autoOpen?: boolean; onAutoOpened?: () => void }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!autoOpen) return
+    setOpen(true)
+    onAutoOpened?.()
+  }, [autoOpen, onAutoOpened])
   return (
     <>
       <Button className="qc-entry-button" onClick={() => setOpen(true)}>
