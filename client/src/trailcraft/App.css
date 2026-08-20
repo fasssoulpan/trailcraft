@@ -1404,6 +1404,26 @@
   white-space: nowrap;
 }
 
+/* Mobile tour canvas: preserve the terrain viewport first. The complete video
+ * export workflow remains available in the step-04 action panel below; its
+ * dense format selectors, keyframe editor and radar overlay are intentionally
+ * desktop editing tools and would otherwise overlap the route-mode switch on
+ * narrow screens. */
+@media (max-width: 720px) {
+  .fly-view__container { min-height: 0; }
+  .fly-view__badge { right: 8px; bottom: 80px; max-width: calc(100% - 16px); }
+  .fly-view__terrain-warning { top: 58px; right: 8px; left: 8px; max-width: none; }
+  .fly-controls { left: 8px; right: 8px; bottom: 8px; gap: 6px; padding: 8px 9px; border-radius: 8px; }
+  .fly-controls__row { gap: 6px; }
+  .fly-controls__row--transport { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fly-controls__focus { display: none; }
+  .fly-controls__row--options { justify-content: flex-start; }
+  .fly-controls__eta, .fly-controls__row--record, .fly-controls__record-hint, .fly-controls__export-progress { display: none; }
+  .fly-controls__group { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
+  .keyframe-editor, .radar-overlay { display: none; }
+  .hud-overlay { display: none; }
+}
+
 /* 表现报告面板(P2 §3.3,里程碑 Q3)。侧边栏里只放一个入口按钮 -- 报告本身
  * 是一个可关闭的浮层,不是常驻分区(见 PerformancePanel.tsx 文件注释:侧边
  * 栏已经挤到 P1 要把模式切换钉住,不能再添一块常驻空间)。 */
