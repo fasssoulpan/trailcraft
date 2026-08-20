@@ -41,9 +41,6 @@ import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 interface TrackGeometry {
   /** Ground positions for every render point, same order as trackGeometry's `idx`. */
   positions: CesiumCartesian3[]
-  /** Slightly elevated positions used as a visibility safeguard when a ground
-   * polyline is occluded by an imagery/terrain render-path mismatch. */
-  safetyPositions: CesiumCartesian3[]
   /** Full-precision index of each render position (see trackGeometry.ts). */
   idx: Uint32Array
   /** Per-render-point playback time in seconds from start (N3 will consume this). */
@@ -67,18 +64,8 @@ function getGeometry(track: Track): TrackGeometry {
   const { flat, idx } = buildPositionArray(track, RENDER_MAX_3D)
   const { times, synthetic } = synthesizeTimeline(track, idx)
   const positions = Cartesian3.fromDegreesArrayHeights(flat)
-  const safetyFlat: number[] = new Array(flat.length)
-  for (let i = 0; i < flat.length; i += 3) {
-    safetyFlat[i] = flat[i]
-    safetyFlat[i + 1] = flat[i + 1]
-    // GPS elevation normally follows the terrain already. The small lift is
-    // intentionally visual rather than geographic: it makes the route read
-    // above satellite imagery even if the ground-clamp primitive is delayed.
-    safetyFlat[i + 2] = Math.max(flat[i + 2] ?? 0, 0) + 45
-  }
   const geometry: TrackGeometry = {
     positions,
-    safetyPositions: Cartesian3.fromDegreesArrayHeights(safetyFlat),
     idx,
     times,
     syntheticTimeline: synthetic,
@@ -130,9 +117,6 @@ function applyLineStyle(line: Entity, color: string, opacity: number, width: num
 
 function lineId(trackId: string): string {
   return `trk-line-${trackId}`
-}
-function safetyLineId(trackId: string): string {
-  return `trk-safety-line-${trackId}`
 }
 function startId(trackId: string): string {
   return `trk-start-${trackId}`
@@ -188,7 +172,6 @@ interface TrackEntityGroup {
    * activeTrackId or index did". */
   track: Track
   line: Entity
-  safetyLine: Entity
   start: Entity
   finish: Entity
 }
@@ -200,15 +183,8 @@ const knownEntities = new WeakMap<Viewer, Map<string, TrackEntityGroup>>()
 // exists for Cesium too, not just MapLibre.
 const pendingFlyTo = new WeakMap<Viewer, string>()
 
-/** A real terrain provider supports the ground-clamped glow route. When the
- * viewer has honestly fallen back to a flat ellipsoid, the elevated plain
- * line is the single reliable route representation. They are alternatives,
- * never two decorative lines to draw at once. */
-export type TrackRenderMode = 'terrain' | 'flat'
-
 function removeGroup(viewer: Viewer, group: TrackEntityGroup): void {
   viewer.entities.remove(group.line)
-  viewer.entities.remove(group.safetyLine)
   viewer.entities.remove(group.start)
   viewer.entities.remove(group.finish)
 }
@@ -234,7 +210,6 @@ export function syncTrackEntities(
   viewer: Viewer,
   tracks: Track[],
   activeTrackId?: string,
-  renderMode: TrackRenderMode = 'terrain',
 ): void {
   let known = knownEntities.get(viewer)
   if (!known) {
@@ -253,14 +228,10 @@ export function syncTrackEntities(
   let newestTrackId: string | undefined
   tracks.forEach((track, i) => {
     const { color, opacity, width } = trackStyle(track, i, activeTrackId)
-    const showGroundLine = renderMode === 'terrain'
     const existing = known!.get(track.id)
 
     if (existing && existing.track === track) {
       applyLineStyle(existing.line, color, opacity, width)
-      applyLineStyle(existing.safetyLine, color, opacity, Math.max(width + 1.5, 5))
-      existing.line.show = showGroundLine
-      existing.safetyLine.show = !showGroundLine
       return
     }
 
@@ -279,24 +250,10 @@ export function syncTrackEntities(
         }),
       },
     })
-    const safetyLine = viewer.entities.add({
-      id: safetyLineId(track.id),
-      polyline: {
-        positions: geometry.safetyPositions,
-        clampToGround: false,
-        width: Math.max(width + 1.5, 5),
-        // Plain colour (rather than a second glow shader) deliberately gives
-        // the fallback its own, broadly supported draw path.
-        material: Color.fromCssColorString(color).withAlpha(opacity),
-        depthFailMaterial: Color.WHITE.withAlpha(Math.max(opacity, 0.65)),
-      },
-    })
-    line.show = showGroundLine
-    safetyLine.show = !showGroundLine
     const start = viewer.entities.add(buildMarkerEntity(startId(track.id), geometry.startPos, START_COLOR, '起点'))
     const finish = viewer.entities.add(buildMarkerEntity(finishId(track.id), geometry.finishPos, FINISH_COLOR, '终点'))
 
-    known!.set(track.id, { track, line, safetyLine, start, finish })
+    known!.set(track.id, { track, line, start, finish })
     if (!existing) newestTrackId = track.id
   })
 
@@ -320,8 +277,8 @@ function canvasUsable(viewer: Viewer): boolean {
 
 function doFlyTo(viewer: Viewer, track: Track): void {
   const geometry = getGeometry(track)
-  if (geometry.safetyPositions.length === 0) return
-  const sphere = BoundingSphere.fromPoints(geometry.safetyPositions)
+  if (geometry.positions.length === 0) return
+  const sphere = BoundingSphere.fromPoints(geometry.positions)
   // A single-point (or near-coincident-points) track collapses to
   // `sphere.radius === 0`; floor the offset distance so the camera doesn't
   // end up sitting exactly on top of the point.

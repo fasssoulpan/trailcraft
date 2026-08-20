@@ -685,7 +685,7 @@ export function MapView() {
         <div
           role="status"
           style={{
-            position: 'absolute', inset: 0, zIndex: 3,
+            position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none',
           }}
         >
           <StaticMapFallback
@@ -825,14 +825,14 @@ function StaticMapFallback({ tracks, activeTrackId, state, onRetry }: { tracks: 
   const heading = state === 'loading' ? '正在初始化平面地图' : state === 'error' ? '此设备暂不支持地图图形服务' : '地图服务响应较慢，已切换兼容预览'
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(145deg, #b7c9b8, #e6ece3)' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(145deg, #b7c9b8, #e6ece3)', pointerEvents: 'none' }}>
       <img src={staticUrl} alt="卫星地图兼容预览" onError={(event) => { event.currentTarget.style.display = 'none' }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.84 }} />
       <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,.17) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.17) 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
       {path && <svg aria-label="导入路线兼容预览" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="1.55" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.78" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
       <div style={{ position: 'absolute', right: 12, bottom: 12, left: 12, display: 'grid', gap: 5, padding: '10px 12px', border: '1px solid rgba(255,255,255,.66)', borderRadius: 8, color: '#f8fbf5', background: 'rgba(21,43,34,.88)', boxShadow: '0 10px 22px rgba(20,42,33,.2)' }}>
         <strong style={{ fontSize: 13 }}>{heading}</strong>
-        <span style={{ fontSize: 11, lineHeight: 1.45, color: '#dce7de' }}>{coords.length > 1 ? '已在兼容预览中显示当前路线；缩放和编辑将在连接恢复后可用。' : '卫星兼容预览已启用；导入路线后将在此处显示轨迹缩略图。'}</span>
-        <button type="button" onClick={onRetry} style={{ justifySelf: 'start', border: 0, borderRadius: 6, padding: '7px 10px', color: '#1c130d', background: '#f3aa74', fontWeight: 800, cursor: 'pointer' }}>重试交互地图</button>
+        <span style={{ fontSize: 11, lineHeight: 1.45, color: '#dce7de' }}>{coords.length > 1 ? '已在兼容预览中显示当前路线；交互地图恢复时可继续缩放和编辑。' : '卫星兼容预览已启用；导入路线后将在此处显示轨迹缩略图。'}</span>
+        <button type="button" onClick={onRetry} style={{ justifySelf: 'start', pointerEvents: 'auto', border: 0, borderRadius: 6, padding: '7px 10px', color: '#1c130d', background: '#f3aa74', fontWeight: 800, cursor: 'pointer' }}>重试交互地图</button>
       </div>
     </div>
   )

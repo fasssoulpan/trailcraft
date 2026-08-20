@@ -352,7 +352,6 @@ export function FlyView() {
           h.viewer,
           tracksRef.current,
           activeTrackIdRef.current,
-          h.providers.terrain === 'ellipsoid' ? 'flat' : 'terrain',
         )
         cpModRef.current?.syncCpEntities(h.viewer, cpsRef.current, tracksRef.current, activeTrackIdRef.current)
         // Same "first build inline, subsequent changes via effect" split as
@@ -418,7 +417,7 @@ export function FlyView() {
     const h = viewerHandleRef.current
     const mod = entitiesModRef.current
     if (!h || !mod) return
-    mod.syncTrackEntities(h.viewer, tracks, activeTrackId, h.providers.terrain === 'ellipsoid' ? 'flat' : 'terrain')
+    mod.syncTrackEntities(h.viewer, tracks, activeTrackId)
   }, [tracks, activeTrackId])
 
   // Re-sync CP entities whenever the CP list, the track list, or the active
