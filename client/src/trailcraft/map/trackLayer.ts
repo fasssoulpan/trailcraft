@@ -303,6 +303,11 @@ export function syncTrackLayers(
       seen.add(t.id)
       newestTrack = t
     }
+    // Keep the authoritative GeoJSON layer above any late-arriving raster
+    // imagery. This is intentionally repeated for existing layers too: some
+    // browsers repaint raster tiles after the source update without changing
+    // the React store, so merely moving new layers is not sufficient.
+    if (map.getLayer(layerId)) map.moveLayer(layerId)
   })
   knownTrackIds.set(map, seen)
 

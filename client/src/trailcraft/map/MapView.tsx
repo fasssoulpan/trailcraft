@@ -24,8 +24,14 @@ import {
   syncTrackLayers,
   tryPendingFit,
   HOVER_GRAB_PX,
+  renderCopy,
 } from './trackLayer'
 import { stepDrawGesture, INITIAL_DRAW_GESTURE_STATE, type DrawGestureEvent } from './drawGesture'
+import type { Track } from '../core/model/track'
+import { TRACK_PALETTE } from '../core/model/trackStyle'
+
+// 路线简报视觉契约：轨迹是地图画布上的主语。无论卫星底图加载时序如何，
+// 当前路线都必须以高对比轮廓保持清晰可辨，且绝不拦截地图的拖拽与点击。
 
 // How long to hold a 'click' before actually committing it as a new drawn
 // vertex, so a 'dblclick' arriving shortly after (browsers/MapLibre both
@@ -76,6 +82,8 @@ export function MapView() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const loadedRef = useRef(false)
+  const [overlayMap, setOverlayMap] = useState<MapLibreMap | null>(null)
+  const [, setMapFrame] = useState(0)
   // Basemap tile/source failures are common (OSM's CDN is unreliable from
   // mainland China) and should surface once as a small diagnostic notice,
   // not spam one per failed tile.
@@ -184,6 +192,7 @@ export function MapView() {
     })
     map.addControl(new NavigationControl(), 'top-right')
     mapRef.current = map
+    setOverlayMap(map)
     // Dev-only debugging handle. The map instance is otherwise reachable only
     // by walking React's fiber tree, which is fragile and makes diagnosing
     // "my track isn't drawing" needlessly hard. Stripped from production
@@ -268,6 +277,21 @@ export function MapView() {
       tryPendingFit(m, tracksRef.current)
     })
     ro.observe(container)
+
+    // Raster imagery may finish/replace draw buffers after a GeoJSON update in
+    // some production browsers. Re-render the pointer-transparent SVG route
+    // outline on camera or container changes; it is derived from the same
+    // Track data as the MapLibre source and never becomes an interaction layer.
+    let overlayFrame: number | undefined
+    const refreshRouteOverlay = () => {
+      if (overlayFrame !== undefined) return
+      overlayFrame = requestAnimationFrame(() => {
+        overlayFrame = undefined
+        setMapFrame((frame) => frame + 1)
+      })
+    }
+    map.on('move', refreshRouteOverlay)
+    map.on('resize', refreshRouteOverlay)
 
     // Tile/source errors (e.g. the OSM basemap CDN being unreachable) must
     // not be silent: the app's own layers render independently of the
@@ -500,6 +524,7 @@ export function MapView() {
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId)
       if (clickTimeoutId != null) clearTimeout(clickTimeoutId)
+      if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame)
       ro.disconnect()
       map.off('style.load', handleStyleLoad)
       map.off('error', handleError)
@@ -511,8 +536,11 @@ export function MapView() {
       map.off('contextmenu', handleContextMenu)
       map.off('click', handleClick)
       map.off('dblclick', handleDblClick)
+      map.off('move', refreshRouteOverlay)
+      map.off('resize', refreshRouteOverlay)
       map.remove()
       mapRef.current = null
+      setOverlayMap(null)
       loadedRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -622,6 +650,7 @@ export function MapView() {
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {overlayMap ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
       {tileErrorShown && (
         <div
           role="status"
@@ -693,5 +722,39 @@ export function MapView() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Non-interactive route outline. MapLibre remains the authoritative GeoJSON
+ * layer; this mirrors only its visible, decimated geometry as a defensive
+ * overlay when a raster basemap repaint wins the production WebGL stack.
+ */
+function MapRouteVisibilityOverlay({ map, tracks, activeTrackId }: { map: MapLibreMap; tracks: Track[]; activeTrackId?: string }) {
+  const canvas = map.getCanvas()
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  if (width < 2 || height < 2) return null
+
+  return (
+    <svg aria-hidden="true" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', overflow: 'visible' }}>
+      {tracks.map((track, index) => {
+        const points = renderCopy(track).coords
+          .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90)
+          .map(([lon, lat]) => map.project([lon, lat]))
+          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        if (points.length < 2) return null
+        const path = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
+        const active = track.id === activeTrackId
+        const color = track.meta.color ?? TRACK_PALETTE[index % TRACK_PALETTE.length]
+        const widthPx = Math.max(3, track.meta.lineWidth ?? 3) + (active ? 1.5 : 0)
+        return (
+          <g key={track.id} opacity={activeTrackId === undefined || active ? 1 : 0.52}>
+            <polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 3} strokeOpacity="0.86" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            <polyline points={path} fill="none" stroke={color} strokeWidth={widthPx} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          </g>
+        )
+      })}
+    </svg>
   )
 }
