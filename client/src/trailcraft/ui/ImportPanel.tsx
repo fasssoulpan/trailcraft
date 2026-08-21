@@ -35,7 +35,7 @@ async function importWithFallback(
 type FileStatus =
   | { phase: 'loading' }
   | { phase: 'needs-crs'; fileName: string; data: string | ArrayBuffer; result: ImportResult }
-  | { phase: 'done'; name: string }
+  | { phase: 'done'; name: string; checkpointCount: number }
   | { phase: 'error'; message: string }
 
 const ACCEPT = '.gpx,.kml,.fit,.kmz'
@@ -77,7 +77,7 @@ export function ImportPanel() {
       }
       addTrack(result.track)
       addImportedCheckpoints(result.track, result.waypoints)
-      setStatus(fileName, { phase: 'done', name: result.track.meta.name })
+      setStatus(fileName, { phase: 'done', name: result.track.meta.name, checkpointCount: result.waypoints.length })
     } catch (err) {
       setStatus(fileName, { phase: 'error', message: err instanceof Error ? err.message : String(err) })
     }
@@ -92,7 +92,7 @@ export function ImportPanel() {
       addTrack(result.track)
       addImportedCheckpoints(result.track, result.waypoints)
       if (result.track.meta.creator) rememberSource(result.track.meta.creator, chosenCrs)
-      setStatus(fileName, { phase: 'done', name: result.track.meta.name })
+      setStatus(fileName, { phase: 'done', name: result.track.meta.name, checkpointCount: result.waypoints.length })
     } catch (err) {
       setStatus(fileName, { phase: 'error', message: err instanceof Error ? err.message : String(err) })
     }
@@ -126,7 +126,7 @@ export function ImportPanel() {
             <li key={fileName} className={`import-panel__status import-panel__status--${status.phase}`}>
               <span className="import-panel__file-name">{fileName}</span>
               {status.phase === 'loading' && <span> 导入中…</span>}
-              {status.phase === 'done' && <span> 已导入:{status.name}</span>}
+              {status.phase === 'done' && <span> 已导入:{status.name}{status.checkpointCount > 0 ? ` · 已识别 ${status.checkpointCount} 个赛事点` : ''}</span>}
               {status.phase === 'error' && <span className="import-panel__error"> {status.message}</span>}
               {status.phase === 'needs-crs' && (
                 <div className="import-panel__crs-prompt">

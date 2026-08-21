@@ -1,5 +1,12 @@
 import { createTrack, type Track } from '../model/track'
 
+export interface GpxWaypoint {
+  name: string
+  lon: number
+  lat: number
+  ele?: number
+}
+
 // Numeric literal shared by ele/lat/lon: optional sign, digits with optional
 // decimal point, and an optional scientific-notation exponent (e.g. "1.5e3",
 // "-2.5E-1"). Without the exponent part, a value like "1.5e3" fails to match
@@ -18,6 +25,46 @@ const LON_RE = new RegExp(`\\blon="(${NUM})"`)
 // (group 2 = attrs, group 3 = body). This avoids a second full scan of the
 // string just to catch the rare self-closing form.
 const TRKPT_RE = /<trkpt\b([^>]*?)\/>|<trkpt\b([^>]*)>([\s\S]*?)<\/trkpt>/g
+const WPT_RE = /<wpt\b([^>]*?)\/>|<wpt\b([^>]*)>([\s\S]*?)<\/wpt>/g
+
+function textTag(body: string, tag: string): string | undefined {
+  const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(body)
+  return match?.[1]
+    ?.replace(/^<!\[CDATA\[|\]\]>$/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .trim() || undefined
+}
+
+// Track endpoints already render as the route's green/red start/finish pins.
+// Importing another CP on the same point only adds noise, so named start/end
+// waypoints are deliberately excluded while all other named race waypoints
+// (including CP, 补给 and SP labels) remain available to the CP importer.
+const START_OR_FINISH_RE = /(^|[\s_-])(起点|终点|起终点|start|finish)(?=$|[\s_-])/i
+
+/** Extracts named GPX 1.1 waypoints used by race organisers for CPs, aid
+ * stations and special points. It runs separately from the streaming trkpt
+ * parser so large activity files keep their memory-friendly track fast path. */
+export function parseGpxWaypoints(xml: string): GpxWaypoint[] {
+  const waypoints: GpxWaypoint[] = []
+  let match: RegExpExecArray | null
+  while ((match = WPT_RE.exec(xml))) {
+    const attrs = match[1] ?? match[2]
+    const body = match[3] ?? ''
+    const la = LAT_RE.exec(attrs)
+    const lo = LON_RE.exec(attrs)
+    const name = textTag(body, 'name')
+    if (!la || !lo || !name || START_OR_FINISH_RE.test(name)) continue
+    const lat = Number(la[1])
+    const lon = Number(lo[1])
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+    const ele = textTag(body, 'ele')
+    const elevation = ele === undefined ? undefined : Number(ele)
+    waypoints.push({ name, lon, lat, ele: Number.isFinite(elevation) ? elevation : undefined })
+  }
+  return waypoints
+}
 
 /**
  * Regex-based GPX parser (fast path). Deliberately avoids building a DOM/XML

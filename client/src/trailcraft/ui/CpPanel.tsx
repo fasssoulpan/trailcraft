@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAppStore } from '../state/appStore'
-import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
+import { CP_KIND_LABELS, CP_KIND_MARKS, CP_KIND_OPTIONS, type CpKind } from '../core/model/checkpoint'
 import { isoToLocalInputValue, localInputValueToIso } from '../core/util/localTime'
 import { attachPhoto } from '../core/photo/attachPhoto'
 import { anchorPhotosToTrack, type PhotoGpsInput } from '../core/pipeline/photoAnchor'
@@ -38,11 +38,13 @@ export function CpPanel() {
   const removeCp = useAppStore((s) => s.removeCp)
   const reorderCp = useAppStore((s) => s.reorderCp)
   const addPhotoCheckpoints = useAppStore((s) => s.addPhotoCheckpoints)
+  const reclassifyTrackCheckpoints = useAppStore((s) => s.reclassifyTrackCheckpoints)
 
   // 每个 CP 独立的照片上传状态(进行中/出错),不是 CheckPoint 本身的字段
   // ——这是纯粹的会话态交互反馈,和 hover/drawCursor 同一类,上传成功后
   // 结果直接写回 photoUrl,状态条目也就没用了,不需要持久化。
   const [photoStatus, setPhotoStatus] = useState<Record<string, PhotoUploadStatus>>({})
+  const [reclassifyNotice, setReclassifyNotice] = useState<string | undefined>(undefined)
 
   async function handlePhotoPick(cpId: string, file: File | undefined) {
     if (!file) return
@@ -144,6 +146,19 @@ export function CpPanel() {
             照片仅在本机本地处理和保存,不会上传到任何服务器。
           </p>
           <div className="cp-panel__batch">
+            <div className="cp-panel__row">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const changed = reclassifyTrackCheckpoints(activeTrack.id)
+                  setReclassifyNotice(changed > 0 ? `已按名称重新分类 ${changed} 个标记。` : '当前标记已符合分类规则。')
+                }}
+              >
+                按名称重新分类标记
+              </Button>
+              {reclassifyNotice && <span className="cp-panel__hint">{reclassifyNotice}</span>}
+            </div>
             <label className="cp-panel__batch-pick">
               从照片批量生成 CP(自动读取 EXIF GPS)
               <input
@@ -216,9 +231,9 @@ export function CpPanel() {
                     value={cp.kind}
                     onChange={(e) => updateCp(cp.id, { kind: e.target.value as CpKind })}
                   >
-                    {(Object.keys(CP_KIND_LABELS) as CpKind[]).map((k) => (
+                    {CP_KIND_OPTIONS.map((k) => (
                       <option key={k} value={k}>
-                        {CP_KIND_LABELS[k]}
+                        {CP_KIND_MARKS[k]} {CP_KIND_LABELS[k]}
                       </option>
                     ))}
                   </select>

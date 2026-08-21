@@ -2,7 +2,7 @@ import { newId, type Track } from '../model/track'
 import type { CheckPoint, CpKind } from '../model/checkpoint'
 import { anchorMonotonic } from '../stats/anchor'
 import { nearestVertex } from '../geo/nearestVertex'
-import type { KmlWaypoint } from '../parsers/kml'
+import type { ImportedWaypoint } from './import'
 
 /**
  * Best-effort kind inference from a checkpoint's own name. Deliberately
@@ -15,13 +15,19 @@ import type { KmlWaypoint } from '../parsers/kml'
  * user can retype from the CP panel same as any manually-added checkpoint.
  */
 export function inferCpKind(name: string): CpKind {
-  if (name.includes('补给')) return 'aid'
-  // Deliberately NOT inferring 'landmark' from place-name-looking words: in
-  // real race KMLs almost every checkpoint is named after a place (崇礼168's
-  // own waypoints include 「CP7雪如意」, 「CP4桦林子」, 「CP11森林·雪公寓」),
-  // so any such rule would retype most genuine checkpoints as landmarks.
-  // 'landmark' stays a manual choice.
-  return 'cp'
+  const normalized = name.trim().toLowerCase()
+  if (/(补给|供给|aid\b|\bas\d*)/i.test(normalized)) return 'aid'
+  // Official race files frequently name a checkpoint after its location
+  // (e.g. “CP2 红花梁隧道管理站”). An explicit CP id is the stronger signal;
+  // preserve it as a neutral route marker before testing generic place words.
+  if (/(^|[\s_-])cp\s*\d*\b|签到|打卡|check.?in/i.test(normalized)) return 'marker'
+  if (/(水源|取水|water\b)/i.test(normalized)) return 'water'
+  if (/(危险|落石|陡坡|悬崖|danger|hazard)/i.test(normalized)) return 'danger'
+  if (/(避难|庇护|shelter)/i.test(normalized)) return 'shelter'
+  if (/(岔路|分叉|路口|junction|fork)/i.test(normalized)) return 'junction'
+  if (/(营地|露营|camp)/i.test(normalized)) return 'camp'
+  if (/(换装|换鞋|更衣|更换装备|change)/i.test(normalized)) return 'change'
+  return 'marker'
 }
 
 /**
@@ -54,7 +60,7 @@ export function inferCpKind(name: string): CpKind {
  * original relative order (stable sort) and still go through
  * `anchorMonotonic` back-to-back, so that safety property is preserved.
  */
-export function checkpointsFromWaypoints(track: Track, waypoints: KmlWaypoint[]): CheckPoint[] {
+export function checkpointsFromWaypoints(track: Track, waypoints: ImportedWaypoint[]): CheckPoint[] {
   if (waypoints.length === 0) return []
   const { lon, lat } = track.points
 
@@ -62,18 +68,18 @@ export function checkpointsFromWaypoints(track: Track, waypoints: KmlWaypoint[])
     w,
     originalIndex,
     raw: nearestVertex(lon, lat, w.lon, w.lat).index,
-  }))
+  })).filter(({ raw }) => raw > 2 && raw < lon.length - 3)
+  if (withRaw.length === 0) return []
   withRaw.sort((a, b) => a.raw - b.raw)
 
   const anchored = anchorMonotonic(lon, lat, withRaw.map(({ w }) => [w.lon, w.lat] as [number, number]))
-  const anchorByOriginalIndex = new Map(withRaw.map(({ originalIndex }, k) => [originalIndex, anchored[k]]))
 
-  return waypoints.map((w, originalIndex) => ({
+  return withRaw.map(({ w }, index) => ({
     id: newId('cp'),
     trackId: track.id,
     name: w.name,
     kind: inferCpKind(w.name),
-    anchorIndex: anchorByOriginalIndex.get(originalIndex)!,
+    anchorIndex: anchored[index],
     clickLngLat: [w.lon, w.lat],
   }))
 }

@@ -1,4 +1,4 @@
-import { parseGpx } from '../parsers/gpx'
+import { parseGpx, parseGpxWaypoints, type GpxWaypoint } from '../parsers/gpx'
 import { parseKml, parseKmlWaypoints, type KmlWaypoint } from '../parsers/kml'
 import { parseFit } from '../parsers/fit'
 import { detectCrs, type DetectResult } from '../crs/detect'
@@ -6,8 +6,8 @@ import { convertTrackArrays } from '../crs/transform'
 import { computeCumDist } from '../geo/distance'
 import type { Crs, Track } from '../model/track'
 
-export type { KmlWaypoint }
-export interface ImportResult { track: Track; detect: DetectResult; waypoints: KmlWaypoint[] }
+export type ImportedWaypoint = KmlWaypoint | GpxWaypoint
+export interface ImportResult { track: Track; detect: DetectResult; waypoints: ImportedWaypoint[] }
 
 function payloadTypeName(data: unknown): string {
   if (typeof data === 'string') return 'string'
@@ -21,10 +21,10 @@ export async function importFile(
 ): Promise<ImportResult> {
   const ext = fileName.toLowerCase().split('.').pop()
   let track: Track
-  // Only KML carries named-waypoint checkpoint data (GPX/FIT tracks have no
-  // equivalent in this pipeline yet) -- kept as [] rather than undefined so
-  // every ImportResult has the same shape regardless of source format.
-  let waypoints: KmlWaypoint[] = []
+  // GPX `<wpt>` and KML `<Placemark><Point>` are both commonly used by race
+  // organisers to encode CP/aid locations. Keep one structural result shape
+  // so both formats share CRS conversion and the same monotonic CP anchoring.
+  let waypoints: ImportedWaypoint[] = []
   if (ext === 'gpx' || ext === 'kml') {
     if (typeof data !== 'string')
       throw new Error(
@@ -32,6 +32,7 @@ export async function importFile(
       )
     if (ext === 'gpx') {
       track = parseGpx(data, fileName)
+      waypoints = parseGpxWaypoints(data)
     } else {
       track = parseKml(data, fileName)
       waypoints = parseKmlWaypoints(data)

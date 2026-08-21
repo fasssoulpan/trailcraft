@@ -2,7 +2,7 @@ import { GeoJSONSource, LngLatBounds, Marker, Popup, type Map as MapLibreMap } f
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
-import { CP_KIND_COLORS } from '../core/model/checkpoint'
+import { CP_KIND_COLORS, CP_KIND_MARKS, CP_KIND_LABELS } from '../core/model/checkpoint'
 import type { HoverState } from '../state/appStore'
 import { decimateIndices } from '../core/toolbox/decimate'
 import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
@@ -527,14 +527,17 @@ export { CP_KIND_COLORS }
 const cpMarkers = new WeakMap<MapLibreMap, Map<string, Marker>>()
 
 function styleCpMarkerElement(el: HTMLElement, cp: CheckPoint, ordinal: number): void {
-  el.textContent = String(ordinal)
-  el.style.width = '22px'
-  el.style.height = '22px'
+  const mark = CP_KIND_MARKS[cp.kind]
+  el.textContent = mark === 'CP' ? `CP${ordinal}` : mark
+  el.title = `${CP_KIND_LABELS[cp.kind]} · ${cp.name}`
+  el.setAttribute('aria-label', el.title)
+  el.style.width = mark === 'CP' ? '30px' : '24px'
+  el.style.height = '24px'
   el.style.borderRadius = '50%'
   el.style.display = 'flex'
   el.style.alignItems = 'center'
   el.style.justifyContent = 'center'
-  el.style.fontSize = '11px'
+  el.style.fontSize = mark === 'CP' ? '9px' : '12px'
   el.style.fontWeight = '600'
   el.style.color = '#fff'
   el.style.background = CP_KIND_COLORS[cp.kind]

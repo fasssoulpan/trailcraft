@@ -10,8 +10,8 @@ import type { TrackKind } from '../core/perf/trackKind'
 import type { CheckPoint, CpKind } from '../core/model/checkpoint'
 import { anchorMonotonic } from '../core/stats/anchor'
 import { nearestVertex } from '../core/geo/nearestVertex'
-import { checkpointsFromWaypoints } from '../core/pipeline/checkpointImport'
-import type { KmlWaypoint } from '../core/pipeline/import'
+import { checkpointsFromWaypoints, inferCpKind } from '../core/pipeline/checkpointImport'
+import type { ImportedWaypoint } from '../core/pipeline/import'
 import type { StatsOptions } from '../core/stats/segments'
 import type { PaceParams } from '../core/pace/models'
 import { defaultLocalTimeToday } from '../core/util/localTime'
@@ -188,7 +188,10 @@ interface AppState {
    * stack -- an imported track's checkpoints appearing/disappearing together
    * with it is the expected undo granularity here, not a step of their own.
    */
-  addImportedCheckpoints(track: Track, waypoints: KmlWaypoint[]): void
+  addImportedCheckpoints(track: Track, waypoints: ImportedWaypoint[]): void
+  /** Re-applies the current name-based race marker rules to a track's CPs in
+   * one undoable operation, so existing projects can adopt new categories. */
+  reclassifyTrackCheckpoints(trackId: string): number
   removeTrack(id: string): void
   updateTrackStyle(id: string, patch: { color?: string; lineWidth?: number }): void
   /**
@@ -450,6 +453,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     const newCps = checkpointsFromWaypoints(track, waypoints)
     set({ cps: [...s.cps, ...newCps] })
+  },
+  reclassifyTrackCheckpoints: (trackId) => {
+    const s = get()
+    let changedCount = 0
+    const cps = s.cps.map((cp) => {
+      if (cp.trackId !== trackId) return cp
+      const kind = inferCpKind(cp.name)
+      if (kind === cp.kind) return cp
+      changedCount += 1
+      return { ...cp, kind }
+    })
+    if (changedCount === 0) return 0
+    s.history.push('重新分类标记', { tracks: s.tracks, cps: s.cps })
+    set({ cps, ...historyFlags(s.history) })
+    return changedCount
   },
   // 颜色/粗细是纯展示态属性(和 paceParams/statsOptions 同类),调整它们不
   // 需要撤销栈——用户随时可以再调回去,不需要"撤销这次改色"的心智模型。

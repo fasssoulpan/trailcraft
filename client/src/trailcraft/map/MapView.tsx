@@ -7,7 +7,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useAppStore, type HoverState } from '../state/appStore'
-import { CP_KIND_LABELS, type CpKind } from '../core/model/checkpoint'
+import { CP_KIND_LABELS, CP_KIND_MARKS, CP_KIND_OPTIONS, type CpKind } from '../core/model/checkpoint'
 import { ALL_RASTER_SOURCE_IDS, OSM_STYLE, styleSpecForBasemap } from './basemapStyle'
 import { hoverReadoutLabel } from '../ui/hudStats'
 import type { Vertex } from '../core/toolbox/draw'
@@ -754,9 +754,9 @@ export function MapView() {
           <label className="map-cp-form__field">
             类型
             <select value={cpKind} onChange={(e) => setCpKind(e.target.value as CpKind)}>
-              {(Object.keys(CP_KIND_LABELS) as CpKind[]).map((k) => (
+              {CP_KIND_OPTIONS.map((k) => (
                 <option key={k} value={k}>
-                  {CP_KIND_LABELS[k]}
+                  {CP_KIND_MARKS[k]} {CP_KIND_LABELS[k]}
                 </option>
               ))}
             </select>

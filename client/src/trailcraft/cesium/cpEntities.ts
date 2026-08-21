@@ -19,7 +19,7 @@
 import { Cartesian2, Cartesian3, Color, ConstantPositionProperty, ConstantProperty, HeightReference, LabelStyle, NearFarScalar, VerticalOrigin } from './runtime'
 import type { Cartesian3 as CesiumCartesian3, Entity, Viewer } from 'cesium'
 import type { CheckPoint } from '../core/model/checkpoint'
-import { CP_KIND_COLORS } from '../core/model/checkpoint'
+import { CP_KIND_COLORS, CP_KIND_MARKS } from '../core/model/checkpoint'
 import type { Track } from '../core/model/track'
 
 interface CpEntityInfo {
@@ -63,7 +63,7 @@ function resolvePosition(track: Track, cp: CheckPoint): CesiumCartesian3 | undef
 }
 
 function labelText(cp: CheckPoint, ordinal: number): string {
-  return `${ordinal}. ${cp.name}`
+  return `${CP_KIND_MARKS[cp.kind]} ${ordinal}. ${cp.name}`
 }
 
 /**

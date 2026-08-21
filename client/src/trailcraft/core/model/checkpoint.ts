@@ -1,13 +1,72 @@
-export type CpKind = 'cp' | 'aid' | 'gear' | 'danger' | 'quit' | 'landmark'
+export type CpKind =
+  | 'marker'
+  | 'water'
+  | 'aid'
+  | 'danger'
+  | 'toilet'
+  | 'shelter'
+  | 'junction'
+  | 'camp'
+  | 'change'
+  // Retained only to render already-saved projects created before the
+  // simplified marker palette; no new UI or auto-import rule selects them.
+  | 'gear'
+  | 'fishing'
+  | 'obstacle'
+  | 'structure'
+  | 'cp'
+  // Kept for backwards compatibility with saved TrailCraft projects.
+  | 'quit'
+  | 'landmark'
 
 /** 六种 CP 类型的中文展示名,CpPanel / MapView 的创建表单共用同一份映射。 */
 export const CP_KIND_LABELS: Record<CpKind, string> = {
-  cp: 'CP 打卡点',
+  marker: '标记点',
+  water: '水源',
   aid: '补给站',
-  gear: '强装检查',
   danger: '危险路段',
-  quit: '退赛点',
-  landmark: '重要地标',
+  toilet: '厕所',
+  shelter: '避难所',
+  junction: '岔路',
+  camp: '营地',
+  change: '换装点',
+  gear: '穿装点（旧版）',
+  fishing: '渔获（旧版）',
+  obstacle: '障碍（旧版）',
+  structure: '结构（旧版）',
+  cp: 'CP 签到（旧版）',
+  quit: '退赛点（旧版）',
+  landmark: '重要地标（旧版）',
+}
+
+/** Current marker palette shown to users. Legacy persisted values remain in
+ * `CpKind` above so older project files still render, but are not offered as
+ * new choices in the high-level icon picker. */
+export const CP_KIND_OPTIONS: CpKind[] = [
+  'marker', 'water', 'aid', 'danger', 'shelter', 'junction',
+  'camp', 'change',
+]
+
+/** Compact, font-safe monograms used inside 2D markers and before 3D labels.
+ * They encode the same categories as the icon chooser without depending on a
+ * remote sprite sheet, so offline/local-first route projects remain usable. */
+export const CP_KIND_MARKS: Record<CpKind, string> = {
+  marker: '•',
+  water: '≈',
+  aid: '+',
+  danger: '!',
+  toilet: 'WC',
+  shelter: '⌂',
+  junction: 'Y',
+  camp: '△',
+  change: '⇄',
+  gear: '◉',
+  fishing: '⌇',
+  obstacle: '×',
+  structure: '▥',
+  cp: 'CP',
+  quit: '↗',
+  landmark: '◆',
 }
 
 /**
@@ -25,10 +84,20 @@ export const CP_KIND_LABELS: Record<CpKind, string> = {
  * re-exports this constant for its own existing call sites.
  */
 export const CP_KIND_COLORS: Record<CpKind, string> = {
-  cp: '#1d4ed8',
+  marker: '#2563eb',
+  water: '#0891b2',
   aid: '#16a34a',
-  gear: '#ca8a04',
   danger: '#dc2626',
+  toilet: '#475569',
+  shelter: '#7c3aed',
+  junction: '#d97706',
+  camp: '#a16207',
+  change: '#c2410c',
+  gear: '#ca8a04',
+  fishing: '#0f766e',
+  obstacle: '#b91c1c',
+  structure: '#64748b',
+  cp: '#1d4ed8',
   quit: '#6b7280',
   // Purple: distinct from every other kind above and from TRACK_PALETTE (see
   // core/model/trackStyle.ts), so a landmark never reads as a track line or
