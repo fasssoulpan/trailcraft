@@ -9,19 +9,10 @@ import { applyTheme, loadTheme } from "./trailcraft/state/theme";
 
 applyTheme(loadTheme());
 
-function InternalPreviewNotice() {
-  return (
-    <p className="manus-internal-preview" role="status">
-      公众候选版本 · 地图加载取决于当前网络与服务端点
-    </p>
-  );
-}
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
       <TrailCraftApp />
     </ErrorBoundary>
-    <InternalPreviewNotice />
   </StrictMode>,
 );
