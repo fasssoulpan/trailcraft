@@ -704,7 +704,10 @@ export function MapView() {
           />
         </div>
       )}
-      {overlayMap ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
+      {/* The SVG route mirror is reserved for a genuinely unready map only.
+          Once MapLibre is interactive it would become a second white-outlined
+          ribbon above the native route and above DOM CP markers. */}
+      {overlayMap && mapStatus !== 'ready' ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
       {tileErrorShown && (
         <div
           role="status"
@@ -800,7 +803,7 @@ function StaticMapBackdrop({ tracks, activeTrackId }: { tracks: Track[]; activeT
   return (
     <div aria-hidden="true" style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden', background: '#cbd7c9' }}>
       <img src={staticUrl} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-      {path && <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="1.55" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.78" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+      {path && <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="0.9" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.46" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
     </div>
   )
 }
@@ -828,7 +831,7 @@ function StaticMapFallback({ tracks, activeTrackId, state, onRetry }: { tracks: 
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'linear-gradient(145deg, #b7c9b8, #e6ece3)', pointerEvents: 'none' }}>
       <img src={staticUrl} alt="卫星地图兼容预览" onError={(event) => { event.currentTarget.style.display = 'none' }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.84 }} />
       <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,.17) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.17) 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
-      {path && <svg aria-label="导入路线兼容预览" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="1.55" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.78" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+      {path && <svg aria-label="导入路线兼容预览" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}><polyline points={path} fill="none" stroke="#fff8f0" strokeWidth="0.9" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /><polyline points={path} fill="none" stroke="#d95f2d" strokeWidth="0.46" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg>}
       <div style={{ position: 'absolute', right: 12, bottom: 12, left: 12, display: 'grid', gap: 5, padding: '10px 12px', border: '1px solid rgba(255,255,255,.66)', borderRadius: 8, color: '#f8fbf5', background: 'rgba(21,43,34,.88)', boxShadow: '0 10px 22px rgba(20,42,33,.2)' }}>
         <strong style={{ fontSize: 13 }}>{heading}</strong>
         <span style={{ fontSize: 11, lineHeight: 1.45, color: '#dce7de' }}>{coords.length > 1 ? '已在兼容预览中显示当前路线；交互地图恢复时可继续缩放和编辑。' : '卫星兼容预览已启用；导入路线后将在此处显示轨迹缩略图。'}</span>
@@ -860,10 +863,10 @@ function MapRouteVisibilityOverlay({ map, tracks, activeTrackId }: { map: MapLib
         const path = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
         const active = track.id === activeTrackId
         const color = track.meta.color ?? TRACK_PALETTE[index % TRACK_PALETTE.length]
-        const widthPx = Math.max(3, track.meta.lineWidth ?? 3) + (active ? 1.5 : 0)
+        const widthPx = Math.max(2.2, track.meta.lineWidth ?? 3) + (active ? 0.25 : 0)
         return (
           <g key={track.id} opacity={activeTrackId === undefined || active ? 1 : 0.52}>
-            <polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 3} strokeOpacity="0.86" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            <polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 1.4} strokeOpacity="0.72" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
             <polyline points={path} fill="none" stroke={color} strokeWidth={widthPx} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           </g>
         )

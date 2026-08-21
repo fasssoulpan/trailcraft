@@ -11,7 +11,10 @@ import type { Vertex } from '../core/toolbox/draw'
 /** MapLibre only ever draws this many vertices per track; real tracks (up to
  * ~330k points) are decimated down to this for rendering. Hover/lookup still
  * resolves to full-precision indices via `RenderCopy.idx`. */
-export const RENDER_MAX = 4000
+// 12k vertices keeps mountain switchbacks visually pinned to their actual
+// satellite-road geometry while remaining comfortably below a mobile WebGL
+// frame budget for the much larger activity files this app supports.
+export const RENDER_MAX = 12000
 
 export interface RenderCopy {
   /** idx[i] = full-precision point index that render-copy position i maps back to */
@@ -279,7 +282,9 @@ export function syncTrackLayers(
     // Only dim non-active tracks once something IS active -- with no
     // selection at all, every track should read at full strength.
     const opacity = activeTrackId === undefined || isActive ? 1 : 0.45
-    const lineWidth = isActive ? baseWidth + 1.5 : baseWidth
+    // The active route should read through varied satellite imagery without
+    // becoming a broad outlined ribbon that appears to float above roads.
+    const lineWidth = isActive ? baseWidth : Math.max(1.5, baseWidth - 0.35)
 
     const existing = map.getSource(layerId) as GeoJSONSource | undefined
     if (existing) {
@@ -542,7 +547,8 @@ function styleCpMarkerElement(el: HTMLElement, cp: CheckPoint, ordinal: number):
   el.style.color = '#fff'
   el.style.background = CP_KIND_COLORS[cp.kind]
   el.style.border = '2px solid #fff'
-  el.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.4)'
+  el.style.boxShadow = '0 0 0 2px rgba(255,255,255,.92), 0 2px 6px rgba(0,0,0,.46)'
+  el.style.zIndex = '8'
   el.style.cursor = 'default'
 }
 
