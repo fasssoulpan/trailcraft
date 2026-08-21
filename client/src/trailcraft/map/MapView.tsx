@@ -680,7 +680,7 @@ export function MapView() {
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <StaticMapBackdrop tracks={tracks} activeTrackId={activeTrackId} />
-      <div ref={containerRef} style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }} />
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }} />
       {mapStatus !== 'ready' && (
         <div
           role="status"
@@ -704,9 +704,7 @@ export function MapView() {
           />
         </div>
       )}
-      {/* The SVG route mirror is reserved for a genuinely unready map only.
-          Once MapLibre is interactive it would become a second white-outlined
-          ribbon above the native route and above DOM CP markers. */}
+      {overlayMap ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
       {tileErrorShown && (
         <div
           role="status"
@@ -852,21 +850,21 @@ function MapRouteVisibilityOverlay({ map, tracks, activeTrackId }: { map: MapLib
   if (width < 2 || height < 2) return null
 
   return (
-    <svg aria-hidden="true" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', overflow: 'visible' }}>
+    <svg aria-hidden="true" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', overflow: 'hidden' }}>
       {tracks.map((track, index) => {
-        const points = renderCopy(track).coords
+        const paths = renderCopy(track).segments.map((segment) => segment
           .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90)
           .map(([lon, lat]) => map.project([lon, lat]))
           .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-        if (points.length < 2) return null
-        const path = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')
+          .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '))
+          .filter((path) => path.length > 0)
+        if (paths.length === 0) return null
         const active = track.id === activeTrackId
         const color = track.meta.color ?? TRACK_PALETTE[index % TRACK_PALETTE.length]
         const widthPx = Math.max(2.2, track.meta.lineWidth ?? 3) + (active ? 0.25 : 0)
         return (
           <g key={track.id} opacity={activeTrackId === undefined || active ? 1 : 0.52}>
-            <polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 1.4} strokeOpacity="0.72" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-            <polyline points={path} fill="none" stroke={color} strokeWidth={widthPx} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            {paths.map((path, pathIndex) => <g key={pathIndex}><polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 1.4} strokeOpacity="0.72" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /><polyline points={path} fill="none" stroke={color} strokeWidth={widthPx} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></g>)}
           </g>
         )
       })}
