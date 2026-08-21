@@ -707,7 +707,6 @@ export function MapView() {
       {/* The SVG route mirror is reserved for a genuinely unready map only.
           Once MapLibre is interactive it would become a second white-outlined
           ribbon above the native route and above DOM CP markers. */}
-      {overlayMap && mapStatus !== 'ready' ? <MapRouteVisibilityOverlay map={overlayMap} tracks={tracks} activeTrackId={activeTrackId} /> : null}
       {tileErrorShown && (
         <div
           role="status"

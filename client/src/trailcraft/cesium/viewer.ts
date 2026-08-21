@@ -19,8 +19,10 @@ import {
   Cartesian3,
   CesiumTerrainProvider,
   EllipsoidTerrainProvider,
+  GeographicTilingScheme,
   GridImageryProvider,
   ImageryLayer,
+  Rectangle,
   ScreenSpaceEventType,
   UrlTemplateImageryProvider,
   Viewer,
@@ -60,6 +62,7 @@ window.CESIUM_BASE_URL = CESIUM_BASE_URL
 // the view before any track has been loaded.
 const DEFAULT_CENTER = { lon: 104.0, lat: 35.0, height: 8_000_000 }
 const TERRAIN_PROVIDER_TIMEOUT_MS = 4_000
+const POLAR_IMAGERY_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/BlueMarble_ShadedRelief_Bathymetry/default/2013-12-01/500m/{z}/{y}/{x}.jpeg'
 
 /**
  * The Viewer must never wait indefinitely for remote terrain metadata before
@@ -298,6 +301,20 @@ export async function createViewer(container: HTMLElement, opts?: CreateViewerOp
     new UrlTemplateImageryProvider({ url: ESRI_STREET_URL, credit: ESRI_STREET_CREDIT, minimumLevel: 0, maximumLevel: 19 }),
   )
   planImageryLayer.show = false
+  // Web Mercator satellite tiles stop short of both poles. Overlay the public
+  // NASA GIBS Blue Marble ice/ocean mosaic only above 80°N and below 80°S so
+  // global camera views remain continuous without replacing route-area imagery.
+  const polarTilingScheme = new GeographicTilingScheme()
+  const polarImageryOptions = (rectangle: InstanceType<typeof Rectangle>) => ({
+    url: POLAR_IMAGERY_URL,
+    credit: 'NASA GIBS',
+    tilingScheme: polarTilingScheme,
+    rectangle,
+    minimumLevel: 0,
+    maximumLevel: 8,
+  })
+  viewer.imageryLayers.addImageryProvider(new UrlTemplateImageryProvider(polarImageryOptions(Rectangle.fromDegrees(-180, 80, 180, 90))))
+  viewer.imageryLayers.addImageryProvider(new UrlTemplateImageryProvider(polarImageryOptions(Rectangle.fromDegrees(-180, -90, 180, -80))))
   let activeStyle: BasemapStyle = DEFAULT_BASEMAP_STYLE
 
   const basemapCredit: Record<BasemapStyle, string> = {

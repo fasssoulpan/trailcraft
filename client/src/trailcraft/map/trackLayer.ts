@@ -1,5 +1,5 @@
 import { GeoJSONSource, LngLatBounds, Marker, Popup, type Map as MapLibreMap } from 'maplibre-gl'
-import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
+import type { Feature, FeatureCollection, LineString, MultiLineString, Point } from 'geojson'
 import type { Track } from '../core/model/track'
 import type { CheckPoint } from '../core/model/checkpoint'
 import { CP_KIND_COLORS, CP_KIND_MARKS, CP_KIND_LABELS } from '../core/model/checkpoint'
@@ -15,12 +15,19 @@ import type { Vertex } from '../core/toolbox/draw'
 // satellite-road geometry while remaining comfortably below a mobile WebGL
 // frame budget for the much larger activity files this app supports.
 export const RENDER_MAX = 12000
+/** A route recorded at normal GPX density never crosses 1 km between two
+ * consecutive render samples. A larger step is a segment jump; we keep the
+ * source points for statistics, but render it as a deliberate line break. */
+export const RENDER_BREAK_DISTANCE_M = 1_000
 
 export interface RenderCopy {
   /** idx[i] = full-precision point index that render-copy position i maps back to */
   idx: Uint32Array
   /** decimated [lon, lat] pairs, same length/order as idx */
   coords: [number, number][]
+  /** Contiguous portions for map drawing. Unlike `coords`, no segment here
+   * contains an implausible long jump that would form a cross-map diagonal. */
+  segments: [number, number][][]
 }
 
 // Tracks are immutable once created (see core/model/track.ts), and renderCopy
@@ -39,7 +46,18 @@ export function renderCopy(t: Track): RenderCopy {
     const p = idx[i]
     coords[i] = [lon[p], lat[p]]
   }
-  const result: RenderCopy = { idx, coords }
+  const segments: [number, number][][] = []
+  let segment: [number, number][] = []
+  for (const coord of coords) {
+    const previous = segment[segment.length - 1]
+    if (previous && haversine(previous[0], previous[1], coord[0], coord[1]) > RENDER_BREAK_DISTANCE_M) {
+      if (segment.length > 1) segments.push(segment)
+      segment = []
+    }
+    segment.push(coord)
+  }
+  if (segment.length > 1) segments.push(segment)
+  const result: RenderCopy = { idx, coords, segments }
   renderCopyCache.set(t, result)
   return result
 }
@@ -48,11 +66,15 @@ function layerIdFor(trackId: string): string {
   return `trk-${trackId}`
 }
 
-function trackToFeature(t: Track): Feature<LineString> {
+function trackToFeature(t: Track): Feature<LineString | MultiLineString> {
+  const { coords, segments } = renderCopy(t)
+  const geometry = segments.length <= 1
+    ? { type: 'LineString' as const, coordinates: segments[0] ?? coords }
+    : { type: 'MultiLineString' as const, coordinates: segments }
   return {
     type: 'Feature',
     properties: { id: t.id },
-    geometry: { type: 'LineString', coordinates: renderCopy(t).coords },
+    geometry,
   }
 }
 

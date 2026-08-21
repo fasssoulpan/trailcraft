@@ -23,6 +23,7 @@ import './RouteBrief.css'
 type ToolView = 'workbench' | 'library'
 type WorkflowStage = 'import' | 'edit' | 'analyse' | 'tour'
 type LibraryTool = 'workbench' | 'quick' | 'track'
+type MapViewport = 'standard' | 'compact' | 'full'
 
 const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
   { id: 'import', label: '导入与校验', kicker: '01' },
@@ -48,6 +49,7 @@ function App() {
   const [insightOpen, setInsightOpen] = useState(true)
   const [profileOpen, setProfileOpen] = useState(true)
   const [segmentsOpen, setSegmentsOpen] = useState(false)
+  const [mapViewport, setMapViewport] = useState<MapViewport>('standard')
   const [analysisLaunch, setAnalysisLaunch] = useState<'quick' | 'track' | undefined>(undefined)
   const sourceMemory = useAppStore((s) => s.sourceMemory)
   const tracks = useAppStore((s) => s.tracks)
@@ -97,6 +99,14 @@ function App() {
   useEffect(() => {
     if (hydrated.current) void saveSourceMemory(sourceMemory)
   }, [sourceMemory])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && mapViewport === 'full') setMapViewport('standard')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mapViewport])
 
   function activateStage(next: WorkflowStage) {
     setToolView('workbench')
@@ -187,10 +197,13 @@ function App() {
         <nav className={`route-brief__steps route-brief__steps--${stage}`} aria-label="路线工作步骤">
           {STAGES.map((item) => <button key={item.id} type="button" className={stage === item.id ? 'is-active' : ''} onClick={() => activateStage(item.id)}><span>{item.kicker}</span>{item.label}</button>)}
         </nav>
-        <section className={`route-brief__workspace${canvasMode === 'fly' ? ' route-brief__workspace--fly' : ''}`}>
+        <section className={`route-brief__workspace${canvasMode === 'fly' ? ' route-brief__workspace--fly' : ''} route-brief__workspace--${mapViewport}`}>
           <div className="route-brief__canvas">
             {canvasMode === 'fly' ? <FlyView /> : <MapView />}
-            <MapCanvasModeSwitch mode={canvasMode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
+            <div className="map-canvas-controls" aria-label="地图视图控制">
+              <MapCanvasModeSwitch mode={canvasMode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
+              <MapViewportSwitch value={mapViewport} onChange={setMapViewport} />
+            </div>
             {canvasMode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
             {import.meta.env.DEV && canvasMode === 'plan' ? <MapDebugBadge /> : null}
           </div>
@@ -200,7 +213,7 @@ function App() {
           </aside>
         </section>
         <section className="route-brief__data-band">
-          <div className="route-brief__data-band-head"><span>高程与分段</span><div><button type="button" onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? '收起高程' : '展开高程'}</button><button type="button" onClick={() => setSegmentsOpen((open) => !open)}>{segmentsOpen ? '收起分段' : '查看分段'}</button></div></div>
+          <div className="route-brief__data-band-head"><div className="route-brief__data-band-title"><span>高程与分段</span><p>先查看爬升，再按需展开分段明细。</p></div><div className="route-brief__data-band-actions" role="group" aria-label="高程与分段操作"><button type="button" aria-pressed={profileOpen} onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? '收起高程' : '展开高程'}</button><button type="button" aria-pressed={segmentsOpen} onClick={() => setSegmentsOpen((open) => !open)}>{segmentsOpen ? '收起分段' : '查看分段'}</button></div></div>
           {profileOpen && <div className="route-brief__profile"><ProfileCanvas /></div>}
           {segmentsOpen && <div className="route-brief__segments"><SegmentTable /></div>}
         </section>
@@ -215,6 +228,10 @@ function PlatformNav({ view, onWorkbench, onLibrary }: { view: ToolView; onWorkb
 
 function MapCanvasModeSwitch({ mode, onPlan, onFly }: { mode: 'plan' | 'fly'; onPlan: () => void; onFly: () => void }) {
   return <div className="map-mode-switch" role="group" aria-label="地图引擎视图"><button type="button" className={mode === 'plan' ? 'is-active' : ''} onClick={onPlan}>平面路线图</button><button type="button" className={mode === 'fly' ? 'is-active' : ''} onClick={onFly}>三维巡游</button></div>
+}
+
+function MapViewportSwitch({ value, onChange }: { value: MapViewport; onChange: (value: MapViewport) => void }) {
+  return <div className="map-viewport-switch" role="group" aria-label="地图浏览尺寸"><button type="button" className={value === 'compact' ? 'is-active' : ''} onClick={() => onChange('compact')}>小窗</button><button type="button" className={value === 'standard' ? 'is-active' : ''} onClick={() => onChange('standard')}>标准</button><button type="button" className={value === 'full' ? 'is-active' : ''} onClick={() => onChange(value === 'full' ? 'standard' : 'full')}>{value === 'full' ? '退出全屏' : '全屏'}</button></div>
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }
