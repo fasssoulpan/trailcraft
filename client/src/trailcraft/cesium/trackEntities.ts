@@ -33,7 +33,7 @@ import {
 } from './runtime'
 import type { Cartesian3 as CesiumCartesian3, Entity, Viewer } from 'cesium'
 import type { Track } from '../core/model/track'
-import { buildPositionArray, synthesizeTimeline, RENDER_MAX_3D } from './trackGeometry'
+import { buildPositionArray, splitGroundPolylinePositions, synthesizeTimeline, RENDER_MAX_3D } from './trackGeometry'
 import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 
 // ---- Geometry memoisation -------------------------------------------------
@@ -41,6 +41,8 @@ import { TRACK_PALETTE, DEFAULT_LINE_WIDTH } from '../core/model/trackStyle'
 interface TrackGeometry {
   /** Ground positions for every render point, same order as trackGeometry's `idx`. */
   positions: CesiumCartesian3[]
+  /** 连续的贴地折线段：相邻段共享端点，避免长路线被单一 GroundPolyline 截断。 */
+  positionSegments: CesiumCartesian3[][]
   /** Full-precision index of each render position (see trackGeometry.ts). */
   idx: Uint32Array
   /** Per-render-point playback time in seconds from start (N3 will consume this). */
@@ -66,6 +68,7 @@ function getGeometry(track: Track): TrackGeometry {
   const positions = Cartesian3.fromDegreesArrayHeights(flat)
   const geometry: TrackGeometry = {
     positions,
+    positionSegments: splitGroundPolylinePositions(positions),
     idx,
     times,
     syntheticTimeline: synthetic,
@@ -115,8 +118,8 @@ function applyLineStyle(line: Entity, color: string, opacity: number, width: num
 
 // ---- Entity ids --------------------------------------------------------
 
-function lineId(trackId: string): string {
-  return `trk-line-${trackId}`
+function lineId(trackId: string, segmentIndex: number): string {
+  return `trk-line-${trackId}-${segmentIndex}`
 }
 function startId(trackId: string): string {
   return `trk-start-${trackId}`
@@ -171,7 +174,7 @@ interface TrackEntityGroup {
    * and the entities need rebuilding" vs. "nothing changed, only
    * activeTrackId or index did". */
   track: Track
-  line: Entity
+  lines: Entity[]
   start: Entity
   finish: Entity
 }
@@ -184,7 +187,7 @@ const knownEntities = new WeakMap<Viewer, Map<string, TrackEntityGroup>>()
 const pendingFlyTo = new WeakMap<Viewer, string>()
 
 function removeGroup(viewer: Viewer, group: TrackEntityGroup): void {
-  viewer.entities.remove(group.line)
+  group.lines.forEach((line) => viewer.entities.remove(line))
   viewer.entities.remove(group.start)
   viewer.entities.remove(group.finish)
 }
@@ -231,17 +234,17 @@ export function syncTrackEntities(
     const existing = known!.get(track.id)
 
     if (existing && existing.track === track) {
-      applyLineStyle(existing.line, color, opacity, width)
+      existing.lines.forEach((line) => applyLineStyle(line, color, opacity, width))
       return
     }
 
     if (existing) removeGroup(viewer, existing)
 
     const geometry = getGeometry(track)
-    const line = viewer.entities.add({
-      id: lineId(track.id),
+    const lines = geometry.positionSegments.map((positions, segmentIndex) => viewer.entities.add({
+      id: lineId(track.id, segmentIndex),
       polyline: {
-        positions: geometry.positions,
+        positions,
         clampToGround: true,
         width,
         material: new PolylineGlowMaterialProperty({
@@ -249,11 +252,11 @@ export function syncTrackEntities(
           color: Color.fromCssColorString(color).withAlpha(opacity),
         }),
       },
-    })
+    }))
     const start = viewer.entities.add(buildMarkerEntity(startId(track.id), geometry.startPos, START_COLOR, '起点'))
     const finish = viewer.entities.add(buildMarkerEntity(finishId(track.id), geometry.finishPos, FINISH_COLOR, '终点'))
 
-    known!.set(track.id, { track, line, start, finish })
+    known!.set(track.id, { track, lines, start, finish })
     if (!existing) newestTrackId = track.id
   })
 

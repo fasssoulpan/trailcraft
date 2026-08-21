@@ -22,6 +22,20 @@ import { decimateIndices } from '../core/toolbox/decimate'
  */
 export const RENDER_MAX_3D = 8000
 
+/** Cesium 的贴地折线在一条实体中承载过多顶点时，可能在某些设备/GPU 上
+ * 只绘制局部。按此上限切分为连续实体；相邻段复用一个端点，视觉上仍是一条
+ * 完整贴地路线。 */
+export const GROUND_POLYLINE_MAX_POINTS = 1024
+
+export function splitGroundPolylinePositions<T>(positions: readonly T[], maxPoints = GROUND_POLYLINE_MAX_POINTS): T[][] {
+  if (positions.length < 2 || maxPoints < 2) return positions.length ? [Array.from(positions)] : []
+  const segments: T[][] = []
+  for (let start = 0; start < positions.length - 1; start += maxPoints - 1) {
+    segments.push(Array.from(positions.slice(start, Math.min(start + maxPoints, positions.length))))
+  }
+  return segments
+}
+
 /**
  * Height (metres, ellipsoidal) substituted for a render point whose `ele`
  * is missing -- either the whole column is absent (common for planning
