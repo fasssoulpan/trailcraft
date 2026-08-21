@@ -410,7 +410,7 @@ function resolveActiveTrackAfterOp(tracks: Track[], oldActiveIdx: number): Track
 export const useAppStore = create<AppState>((set, get) => ({
   tracks: [], sourceMemory: {}, cps: [], statsOptions: DEFAULT_STATS_OPTIONS,
   paceParams: DEFAULT_PACE_PARAMS, raceStartTime: defaultLocalTimeToday(6, 0),
-  flythroughSpeed: 1, flythroughCameraMode: 'orbit',
+  flythroughSpeed: 1, flythroughCameraMode: 'free',
   mode: loadMode(),
   setMode: (mode) => {
     saveMode(mode)

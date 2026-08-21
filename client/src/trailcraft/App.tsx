@@ -29,11 +29,11 @@ const STAGES: Array<{ id: WorkflowStage; label: string; kicker: string }> = [
   { id: 'import', label: '导入与校验', kicker: '01' },
   { id: 'edit', label: '路线编辑', kicker: '02' },
   { id: 'analyse', label: '赛前分析', kicker: '03' },
-  { id: 'tour', label: '输出与巡游', kicker: '04' },
+  { id: 'tour', label: '视频与数据导出', kicker: '04' },
 ]
 
 const TOOL_CARDS: Array<{ title: string; detail: string; state: string; tool: LibraryTool }> = [
-  { title: '路线工作台', detail: '导入、校验、编辑、分析并输出路线工程；三维巡游位于第04步。', state: '可用', tool: 'workbench' as const },
+  { title: '路线工作台', detail: '导入、校验、编辑、分析并输出路线工程；视频与数据导出位于第04步。', state: '可用', tool: 'workbench' as const },
   { title: '表现分速算', detail: '无需导入轨迹；输入距离、爬升、下降和完赛用时，快速估算表现分与分段配速。', state: '速算', tool: 'quick' },
   { title: '实跑轨迹表现分析', detail: '选择已导入的实跑轨迹，计算表现分、坡度分布、主要爬坡与逐公里数据。', state: '实跑轨迹', tool: 'track' },
 ]
@@ -49,6 +49,7 @@ function App() {
   const [insightOpen, setInsightOpen] = useState(true)
   const [profileOpen, setProfileOpen] = useState(true)
   const [segmentsOpen, setSegmentsOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(true)
   const [mapViewport, setMapViewport] = useState<MapViewport>('standard')
   const [analysisLaunch, setAnalysisLaunch] = useState<'quick' | 'track' | undefined>(undefined)
   const sourceMemory = useAppStore((s) => s.sourceMemory)
@@ -81,7 +82,7 @@ function App() {
     // Workflow stage is intentionally session-local and starts at 01. The
     // map mode is a persisted preference, so reset any old `fly` value here:
     // a refresh must not mount Cesium under the import stage and bypass the
-    // explicit 第04步 “输出与巡游” entry point.
+    // explicit 第04步“视频与数据导出”入口。
     setMode('plan')
   }, [setMode])
 
@@ -112,11 +113,10 @@ function App() {
     setToolView('workbench')
     setStage(next)
     setMode(next === 'tour' ? 'fly' : 'plan')
-    // Enter a route tour in the readable oblique-orbit view. Users can still
-    // deliberately choose 自由 later, but a persisted free camera must not
-    // make a fresh 3D entry look like a flat map.
+    // Enter the 3D map in free-view mode. Follow and orbit remain available
+    // as deliberate playback camera choices in the on-canvas controls.
     if (next === 'tour') {
-      setFlythroughCameraMode('orbit')
+      setFlythroughCameraMode('free')
       // A tour is an aerial terrain experience, not a continuation of the
       // user's flat route-planning basemap choice. Keep the 3D scope on
       // satellite imagery; the independent 2D preference remains untouched.
@@ -159,7 +159,7 @@ function App() {
     if (stage === 'analyse') {
       return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel launch={analysisLaunch} onLaunchHandled={() => setAnalysisLaunch(undefined)} /><LayerPanel /></>
     }
-    return <><StageHeader number="04" title="输出与巡游" description="从当前路线进入三维地形、镜头与输出流程。" /><ExportPanel /><div className="route-brief__tour-note"><strong>三维巡游</strong><span>{activeTrack ? '已绑定当前活动路线。' : '先导入并选择一条路线。'}</span></div></>
+    return <><StageHeader number="04" title="视频与数据导出" description="生成巡游视频，并导出路线、路书与数据文件。" /><ExportPanel /><div className="route-brief__tour-note"><strong>三维巡游入口</strong><span>{activeTrack ? '已绑定当前活动路线，默认使用自由视角。' : '先导入并选择一条路线。'}</span></div></>
   }
 
   if (toolView === 'library') {
@@ -168,7 +168,7 @@ function App() {
         <PlatformNav view={toolView} onWorkbench={() => setToolView('workbench')} onLibrary={() => setToolView('library')} />
         <main className="tool-library" id="main-content">
           <section className="tool-library__hero">
-            <div><p className="eyebrow">TRAILCRAFT TOOLS</p><h1>为每一段山路，找到下一步。</h1><p>当前仅开放路线工作台；从校验到三维巡游均在一次连续流程中完成。</p></div>
+            <div><p className="eyebrow">TRAILCRAFT TOOLS</p><h1>为每一段山路，找到下一步。</h1><p>当前仅开放路线工作台；从校验到视频与数据导出均在一次连续流程中完成。</p></div>
             <img src="/manus-storage/trailcraft-hero-ridge_fafb23ee.jpg" alt="山脊与云雾中的越野跑路线地貌" />
           </section>
           <section className="tool-library__grid" aria-label="TrailCraft 工具库">
@@ -197,20 +197,23 @@ function App() {
         <nav className={`route-brief__steps route-brief__steps--${stage}`} aria-label="路线工作步骤">
           {STAGES.map((item) => <button key={item.id} type="button" className={stage === item.id ? 'is-active' : ''} onClick={() => activateStage(item.id)}><span>{item.kicker}</span>{item.label}</button>)}
         </nav>
-        <section className={`route-brief__workspace${canvasMode === 'fly' ? ' route-brief__workspace--fly' : ''} route-brief__workspace--${mapViewport}`}>
-          <div className="route-brief__canvas">
-            {canvasMode === 'fly' ? <FlyView /> : <MapView />}
-            <div className="map-canvas-controls" aria-label="地图视图控制">
-              <MapCanvasModeSwitch mode={canvasMode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
-              <MapViewportSwitch value={mapViewport} onChange={setMapViewport} />
+        <section className={`route-brief__map-band${mapOpen ? '' : ' is-collapsed'}`}>
+          <div className="route-brief__map-band-head"><div className="route-brief__map-band-title"><span>地图工作区</span><p>{canvasMode === 'fly' ? '三维地形、自由视角与巡游播放。' : '浏览、缩放并编辑当前路线。'}</p></div><div className="route-brief__map-band-actions"><button type="button" aria-controls="trailcraft-map-workspace" aria-expanded={mapOpen} onClick={() => { if (mapOpen && mapViewport === 'full') setMapViewport('standard'); setMapOpen((open) => !open) }}>{mapOpen ? '收起地图' : '展开地图'}</button></div></div>
+          <section id="trailcraft-map-workspace" className={`route-brief__workspace${canvasMode === 'fly' ? ' route-brief__workspace--fly' : ''} route-brief__workspace--${mapViewport}`} aria-hidden={!mapOpen}>
+            <div className="route-brief__canvas">
+              {canvasMode === 'fly' ? <FlyView /> : <MapView />}
+              <div className="map-canvas-controls" aria-label="地图视图控制">
+                <MapCanvasModeSwitch mode={canvasMode} onPlan={() => setCanvasMode('plan')} onFly={() => setCanvasMode('fly')} />
+                <MapViewportSwitch value={mapViewport} onChange={setMapViewport} />
+              </div>
+              {canvasMode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
+              {import.meta.env.DEV && canvasMode === 'plan' ? <MapDebugBadge /> : null}
             </div>
-            {canvasMode === 'plan' && !activeTrack ? <RouteCanvasGuide /> : null}
-            {import.meta.env.DEV && canvasMode === 'plan' ? <MapDebugBadge /> : null}
-          </div>
-          <aside className={`route-brief__insight${insightOpen ? ' is-open' : ''}`}>
-            <button type="button" className="route-brief__insight-toggle" onClick={() => setInsightOpen((open) => !open)} aria-expanded={insightOpen}>{insightOpen ? '收起操作区' : '打开操作区'}</button>
-            {insightOpen && <div className="route-brief__insight-body">{renderInsight()}</div>}
-          </aside>
+            <aside className={`route-brief__insight${insightOpen ? ' is-open' : ''}`}>
+              <button type="button" className="route-brief__insight-toggle" onClick={() => setInsightOpen((open) => !open)} aria-expanded={insightOpen}>{insightOpen ? '收起操作区' : '打开操作区'}</button>
+              {insightOpen && <div className="route-brief__insight-body">{renderInsight()}</div>}
+            </aside>
+          </section>
         </section>
         <section className="route-brief__data-band">
           <div className="route-brief__data-band-head"><div className="route-brief__data-band-title"><span>高程与分段</span><p>先查看爬升，再按需展开分段明细。</p></div><div className="route-brief__data-band-actions" role="group" aria-label="高程与分段操作"><button type="button" aria-pressed={profileOpen} onClick={() => setProfileOpen((open) => !open)}>{profileOpen ? '收起高程' : '展开高程'}</button><button type="button" aria-pressed={segmentsOpen} onClick={() => setSegmentsOpen((open) => !open)}>{segmentsOpen ? '收起分段' : '查看分段'}</button></div></div>
