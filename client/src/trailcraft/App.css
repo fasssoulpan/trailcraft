@@ -1445,6 +1445,14 @@
   font-size: 12px;
 }
 
+.perf-entry__tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.perf-entry__tool { display: flex; flex-direction: column; gap: 7px; min-height: 166px; padding: 13px; border: 1px solid var(--color-border); border-radius: 8px; background: color-mix(in srgb, var(--color-bg) 94%, var(--color-primary-bg)); }
+.perf-entry__tool > span { color: var(--color-primary); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+.perf-entry__tool > strong { color: var(--color-text); font-size: 15px; }
+.perf-entry__tool > p, .perf-entry__tool > small { margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }
+.perf-entry__tool .perf-entry__action { width: 100%; margin-top: auto; }
+.perf-entry__tool .qc-entry-button { align-self: stretch; }
+
 .perf-modal__backdrop {
   position: fixed;
   inset: 0;
@@ -1567,6 +1575,22 @@
   font-weight: 600;
   color: var(--color-primary);
 }
+
+.perf-tier-guide { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; background: color-mix(in srgb, var(--color-bg) 92%, var(--color-primary-bg)); }
+.perf-tier-guide__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.perf-tier-guide__head h4 { margin: 0 0 3px; font-size: 14px; }
+.perf-tier-guide__head p, .perf-tier-guide__note { margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }
+.perf-tier-guide__head > span { flex: 0 0 auto; padding: 3px 6px; border-radius: 999px; color: var(--color-primary); background: var(--color-primary-bg); font-size: 10px; font-weight: 700; }
+.perf-tier-guide__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.perf-tier-card { display: flex; flex-direction: column; gap: 3px; padding: 9px; border: 1px solid transparent; border-radius: 6px; background: var(--color-bg); }
+.perf-tier-card.is-current { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary-bg); }
+.perf-tier-card strong { color: var(--color-text); font-size: 13px; }
+.perf-tier-card span, .perf-tier-card small { color: var(--color-text-muted); font-size: 10px; }
+.perf-tier-card b { margin-top: 4px; color: var(--color-text); font-size: 12px; }
+.perf-tier-card--amateur-elite { background: #fff8e7; }
+.perf-tier-card--pro-elite { background: #eff8f4; }
+.perf-tier-card--top-pro { background: #edf7f3; }
+.perf-tier-guide__note { padding-top: 2px; }
 
 .perf-metrics-grid {
   display: grid;
@@ -1716,6 +1740,12 @@
 
 .qc-entry-button {
   align-self: flex-start;
+}
+
+@media (max-width: 560px) {
+  .perf-entry__tools { grid-template-columns: 1fr; }
+  .perf-tier-guide__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .perf-tier-guide__head { flex-direction: column; gap: 6px; }
 }
 
 .qc-preset-tabs {

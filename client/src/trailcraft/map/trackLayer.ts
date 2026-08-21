@@ -15,10 +15,10 @@ import type { Vertex } from '../core/toolbox/draw'
 // satellite-road geometry while remaining comfortably below a mobile WebGL
 // frame budget for the much larger activity files this app supports.
 export const RENDER_MAX = 12000
-/** A route recorded at normal GPX density never crosses 1 km between two
- * consecutive render samples. A larger step is a segment jump; we keep the
- * source points for statistics, but render it as a deliberate line break. */
-export const RENDER_BREAK_DISTANCE_M = 1_000
+/** A route recorded at normal GPX density never crosses 300 m between two
+ * consecutive render samples. A larger step is an unreliable segment jump;
+ * keep it for statistics, but render it as a deliberate line break. */
+export const RENDER_BREAK_DISTANCE_M = 300
 
 export interface RenderCopy {
   /** idx[i] = full-precision point index that render-copy position i maps back to */
@@ -49,6 +49,12 @@ export function renderCopy(t: Track): RenderCopy {
   const segments: [number, number][][] = []
   let segment: [number, number][] = []
   for (const coord of coords) {
+    const valid = Number.isFinite(coord[0]) && Number.isFinite(coord[1]) && Math.abs(coord[0]) <= 180 && Math.abs(coord[1]) <= 90
+    if (!valid) {
+      if (segment.length > 1) segments.push(segment)
+      segment = []
+      continue
+    }
     const previous = segment[segment.length - 1]
     if (previous && haversine(previous[0], previous[1], coord[0], coord[1]) > RENDER_BREAK_DISTANCE_M) {
       if (segment.length > 1) segments.push(segment)
@@ -68,8 +74,9 @@ function layerIdFor(trackId: string): string {
 
 function trackToFeature(t: Track): Feature<LineString | MultiLineString> {
   const { coords, segments } = renderCopy(t)
+  const validCoords = coords.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90)
   const geometry = segments.length <= 1
-    ? { type: 'LineString' as const, coordinates: segments[0] ?? coords }
+    ? { type: 'LineString' as const, coordinates: segments[0] ?? validCoords }
     : { type: 'MultiLineString' as const, coordinates: segments }
   return {
     type: 'Feature',

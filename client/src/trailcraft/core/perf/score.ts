@@ -247,6 +247,35 @@ export const SPI_KME_REF = 270
 
 export type PerformanceLevel = '精英级' | '优秀' | '良好' | '中等' | '入门'
 
+/** 产品内展示分级。它将连续的社区估算表现分转成易读区间，不代表官方 ITRA
+ * 积分、资格或认证结果。区间与用户提供的山野志参考结构保持一致。 */
+export interface PerformanceTier {
+  key: 'starter' | 'amateur-elite' | 'pro-elite' | 'top-pro'
+  label: '入门' | '业余精英' | '职业精英' | '顶级职业'
+  min: number
+  max: number
+}
+
+export const PERFORMANCE_TIERS: PerformanceTier[] = [
+  { key: 'starter', label: '入门', min: 0, max: 499 },
+  { key: 'amateur-elite', label: '业余精英', min: 500, max: 679 },
+  { key: 'pro-elite', label: '职业精英', min: 680, max: 899 },
+  { key: 'top-pro', label: '顶级职业', min: 900, max: 1000 },
+]
+
+export function performanceTierForScore(score: number): PerformanceTier {
+  return PERFORMANCE_TIERS.find((tier) => score >= tier.min && score <= tier.max) ?? PERFORMANCE_TIERS[0]
+}
+
+/** 将产品内表现分公式反推为特定路线当量上的参考用时。只用于解释相同
+ * km-effort 路线的分档差异，不能替代赛事关门、官方资格或真实赛道预测。 */
+export function referenceHoursForScore(kmEffort: number, score: number, envFactor = 1): number | undefined {
+  if (!(kmEffort > 0) || !(score > 0) || !(envFactor > 0)) return undefined
+  const lengthFactor = (kmEffort / SPI_KME_REF) ** SPI_M
+  const effortPerHour = (score / (SPI_C * lengthFactor * envFactor)) ** (1 / SPI_K)
+  return effortPerHour > 0 ? kmEffort / effortPerHour : undefined
+}
+
 /** Level thresholds -- see this file's header comment for the anchor
  * (every VERIFIED 2026 崇礼168 AND 2025 UTMB-week category winner qualifies
  * as 精英级) and how the other three were derived from it. */

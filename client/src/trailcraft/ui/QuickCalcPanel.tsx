@@ -9,6 +9,7 @@ import { Button } from './primitives/Button'
 import { SegmentedControl } from './primitives/SegmentedControl'
 import { Field } from './primitives/Field'
 import { StatTile, StatGrid } from './primitives/StatTile'
+import { PerformanceTierGuide } from './PerformanceTierGuide'
 
 /**
  * Track-free "quick calculator" mode (user-requested addition -- see
@@ -32,9 +33,7 @@ export function QuickCalcPanel({ autoOpen = false, onAutoOpened }: { autoOpen?: 
   }, [autoOpen, onAutoOpened])
   return (
     <>
-      <Button className="qc-entry-button" onClick={() => setOpen(true)}>
-        表现分速算
-      </Button>
+      <Button className="qc-entry-button perf-entry__action" onClick={() => setOpen(true)}>开始表现分速算</Button>
       {open && <QuickCalcModal onClose={() => setOpen(false)} />}
     </>
   )
@@ -200,6 +199,7 @@ function QuickCalcModal({ onClose }: { onClose: () => void }) {
                   用于计算表现分的里程当量为 {kmEffortV2.toFixed(1)}，用时 {formatDurationHM(finishTimeSec)}
                   ——分数并非黑盒，可据此复核。此结果未做环境(温湿度/海拔)修正。
                 </p>
+                <PerformanceTierGuide score={spi.score} kmEffort={kmEffortV2} />
               </>
             ) : (
               <p className="perf-modal__gate-text">请输入有效的距离、爬升/下降与完赛用时(均需大于 0)。</p>

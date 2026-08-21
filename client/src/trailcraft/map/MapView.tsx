@@ -852,19 +852,33 @@ function MapRouteVisibilityOverlay({ map, tracks, activeTrackId }: { map: MapLib
   return (
     <svg aria-hidden="true" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none', overflow: 'hidden' }}>
       {tracks.map((track, index) => {
-        const paths = renderCopy(track).segments.map((segment) => segment
-          .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90)
-          .map(([lon, lat]) => map.project([lon, lat]))
-          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-          .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' '))
-          .filter((path) => path.length > 0)
+        const maxScreenJump = Math.max(width, height) * 0.62
+        const paths: string[] = []
+        for (const segment of renderCopy(track).segments) {
+          let path: string[] = []
+          let previous: { x: number; y: number } | undefined
+          for (const [lon, lat] of segment) {
+            const point = map.project([lon, lat])
+            const valid = Number.isFinite(point.x) && Number.isFinite(point.y)
+            const jump = previous ? Math.hypot(point.x - previous.x, point.y - previous.y) : 0
+            if (!valid || jump > maxScreenJump) {
+              if (path.length > 1) paths.push(path.join(' '))
+              path = []
+              previous = undefined
+              continue
+            }
+            path.push(`${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+            previous = point
+          }
+          if (path.length > 1) paths.push(path.join(' '))
+        }
         if (paths.length === 0) return null
         const active = track.id === activeTrackId
         const color = track.meta.color ?? TRACK_PALETTE[index % TRACK_PALETTE.length]
         const widthPx = Math.max(2.2, track.meta.lineWidth ?? 3) + (active ? 0.25 : 0)
         return (
           <g key={track.id} opacity={activeTrackId === undefined || active ? 1 : 0.52}>
-            {paths.map((path, pathIndex) => <g key={pathIndex}><polyline points={path} fill="none" stroke="#fffaf4" strokeWidth={widthPx + 1.4} strokeOpacity="0.72" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /><polyline points={path} fill="none" stroke={color} strokeWidth={widthPx} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></g>)}
+            {paths.map((path, pathIndex) => <polyline key={pathIndex} points={path} fill="none" stroke={color} strokeWidth={Math.max(1.6, widthPx - 0.7)} strokeOpacity="0.92" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
           </g>
         )
       })}

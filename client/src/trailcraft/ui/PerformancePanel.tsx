@@ -22,6 +22,7 @@ import {
   summarizeSensorCoverage,
 } from './perfFormat'
 import { QuickCalcPanel } from './QuickCalcPanel'
+import { PerformanceTierGuide } from './PerformanceTierGuide'
 import { Section } from './primitives/Section'
 import { Button } from './primitives/Button'
 import { StatTile, StatGrid } from './primitives/StatTile'
@@ -53,18 +54,25 @@ export function PerformancePanel({ launch, onLaunchHandled }: { launch?: 'quick'
   }, [activeTrack, launch, onLaunchHandled])
 
   return (
-    <Section title="表现分析" description="打开完整表现报告（含表现分、坡度分布、主要爬坡、逐公里数据），或不带轨迹直接速算。">
+    <Section title="表现工具" description="选择与手头数据匹配的方式：已有实跑轨迹就做完整分析；只有距离、爬升和用时就进行速算。">
       <div className="perf-entry">
-        <Button variant="primary" disabled={!activeTrack} onClick={() => setOpen(true)}>
-          表现分析
-        </Button>
-        {!activeTrack && <p className="perf-entry__hint">请先在轨迹列表中选择一条轨迹</p>}
+        <div className="perf-entry__tools">
+          <article className="perf-entry__tool">
+            <span>实跑轨迹</span><strong>表现分析</strong>
+            <p>用于已有时间、高程与坐标记录的实跑轨迹，输出坡度、爬坡、逐公里和传感器分析。</p>
+            <Button variant="primary" className="perf-entry__action" disabled={!activeTrack} onClick={() => setOpen(true)}>分析当前实跑轨迹</Button>
+            {!activeTrack && <small>请先在轨迹列表中选择一条实跑轨迹</small>}
+          </article>
+          <article className="perf-entry__tool">
+            <span>赛事数据</span><strong>表现分速算</strong>
+            <p>适用于只有距离、爬升、下降与完赛用时的数据；无需上传 GPX。</p>
+            <QuickCalcPanel autoOpen={launch === 'quick'} onAutoOpened={onLaunchHandled} />
+          </article>
+        </div>
 
         {open && activeTrack && (
           <PerformanceModal track={activeTrack} statsOptions={statsOptions} cps={cps} onClose={() => setOpen(false)} />
         )}
-
-        <QuickCalcPanel autoOpen={launch === 'quick'} onAutoOpened={onLaunchHandled} />
       </div>
     </Section>
   )
@@ -166,6 +174,7 @@ function PerformanceReport({
           用于计算表现分的里程当量为 {analysis.kmEffortV2.toFixed(1)},用时 {formatDurationHM(analysis.totalTimeS)}
           ——分数并非黑盒,可据此复核。
         </p>
+        <PerformanceTierGuide score={analysis.spiScore} kmEffort={analysis.kmEffortV2} envFactor={analysis.envCompensation.totalFactor} />
       </section>
 
       <section className="perf-modal__section">
