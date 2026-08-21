@@ -3,6 +3,7 @@ import type { BasemapStyle } from '../state/basemapPref'
 import { layerAvailabilityForMode } from './layerAvailability'
 import { Field } from './primitives/Field'
 import { SegmentedControl } from './primitives/SegmentedControl'
+import { Section } from './primitives/Section'
 
 const BASEMAP_OPTIONS: { value: BasemapStyle; label: string }[] = [
   { value: 'satellite', label: '卫星地形' },
@@ -48,14 +49,13 @@ export function LayerPanel() {
   const availability = layerAvailabilityForMode(mode)
 
   return (
-    /* Lives in the sidebar's pinned header next to ModeSwitch rather than in
-     * a task group of its own: the basemap you want is a function of the
-     * mode you're in (3D satellite for 巡游, flat plan view for 规划), so
-     * splitting them put two halves of one decision at opposite ends of a
-     * scrolling column. No Section wrapper here -- a titled, describable
-     * card would out-weigh the mode switch it sits under. */
-    <div className="layer-panel">
-      <Field label="底图样式" hint="仅切换影像样式，不改变平面路线图/三维巡游模式">
+    <Section
+      title="全局地图设置"
+      description="统一调整当前二维或三维地图的底图与辅助图层；不改变路线、配速和导出数据。"
+      className="layer-panel-section"
+    >
+      <div className="layer-panel">
+      <Field label="底图样式" hint="仅切换当前地图的影像样式，不改变平面路线图/三维巡游模式">
         <SegmentedControl
           value={currentStyle}
           options={BASEMAP_OPTIONS}
@@ -85,6 +85,7 @@ export function LayerPanel() {
           onChange={(e) => setRadarEnabled(e.target.checked)}
         />
       </Field>
-    </div>
+      </div>
+    </Section>
   )
 }

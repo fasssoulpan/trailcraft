@@ -151,13 +151,13 @@ function App() {
 
   function renderInsight() {
     if (stage === 'import') {
-      return <><StageHeader number="01" title="导入与校验" description="导入路线后，先确认坐标与高程是否可信。" /><div className="route-brief__primary-task"><span>下一步</span><strong>导入并校验路线</strong><p>支持 GPX、KML、FIT；全程仅在当前浏览器处理。</p><label htmlFor="trailcraft-route-import">选择路线文件 <b aria-hidden="true">→</b></label></div><ImportPanel /><div className="route-brief__secondary-tools"><TrackList /><ProjectToolbar /><LayerPanel /></div></>
+      return <><StageHeader number="01" title="导入与校验" description="导入路线后，先确认坐标与高程是否可信。" /><div className="route-brief__primary-task"><span>下一步</span><strong>导入并校验路线</strong><p>支持 GPX、KML、FIT；全程仅在当前浏览器处理。</p><label htmlFor="trailcraft-route-import">选择路线文件 <b aria-hidden="true">→</b></label></div><ImportPanel /><div className="route-brief__secondary-tools"><TrackList /><ProjectToolbar /></div></>
     }
     if (stage === 'edit') {
-      return <><StageHeader number="02" title="路线编辑" description="沿活动路线设置 CP、配速与关门判断。" /><ToolboxPanel /><CpPanel /><PacePanel /><LayerPanel /></>
+      return <><StageHeader number="02" title="路线编辑" description="沿活动路线设置 CP、配速与关门判断。" /><ToolboxPanel /><LayerPanel /><CpPanel /><PacePanel /></>
     }
     if (stage === 'analyse') {
-      return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel launch={analysisLaunch} onLaunchHandled={() => setAnalysisLaunch(undefined)} /><LayerPanel /></>
+      return <><StageHeader number="03" title="赛前分析" description="将路线数据整理成能够执行的判断。" /><PerformancePanel launch={analysisLaunch} onLaunchHandled={() => setAnalysisLaunch(undefined)} /></>
     }
     return <><StageHeader number="04" title="视频与数据导出" description="生成巡游视频，并导出路线、路书与数据文件。" /><ExportPanel /><div className="route-brief__tour-note"><strong>三维巡游入口</strong><span>{activeTrack ? '已绑定当前活动路线，默认使用自由视角。' : '先导入并选择一条路线。'}</span></div></>
   }
